@@ -62,7 +62,15 @@ const SUBMIT_REVIEW_TOOL = {
           additionalProperties: false,
           required: ["key", "status", "text"],
           properties: {
-            key: { type: "string" },
+            key: {
+              type: "string",
+              description:
+                "Kort svensk rubrik som visas direkt för slutanvändaren, t.ex. " +
+                "\"Försäkring / garanti\" eller \"ÄTA (ändringar och tillägg)\". " +
+                "ALDRIG en teknisk slug, kod eller engelskt fältnamn (t.ex. inte " +
+                "\"f_skatt\" eller \"forsakring_garanti\") — detta är en rubrik, inte " +
+                "en identifierare. Max ca 4 ord.",
+            },
             status: { type: "string", enum: ["ok", "warn", "bad"] },
             text: { type: "string" },
           },
