@@ -20,14 +20,28 @@ const MODEL_PRICING_USD_PER_MTOK = {
 };
 const USD_TO_SEK_APPROX = 10.5; // grov uppskattning, inte en live-kurs
 
-const REFERENCE_HOURLY_RATES_SEK = {
-  bygg: { label: "Snickeri / bygg", low: 450, high: 750 },
-  tak: { label: "Tak", low: 500, high: 800 },
-  vvs: { label: "VVS", low: 550, high: 900 },
-  el: { label: "El", low: 550, high: 900 },
-  malning: { label: "Måleri", low: 400, high: 650 },
-  mark: { label: "Mark / anläggning", low: 450, high: 750 },
-  okand: { label: "Hantverkarjobb (okänd yrkeskategori)", low: 450, high: 800 },
+// REFERENCE_HOURLY_RATES_SEK borttagen 2026-09-14 (Tydlighet v1): tabellen
+// hade ingen verifierad källa eller datum. Anders beslut: dölj branschjämförelsen
+// helt tills ett riktigt, källbelagt underlag finns, i stället för att visa en
+// ospecificerad grön/röd-indikator mot en ograndad tabell. Se
+// GRANSKAMINOFFERT_FORSLAG_TYDLIGHET_2026-09-14.md.
+
+const FINDING_ITEM_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["key", "text"],
+  properties: {
+    key: {
+      type: "string",
+      description:
+        "Kort svensk rubrik som visas direkt för slutanvändaren, t.ex. " +
+        "\"Försäkring / garanti\" eller \"ÄTA (ändringar och tillägg)\". " +
+        "ALDRIG en teknisk slug, kod eller engelskt fältnamn (t.ex. inte " +
+        "\"f_skatt\" eller \"forsakring_garanti\") — detta är en rubrik, inte " +
+        "en identifierare. Max ca 4 ord.",
+    },
+    text: { type: "string" },
+  },
 };
 
 const SUBMIT_REVIEW_TOOL = {
@@ -38,43 +52,64 @@ const SUBMIT_REVIEW_TOOL = {
     type: "object",
     additionalProperties: false,
     required: [
-      "score",
-      "verdict",
-      "title",
-      "subtitle",
-      "checklist",
+      "trade",
+      "contradictions",
+      "clarify",
+      "stated",
+      "calcCoverage",
+      "calcNote",
       "price",
       "questions",
     ],
     properties: {
-      score: { type: "integer", minimum: 0, maximum: 100 },
-      verdict: { type: "string", enum: ["bra", "fragor", "ny_offert"] },
-      title: { type: "string" },
-      subtitle: { type: "string" },
       trade: {
         type: "string",
         enum: ["bygg", "tak", "vvs", "el", "malning", "mark", "okand"],
       },
-      checklist: {
+      contradictions: {
         type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["key", "status", "text"],
-          properties: {
-            key: {
-              type: "string",
-              description:
-                "Kort svensk rubrik som visas direkt för slutanvändaren, t.ex. " +
-                "\"Försäkring / garanti\" eller \"ÄTA (ändringar och tillägg)\". " +
-                "ALDRIG en teknisk slug, kod eller engelskt fältnamn (t.ex. inte " +
-                "\"f_skatt\" eller \"forsakring_garanti\") — detta är en rubrik, inte " +
-                "en identifierare. Max ca 4 ord.",
-            },
-            status: { type: "string", enum: ["ok", "warn", "bad"] },
-            text: { type: "string" },
-          },
-        },
+        description:
+          "Faktiska motsägelser eller räknefel som HITTATS i dokumentet " +
+          "(t.ex. summor som inte stämmer, uppgifter som motsäger " +
+          "varandra). Tom lista om inga hittades — se calcCoverage/" +
+          "calcNote för om en räknekontroll ens var möjlig att göra.",
+        items: FINDING_ITEM_SCHEMA,
+      },
+      clarify: {
+        type: "array",
+        description:
+          "Sådant som SAKNAS eller är otydligt i dokumentet. Skriv varje " +
+          "post som en neutral beskrivning av vad som saknas/är oklart " +
+          "(t.ex. \"Inget startdatum anges.\") — ALDRIG som en fråga eller " +
+          "uppmaning riktad till någon (inte \"Vilket datum gäller?\" eller " +
+          "\"Bestäm det nu\").",
+        items: FINDING_ITEM_SCHEMA,
+      },
+      stated: {
+        type: "array",
+        description:
+          "Uppgifter som TYDLIGT FRAMGÅR av dokumentet. Skriv alltid att " +
+          "uppgiften \"anges\"/\"framgår\" — ALDRIG att den är \"kontrollerad\", " +
+          "\"verifierad\" eller \"stämmer\" mot en extern källa. Du har bara " +
+          "läst vad dokumentet påstår.",
+        items: FINDING_ITEM_SCHEMA,
+      },
+      calcCoverage: {
+        type: "string",
+        enum: ["checked", "insufficient_data"],
+        description:
+          "'checked' bara om dokumentet innehåller tillräckliga siffror " +
+          "(delbelopp, antal×timpris, ROT-belopp) för att du faktiskt ska " +
+          "kunna räkna efter att de stämmer. 'insufficient_data' om " +
+          "underlaget inte räcker för en meningsfull kontroll.",
+      },
+      calcNote: {
+        type: "string",
+        description:
+          "En kort mening på svenska om vad du faktiskt kunde kontrollera " +
+          "och vad du kom fram till. Visas alltid, oavsett calcCoverage. " +
+          "Detta är en AI-utförd rimlighetskontroll, inte en garanterad " +
+          "matematisk verifiering — överdriv aldrig säkerheten.",
       },
       price: {
         type: "object",
@@ -82,65 +117,99 @@ const SUBMIT_REVIEW_TOOL = {
         required: ["comment"],
         properties: {
           hourlyRateSek: { type: ["number", "null"] },
-          hourlyRangeLowSek: { type: ["number", "null"] },
-          hourlyRangeHighSek: { type: ["number", "null"] },
           totalSumSek: { type: ["number", "null"] },
           rotDeducted: { type: ["boolean", "null"] },
-          comment: { type: "string" },
+          comment: {
+            type: "string",
+            description:
+              "Kommentar om hur TYDLIGT/FULLSTÄNDIGT priset är angivet i " +
+              "dokumentet. Jämför INTE mot någon bransch- eller " +
+              "marknadsprisdatabas — ingen sådan källa är kopplad till " +
+              "tjänsten just nu.",
+          },
         },
       },
-      questions: { type: "array", items: { type: "string" } },
+      questions: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "3–6 konkreta frågor en MOTTAGARE av offerten kan ställa till " +
+          "hantverkaren innan hen skriver på. Alltid frågeformulerat.",
+      },
     },
   },
 };
 
 function systemPrompt() {
-  const rateLines = Object.entries(REFERENCE_HOURLY_RATES_SEK)
-    .map(([k, v]) => `- ${v.label} (${k}): ${v.low}–${v.high} kr/h inkl. moms`)
-    .join("\n");
+  return `Du är en noggrann, källkritisk läsare av offerter från svenska hantverkare
+(bygg, tak, VVS, el, måleri, mark/anläggning), skrivna i Sverige 2026. Du vet
+inte om den som läser resultatet är privatpersonen som fått offerten eller
+hantverkaren som ska skicka den — skriv därför alltid neutralt, aldrig som en
+fråga eller uppmaning riktad till en specifik part.
 
-  return `Du är en noggrann, källkritisk granskare av offerter från svenska hantverkare
-(bygg, tak, VVS, el, måleri, mark/anläggning) åt en privatperson i Sverige 2026.
-Du är INTE jurist och ger inget juridiskt bindande utlåtande — säg aldrig att
-offerten är "godkänd" i juridisk mening.
+Du är INTE jurist och uttalar dig aldrig om vad som är juridiskt bindande
+eller "godkänt". Du gör ingen bedömning av hantverkaren, företaget eller
+arbetets kvalitet — bara av vad som faktiskt går att läsa i dokumentet.
 
 Du får antingen inklistrad text, ett foto eller en PDF av offerten. Läs/tolka
 innehållet noggrant, inklusive eventuell bild.
 
-Bedöm i tre lager:
+Dela upp granskningen i tre kategorier (motsvarande schemats contradictions/
+clarify/stated):
 
-1) FORMALIA (deterministiskt, leta efter faktiska uppgifter i texten):
-   F-skattsedel, organisationsnummer, moms (inkl./exkl. tydligt angivet),
-   ROT-avdrag redovisat på arbetskostnaden, arbete och material specificerade
-   var för sig, omfattning i mått/antal, tidplan/startdatum, betalningsvillkor,
-   giltighetstid, hantering av ÄTA (ändrings- och tilläggsarbeten),
-   försäkring/garanti.
+1) contradictions — FAKTISKA motsägelser eller räknefel du HITTAT: belopp som
+   inte stämmer när du räknar efter, eller uppgifter som motsäger varandra i
+   dokumentet. Bara verkliga fynd. Se räknekontrollen nedan för själva
+   uträkningen.
 
-2) INNEHÅLL: är omfattningen tydlig och rimlig för jobbet? Är beskrivningen
-   tillräckligt konkret för att undvika tvist om vad som ingår?
+2) clarify — sådant som SAKNAS eller är otydligt: F-skattsedel,
+   organisationsnummer, moms (inkl./exkl. tydligt angivet), arbete och
+   material specificerade var för sig, omfattning i mått/antal,
+   tidplan/startdatum, betalningsvillkor, giltighetstid, hantering av ÄTA
+   (ändrings- och tilläggsarbeten), försäkring/garanti. Skriv varje post som
+   en neutral beskrivning av vad som saknas eller är oklart (t.ex. "Inget
+   startdatum anges."). Undantag ROT-avdrag: flagga bara avsaknad av
+   ROT-avdrag här OM kunden verkar vara en privatperson OCH arbetet är av den
+   typ som normalt är ROT-berättigad (renovering, reparation, ombyggnad i
+   egen bostad). Flagga INTE vid företagskund, nybyggnation eller om det är
+   oklart — nämn då inget om ROT alls.
 
-3) PRISBILD: jämför angivet timpris (om det finns) mot dessa referensspann för
-   svenska hantverkare 2026 (grova, ungefärliga branschvärden — INTE en exakt
-   källa, säg alltid att det är en uppskattning och att en andra offert är det
-   säkraste sättet att kontrollera pris):
-${rateLines}
-   Om inget timpris anges men en totalsumma finns: notera det, gissa inte fram
-   ett timpris. Ange alltid vilken yrkeskategori du bedömer jobbet tillhöra
-   ("trade"-fältet); välj "okand" om det är oklart.
+3) stated — det som TYDLIGT FRAMGÅR av dokumentet. Skriv alltid "anges"/
+   "framgår". Skriv ALDRIG att något är "kontrollerat", "verifierat" eller
+   "stämmer" mot en extern källa (t.ex. Skatteverkets register) — du har bara
+   läst vad dokumentet påstår.
 
-Sätt score 0–100 (dra ifrån för varje "bad", mindre för varje "warn"). Var
-konsekvent: bedöm likvärdiga brister likvärdigt, både inom samma offert och
-om du skulle bedöma den igen. Sätt verdict: "bra" (≥80), "fragor" (55–79),
-"ny_offert" (<55).
+Räknekontroll (calcCoverage + calcNote, separat från kategorierna ovan): om
+dokumentet innehåller tillräckliga siffror (delbelopp, antal×timpris,
+ROT-belopp/procent) för att du faktiskt ska kunna räkna efter, gör det.
+- Stämmer det: calcCoverage="checked", calcNote beskriver kort vilken
+  uträkning du kontrollerade och att den stämde.
+- Stämmer det INTE: calcCoverage="checked", calcNote beskriver avvikelsen,
+  och samma sak läggs även till i contradictions.
+- Räcker inte siffrorna för en meningsfull kontroll (t.ex. bara en
+  totalsumma utan delbelopp): calcCoverage="insufficient_data", calcNote
+  beskriver vad som saknas för att kunna kontrollera.
+Detta är en AI-utförd rimlighetskontroll, inte en garanterad matematisk
+verifiering — var ärlig om osäkerhet i calcNote, överdriv aldrig säkerheten.
 
-Skriv på naturlig, rak svenska. Var koncis i varje textfält (max ~2 meningar).
-Ge 3–6 konkreta frågor att ställa hantverkaren innan kunden skriver på —
-prioritera det som faktiskt saknas eller är otydligt i just den här offerten.
+PRISBILD: notera timpris (om angivet) och totalsumma i price-fältet. Gissa
+aldrig fram ett timpris om det inte anges — notera bara att ingen finns.
+Jämför INTE mot något branschgenomsnitt eller någon marknadsprisdatabas; det
+finns ingen sådan källa kopplad till tjänsten just nu. comment-fältet
+kommenterar bara hur tydligt/fullständigt prisuppgifterna är angivna, aldrig
+om priset är rimligt.
+
+Ange alltid yrkeskategori (trade-fältet); välj "okand" om det är oklart.
+
+Skriv på naturlig, rak svenska. Var koncis i varje textfält (max ~2
+meningar). Ge 3–6 konkreta frågor (questions-fältet) som en MOTTAGARE av
+offerten kan ställa till hantverkaren innan hen skriver på — prioritera det
+som faktiskt saknas eller är otydligt i just den här offerten. Detta fält är
+alltid frågeformulerat, oavsett vem som i praktiken läser resultatet.
 
 Du MÅSTE svara genom att anropa verktyget submit_review med ett komplett,
 schema-giltigt resultat. Skriv inget annat brödtextsvar.`;
 }
-
 function corsHeaders(origin, allowedOrigins) {
   const allowOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
   return {

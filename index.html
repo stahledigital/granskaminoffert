@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Granska min offert – är hantverkaroffertens pris och innehåll rimligt?</title>
-<meta name="description" content="Släpp in din hantverkaroffert (foto, PDF eller text) och få på några sekunder veta om den är komplett, vad som saknas och om priset ligger där det brukar. Gratis, ingen inloggning.">
+<title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
+<meta name="description" content="Ladda upp offerten (foto, PDF eller text) och se vad som är tydligt, vad som saknas och vad du bör fråga om. Gratis, ingen inloggning.">
 <link rel="canonical" href="https://granskaminoffert.se/">
 <meta property="og:title" content="Granska min offert">
-<meta property="og:description" content="Är offerten rimlig? Släpp in den och få svar på några sekunder.">
+<meta property="og:description" content="Tydligare offerter. Färre frågetecken.">
 <meta property="og:url" content="https://granskaminoffert.se/">
 <meta property="og:type" content="website">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Barlow:wght@400;500;600&display=swap">
@@ -21,6 +21,12 @@ header a{color:inherit;text-decoration:none}
 h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:clamp(40px,8vw,64px);line-height:.95;margin:22px 0 12px;text-wrap:balance}
 h1 em{font-style:normal;color:var(--acc)}
 .lead{font-size:18px;max-width:52ch;margin:0 0 22px;color:var(--ink2)}
+.pathsel{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 22px}
+.pathcard{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:14px 16px;cursor:pointer;font:inherit;color:inherit}
+.pathcard b{display:block;font-size:16px;margin-bottom:4px}
+.pathcard span{color:var(--ink2);font-size:13px}
+.pathcard.sel{border-color:var(--acc);background:#fff4ee}
+@media (max-width:480px){.pathsel{grid-template-columns:1fr}}
 .drop{display:block;border:3px dashed #16161640;border-radius:14px;background:var(--paper);padding:36px 24px 28px;text-align:center;transition:border-color .15s,background .15s}
 .drop.over{border-color:var(--acc);background:#fff4ee}
 .drop b{display:block;font-size:22px;margin-bottom:6px}
@@ -41,22 +47,20 @@ textarea.on{display:block}
 .loading.on{display:block}
 .errbox{display:none;margin-top:20px;padding:14px 16px;border-radius:8px;background:var(--badsoft);color:var(--bad);border-left:6px solid var(--bad)}
 .errbox.on{display:block}
-.verdict{border-radius:12px;padding:18px 20px;margin-bottom:16px;border-left:8px solid var(--acc);background:var(--paper)}
-.verdict.ok{border-color:var(--ok);background:var(--oksoft)}.verdict.warn{border-color:var(--warn);background:var(--warnsoft)}.verdict.bad{border-color:var(--bad);background:var(--badsoft)}
-.verdict h2{font-family:"Barlow Condensed",sans-serif;font-size:30px;margin:0 0 4px;text-transform:uppercase}
-.verdict p{margin:0;font-size:16px}
-.score{float:right;font-family:"Barlow Condensed",sans-serif;font-size:44px;font-weight:700;line-height:1}
+.summarybox{border-radius:12px;padding:18px 20px;margin-bottom:16px;border-left:8px solid var(--ink2);background:var(--paper)}
+.summarybox h2{font-family:"Barlow Condensed",sans-serif;font-size:26px;margin:0 0 4px;text-transform:uppercase}
+.summarybox p{margin:0;font-size:16px}
 h3{font-family:"Barlow Condensed",sans-serif;font-size:20px;text-transform:uppercase;letter-spacing:.03em;margin:22px 0 8px}
 .chk{list-style:none;padding:0;margin:0;display:grid;gap:6px}
 .chk li{display:grid;grid-template-columns:26px 1fr;gap:10px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;align-items:start}
 .chk i{display:inline-block;width:22px;height:22px;border-radius:50%;font-style:normal;font-weight:700;font-size:13px;text-align:center;line-height:22px;color:#fff}
 .chk .ok i{background:var(--ok)}.chk .warn i{background:var(--warn)}.chk .bad i{background:var(--bad)}
 .chk b{display:block}.chk small{color:var(--ink2)}
+.calcnote{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 8px}
+.caveat{font-size:12px;color:var(--ink2);margin:8px 0 0}
 .price{display:grid;grid-template-columns:1fr auto;gap:6px 14px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
 .price .v{font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
 .price small{color:var(--ink2)}
-.bar{grid-column:1/-1;height:10px;border-radius:999px;background:linear-gradient(90deg,var(--ok) 0 40%,var(--warn) 40% 70%,var(--bad) 70%);position:relative;margin-top:4px}
-.bar b{position:absolute;top:-5px;width:20px;height:20px;border-radius:50%;background:var(--ink);border:3px solid var(--bg);transform:translateX(-50%)}
 .q{margin:0;padding-left:20px}.q li{margin:5px 0}
 .foot{margin-top:28px;font-size:13px;color:var(--ink2);max-width:60ch}
 .tag{display:inline-block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;background:var(--acc);color:#fff;padding:3px 8px;border-radius:999px;vertical-align:middle;margin-left:8px}
@@ -65,15 +69,19 @@ details summary{cursor:pointer;padding:12px 0;font-weight:600;font-size:14px}
 details .body{padding:0 0 14px;font-size:14px;color:var(--ink2);max-width:60ch}
 details .body p{margin:8px 0}
 details .body ul{margin:8px 0;padding-left:20px}
-@media (max-width:420px){.score{float:none;display:block;margin-bottom:4px}}
 </style>
 </head>
 <body>
 
 <div class="wrap">
 <header><span>Granska min offert · Växjö</span><a href="https://stahledigital.se/verkstaden">Ståhle Digital</a></header>
-<h1>Är offerten <em>rimlig?</em><br>Släpp in den och få svar.</h1>
-<p class="lead">Privatperson eller hantverkare: släpp in offerten (foto, PDF eller text) så får du på några sekunder veta om den är komplett, vad som saknas och om priset ligger där det brukar. Gratis, ingen inloggning.</p>
+<h1>Tydligare offerter.<br>Färre frågetecken.</h1>
+<p class="lead">Få hjälp att upptäcka oklarheter, motsägelser och uppgifter som behöver förtydligas i offerten.</p>
+
+<div class="pathsel" id="pathsel">
+  <button type="button" class="pathcard sel" data-path="mottagare"><b>Jag har fått en offert</b><span>Förstå vad som står i den och vad du bör fråga om innan du skriver på.</span></button>
+  <button type="button" class="pathcard" data-path="hantverkare"><b>Jag ska skicka en offert</b><span>Se vad som kan behöva förtydligas innan du skickar den till kunden.</span></button>
+</div>
 
 <div class="drop" id="drop"><b>Släpp din offert här</b><span>PDF, foto eller text</span>
   <div class="alt" style="justify-content:center;margin-top:16px">
@@ -84,6 +92,7 @@ details .body ul{margin:8px 0;padding-left:20px}
   <input type="file" id="cam" accept="image/*" capture="environment">
 </div>
 <div class="filepreview" id="filepreview"></div>
+<p style="font-size:14px;color:var(--ink2);margin:10px 0 0">AI-stödd granskning av dokumentets innehåll. Gratis att prova, inget konto.</p>
 <div class="alt">
   <button class="btn ghost" id="demo">Prova med en exempeloffert</button>
   <button class="btn ghost" id="paste">Klistra in text i stället</button>
@@ -91,15 +100,16 @@ details .body ul{margin:8px 0;padding-left:20px}
 <textarea id="txt" placeholder="Klistra in offerttexten här…"></textarea>
 <div class="alt" id="runwrap" style="display:none"><button class="btn" id="run">Granska</button></div>
 
-<div class="loading" id="loading">Granskar offerten … tar oftast 5–15 sekunder.</div>
+<div class="loading" id="loading">Granskningen kan ta en stund.</div>
 <div class="errbox" id="errbox"></div>
 <div class="res" id="res"></div>
 
 <details>
 <summary>Om tjänsten och dina uppgifter</summary>
 <div class="body">
-<p>Granska min offert läser offerten med hjälp av AI (Anthropic Claude) och ger en uppskattning — inte ett juridiskt utlåtande. Prisjämförelsen bygger på grova branschreferenser, inte en fullständig prisdatabas; en andra offert är alltid det säkraste sättet att kontrollera pris.</p>
-<p>Offerten du laddar upp skickas till granskningstjänsten för att kunna svara dig. Den sparas inte permanent. En tillfällig kopia (offert + AI-svar) behålls i högst 24 timmar enbart för att kunna felsöka fel, och raderas därefter automatiskt.</p>
+<p>Granska min offert läser offerten med hjälp av AI (Anthropic Claude) och ger en uppskattning av vad som står i dokumentet — inte ett juridiskt utlåtande och ingen kontroll mot externa register (t.ex. Skatteverket).</p>
+<p>Offerten (foto, PDF eller text) skickas till Anthropic för att kunna analyseras. Anthropic behåller in- och utdata i upp till 30 dagar enligt sin egen policy, längre om innehållet flaggats av deras säkerhetssystem, och använder det inte för att träna AI-modeller utan uttryckligt tillstånd — se <a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data">Anthropics policy för dataretention</a>.</p>
+<p>Vi sparar inte själva offertfilen eller den inklistrade texten i vår egen infrastruktur. Vi behåller AI:ts svar (som kan innehålla uppgifter hämtade ur offerten, t.ex. belopp eller adress) samt teknisk information inklusive din IP-adress i högst 24 timmar, enbart för att kunna felsöka fel — därefter raderas det automatiskt.</p>
 <p>Läs mer i <a href="https://stahledigital.se/integritet">Ståhle Digitals integritetspolicy</a>.</p>
 </div>
 </details>
@@ -130,28 +140,31 @@ ROT-avdrag på arbetskostnad: -6 426 kr
 Att betala efter ROT: 36 394 kr
 Betalning 30 dagar efter slutfört arbete. Offerten gäller 30 dagar.`;
 
-// Kanske resultat, förberäknat lokalt så exempelknappen inte kostar ett
-// riktigt AI-anrop varje gång någon nyfiket klickar på den.
+// Exempelresultat byggt på riktiga svar från live-workern för exakt denna
+// offerttext (testat 2026-09-14, se GRANSKAMINOFFERT_FORSLAG_TYDLIGHET_2026-09-14.md
+// och PROJEKTOVERSIKT.md) — inte påhittat, och förberäknat lokalt så
+// exempelknappen inte kostar ett riktigt AI-anrop varje gång någon klickar.
 const demoResult={
-  score:78,verdict:"fragor",
-  title:"Går att skriva på – med frågor",
-  subtitle:"Grunden finns, men några saker bör bli skriftliga innan du säger ja.",
   trade:"tak",
-  checklist:[
-    {key:"F-skatt",status:"ok",text:"F-skattsedel anges"},
-    {key:"Organisationsnummer",status:"ok",text:"Organisationsnummer finns"},
-    {key:"Moms",status:"ok",text:"Anger att priser är inkl. moms"},
-    {key:"ROT-avdrag",status:"ok",text:"ROT-avdrag redovisat på arbetskostnaden"},
-    {key:"Arbete och material separerat",status:"ok",text:"Arbete och material är specificerade var för sig"},
-    {key:"Omfattning",status:"ok",text:"32 m² anges tydligt"},
-    {key:"Tidplan / startdatum",status:"warn",text:"Arbetstid (3 dagar) anges, men inget faktiskt startdatum – be om det skriftligt."},
-    {key:"Betalningsvillkor",status:"ok",text:"30 dagar efter slutfört arbete"},
-    {key:"Giltighetstid",status:"ok",text:"Offerten gäller 30 dagar"},
-    {key:"ÄTA (ändringar och tillägg)",status:"warn",text:"Inget om hur tillkommande arbete prissätts – bestäm det nu."},
-    {key:"Försäkring / garanti",status:"warn",text:"Inget om ansvarsförsäkring eller garanti på arbetet – fråga innan du skriver på."}
+  contradictions:[],
+  calcCoverage:"checked",
+  calcNote:"Kontrollerade 36 h × 595 kr = 21 420 kr och att delposterna (21 420 + 18 900 + 2 500 kr) adderar till totalsumman 42 820 kr, samt att ROT-avdraget (6 426 kr) motsvarar 30 % av arbetskostnaden — allt stämmer.",
+  clarify:[
+    {key:"Tidplan / startdatum",text:"Arbetstid (2 man, 3 dagar) anges men inget faktiskt startdatum eller ungefärlig period nämns."},
+    {key:"ÄTA (ändringar och tillägg)",text:"Inget om hur tillkommande arbete eller ändringar prissätts."},
+    {key:"Försäkring / garanti",text:"Varken ansvarsförsäkring, garantitid eller garanti på material/arbete nämns."}
   ],
-  price:{hourlyRateSek:595,hourlyRangeLowSek:500,hourlyRangeHighSek:800,totalSumSek:42820,rotDeducted:true,
-    comment:"Timpriset ligger inom vanligt spann för taktäckning 2026 (grov branschreferens, inte en exakt källa)."},
+  stated:[
+    {key:"F-skatt & org.nr",text:"Organisationsnummer och F-skattsedel anges."},
+    {key:"Moms",text:"Priser anges inklusive moms."},
+    {key:"ROT-avdrag",text:"ROT-avdrag på arbetskostnaden anges, med slutsumma efter avdrag."},
+    {key:"Arbete och material separerat",text:"Arbete, material och bortforsling är specificerade var för sig."},
+    {key:"Omfattning",text:"32 m² takpannor, läkt och underlagspapp anges tydligt."},
+    {key:"Betalningsvillkor",text:"30 dagar efter slutfört arbete anges."},
+    {key:"Giltighetstid",text:"Offerten gäller 30 dagar, vilket anges."}
+  ],
+  price:{hourlyRateSek:595,totalSumSek:42820,rotDeducted:true,
+    comment:"Timpris och totalsumma anges tydligt, inklusive moms och ROT-avdrag."},
   questions:[
     "Vilket startdatum gäller – kan ni bekräfta det skriftligt?",
     "Hur prissätts tillkommande arbete (ÄTA) om något oväntat upptäcks under rivningen?",
@@ -162,44 +175,103 @@ const demoResult={
 };
 
 let pendingFile=null; // {kind,dataBase64,mediaType,filename} eller null om text används
+let chosenPath='mottagare'; // 'mottagare' | 'hantverkare' — styr bara etikett/kopiera-knapp, inte själva granskningen
+let lastResult=null;
 
 function setLoading(on){$('loading').classList.toggle('on',on);$('run').disabled=on;}
 function showError(msg){$('errbox').textContent=msg;$('errbox').classList.add('on');}
 function clearError(){$('errbox').classList.remove('on');$('errbox').textContent='';}
 
-function statusIcon(st){return st==='ok'?'✓':st==='warn'?'!':'✕';}
-
-// AI-genererad text (title/subtitle/checklist/frågor/priskommentar) får ALDRIG
+// AI-genererad text (nyckelord/beskrivningar/frågor/priskommentar) får ALDRIG
 // gå orenad in i innerHTML — den kan i teorin manipuleras via indirekt
 // prompt-injection i det inklistrade offertinnehållet. Escapa allt.
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-function safeClass(st){return ['ok','warn','bad'].includes(st)?st:'warn';}
+
+function findingsList(items,statusClass,icon){
+  if(!items||!items.length)return '';
+  return `<ul class="chk">${items.map(i=>`<li class="${statusClass}"><i>${icon}</i><div><b>${escapeHtml(i.key)}</b><small>${escapeHtml(i.text)}</small></div></li>`).join('')}</ul>`;
+}
+
+function calcSummaryFragment(result){
+  if(result.calcCoverage==='insufficient_data')return 'beräkningen gick inte att kontrollera';
+  const n=(result.contradictions||[]).length;
+  if(n===0)return 'inga räknefel upptäckta';
+  return n===1?'1 avvikelse hittad':`${n} avvikelser hittade`;
+}
+
+function renderCalcSection(result){
+  const items=result.contradictions||[];
+  const note=escapeHtml(result.calcNote||'');
+  let head;
+  if(items.length){
+    head=note;
+  }else if(result.calcCoverage==='insufficient_data'){
+    head=note||'Underlaget räcker inte för att kontrollera beräkningen.';
+  }else{
+    head='Inga räknefel upptäckta.'+(note?' '+note:'');
+  }
+  const list=findingsList(items,'bad','✕');
+  return `<p class="calcnote">${head}</p>${list}<p class="caveat">AI-utförd kontroll utifrån det som går att läsa i dokumentet — inte en garanterad matematisk verifiering.</p>`;
+}
+
+function renderPrice(result){
+  const p=result.price||{};
+  const rows=[];
+  if(p.hourlyRateSek)rows.push(`<div>Timpris i offerten</div><div class="v">${Number(p.hourlyRateSek).toLocaleString('sv-SE')} kr/h</div>`);
+  if(p.totalSumSek)rows.push(`<div>Totalsumma i offerten</div><div class="v">${Number(p.totalSumSek).toLocaleString('sv-SE')} kr</div>`);
+  if(rows.length){
+    return `<div class="price">${rows.join('')}<div style="grid-column:1/-1;font-size:14px;color:var(--ink2)">${escapeHtml(p.comment||'')}</div>${p.rotDeducted?'<div style="grid-column:1/-1;font-size:13px;color:var(--ink2)">ROT-avdrag redovisat.</div>':''}</div>`;
+  }
+  return `<div class="price"><div style="font-size:14px;color:var(--ink2)">${escapeHtml(p.comment||'Inget pris hittades i offerten.')}</div></div>`;
+}
+
+function ctaLabel(){
+  return chosenPath==='hantverkare' ? 'Kopiera punkter att förtydliga' : 'Kopiera frågor till hantverkaren';
+}
+
+function buildClipboardText(result,path){
+  if(path==='hantverkare'){
+    const items=result.clarify||[];
+    if(!items.length)return 'Inga punkter att förtydliga hittades.';
+    return 'Punkter att förtydliga innan offerten skickas:\n'+items.map(i=>`– ${i.key}: ${i.text}`).join('\n');
+  }
+  const qs=result.questions||[];
+  if(!qs.length)return 'Inga frågor genererades.';
+  return 'Frågor att ställa till hantverkaren:\n'+qs.map(q=>`– ${q}`).join('\n');
+}
 
 function render(result,isDemo){
-  const cls=result.verdict==='bra'?'ok':result.verdict==='fragor'?'warn':'bad';
-  const rows=result.checklist||[];
-  let priceHtml='';
-  const p=result.price||{};
-  if(p.hourlyRateSek){
-    const v=p.hourlyRateSek,lo=p.hourlyRangeLowSek||450,hi=p.hourlyRangeHighSek||800;
-    const pos=Math.min(100,Math.max(0,(v-(lo-100))/((hi+100)-(lo-100))*100));
-    priceHtml=`<div class="price"><div>Timpris i offerten<br><small>inkl. moms, före ROT</small></div><div class="v">${v} kr/h</div>
-    <div>Vanligt spann (grov referens)<br><small>${escapeHtml(p.comment||'')}</small></div><div class="v">${lo}–${hi} kr/h</div>
-    <div class="bar"><b style="left:${pos}%"></b></div></div>`;
-  } else {
-    priceHtml=`<div class="price"><div>Timpris</div><div class="v">–</div><div style="grid-column:1/-1;font-size:14px;color:var(--ink2)">${escapeHtml(p.comment||'Inget timpris hittades i offerten.')}</div></div>`;
-  }
-  if(p.totalSumSek)priceHtml+=`<p style="margin:8px 0 0;font-size:14px;color:var(--ink2)">Totalsumma i offerten: <b>${Number(p.totalSumSek).toLocaleString('sv-SE')} kr</b>${p.rotDeducted?' · ROT redovisat':''}</p>`;
+  lastResult=result;
+  const clarifyN=(result.clarify||[]).length;
+  const statedN=(result.stated||[]).length;
+  const clarifyWord=clarifyN===1?'sak att förtydliga':'saker att förtydliga';
+  const summary=`${clarifyN} ${clarifyWord}, ${calcSummaryFragment(result)}, ${statedN} uppgifter som framgår tydligt.`;
 
-  $('res').innerHTML=`<div class="verdict ${cls}"><span class="score">${Number(result.score)||0}/100</span><h2>${escapeHtml(result.title)}${isDemo?' <span class="tag">Exempel</span>':''}</h2><p>${escapeHtml(result.subtitle)}</p></div>
-  <h3>Är den komplett?</h3><ul class="chk">${rows.map(r=>`<li class="${safeClass(r.status)}"><i>${statusIcon(r.status)}</i><div><b>${escapeHtml(r.key)}</b><small>${escapeHtml(r.text)}</small></div></li>`).join('')}</ul>
-  <h3>Är priset rimligt?</h3>${priceHtml}
-  <h3>Fråga innan du säger ja</h3><ol class="q">${(result.questions||[]).map(q=>`<li>${escapeHtml(q)}</li>`).join('')}</ol>
-  <div class="alt"><button class="btn ghost" onclick="location.reload()">Granska en till</button></div>`;
+  $('res').innerHTML=`<div class="summarybox"><h2>Så här ser offerten ut${isDemo?' <span class="tag">Exempel</span>':''}</h2><p>${summary}</p></div>
+  <h3>Motsägelser och räknefel</h3>${renderCalcSection(result)}
+  <h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>'}
+  <h3>Uppgifter som framgår</h3>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}
+  <h3>Är priset tydligt angivet?</h3>${renderPrice(result)}
+  <div class="alt">
+    <button class="btn ghost" id="copybtn">${ctaLabel()}</button>
+    <button class="btn ghost" onclick="location.reload()">Granska en till</button>
+  </div>`;
   $('res').classList.add('on');
   $('res').scrollIntoView({behavior:'smooth',block:'start'});
+
+  const copyBtn=$('copybtn');
+  copyBtn.onclick=async()=>{
+    const text=buildClipboardText(lastResult,chosenPath);
+    try{
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent='Kopierat!';
+      setTimeout(()=>{copyBtn.textContent=ctaLabel();},1800);
+    }catch(e){
+      showError('Kunde inte kopiera automatiskt — markera och kopiera texten manuellt.');
+    }
+  };
 }
 
 async function runReview(){
@@ -231,6 +303,15 @@ async function runReview(){
     setLoading(false);
   }
 }
+
+document.querySelectorAll('.pathcard').forEach(el=>{
+  el.addEventListener('click',()=>{
+    chosenPath=el.dataset.path;
+    document.querySelectorAll('.pathcard').forEach(c=>c.classList.toggle('sel',c===el));
+    const btn=$('copybtn');
+    if(btn)btn.textContent=ctaLabel();
+  });
+});
 
 $('demo').onclick=()=>{
   pendingFile=null;
