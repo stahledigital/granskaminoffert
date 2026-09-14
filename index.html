@@ -3,9 +3,6 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<!-- TODO (Anders/Claude): ta bort raden nedan (noindex) när API_BASE är ifylld
-     och /health + en riktig granskning är verifierad live. -->
-<meta name="robots" content="noindex,nofollow">
 <title>Granska min offert – är hantverkaroffertens pris och innehåll rimligt?</title>
 <meta name="description" content="Släpp in din hantverkaroffert (foto, PDF eller text) och få på några sekunder veta om den är komplett, vad som saknas och om priset ligger där det brukar. Gratis, ingen inloggning.">
 <link rel="canonical" href="https://granskaminoffert.se/">
@@ -116,7 +113,7 @@ const $=id=>document.getElementById(id);
 
 // TODO: fyll i efter `wrangler deploy` (se worker/README.md). Exempel:
 // "https://granskaminoffert-api.dittkonto.workers.dev"
-const API_BASE = "";
+const API_BASE = "https://granskaminoffert-api.anders-316.workers.dev";
 
 const demoText=`OFFERT nr 2026-118
 Byggfirma Exempel AB, Org.nr 556XXX-XXXX, Innehar F-skattsedel
