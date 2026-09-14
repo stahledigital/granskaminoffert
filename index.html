@@ -2,52 +2,275 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light">
-<title>Granska min offert</title>
-<meta name="description" content="Släpp in din hantverkaroffert och få ett snabbt, begripligt svar: är den komplett, är den rimlig, vad saknas? Kommer snart – från Ståhle Digital i Växjö.">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<!-- TODO (Anders/Claude): ta bort raden nedan (noindex) när API_BASE är ifylld
+     och /health + en riktig granskning är verifierad live. -->
+<meta name="robots" content="noindex,nofollow">
+<title>Granska min offert – är hantverkaroffertens pris och innehåll rimligt?</title>
+<meta name="description" content="Släpp in din hantverkaroffert (foto, PDF eller text) och få på några sekunder veta om den är komplett, vad som saknas och om priset ligger där det brukar. Gratis, ingen inloggning.">
 <link rel="canonical" href="https://granskaminoffert.se/">
 <meta property="og:title" content="Granska min offert">
-<meta property="og:description" content="Är offerten rimlig? Släpp in den och få svar. Kommer snart.">
+<meta property="og:description" content="Är offerten rimlig? Släpp in den och få svar på några sekunder.">
 <meta property="og:url" content="https://granskaminoffert.se/">
+<meta property="og:type" content="website">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Barlow:wght@400;500;600&display=swap">
 <style>
-:root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b}
+:root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b;--ok:#2e7d4f;--warn:#b8860b;--bad:#c0392b;--oksoft:#e3f1e8;--warnsoft:#fbf0d2;--badsoft:#f9e0dc}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;padding:0 16px;padding-block:0 48px;line-height:1.45}
-.wrap{max-width:640px;margin:0 auto}
-header{padding-block:28px 0;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);font-weight:600}
-h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:clamp(44px,9vw,72px);line-height:.95;letter-spacing:-.01em;margin:24px 0 16px;text-wrap:balance}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;padding:0 16px;padding-block:0 56px;line-height:1.45}
+.wrap{max-width:680px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:baseline;padding-block:24px 0;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);font-weight:600}
+header a{color:inherit;text-decoration:none}
+h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:clamp(40px,8vw,64px);line-height:.95;margin:22px 0 12px;text-wrap:balance}
 h1 em{font-style:normal;color:var(--acc)}
-.lead{font-size:19px;max-width:52ch;margin:0 0 28px}
-.drop{border:2px dashed var(--line);border-radius:10px;background:var(--paper);padding:40px 24px;text-align:center;color:var(--ink2);margin:0 0 28px}
-.drop b{display:block;color:var(--ink);font-size:18px;margin-bottom:6px}
-.pill{display:inline-block;background:var(--acc);color:#fff;font-weight:600;font-size:13px;letter-spacing:.06em;text-transform:uppercase;padding:6px 12px;border-radius:999px;margin-bottom:14px}
-ul{padding-left:20px;margin:0 0 28px;max-width:56ch}
-li{margin:6px 0}
-.cta{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:20px 22px;max-width:56ch}
-.cta p{margin:0 0 10px}
-a.btn{display:inline-block;background:var(--ink);color:var(--bg);text-decoration:none;font-weight:600;padding:11px 16px;border-radius:6px}
-footer{margin-top:40px;font-size:13px;color:var(--ink2)}
-footer a{color:inherit}
+.lead{font-size:18px;max-width:52ch;margin:0 0 22px;color:var(--ink2)}
+.drop{display:block;border:3px dashed #16161640;border-radius:14px;background:var(--paper);padding:36px 24px 28px;text-align:center;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--acc);background:#fff4ee}
+.drop b{display:block;font-size:22px;margin-bottom:6px}
+.drop span{color:var(--ink2)}
+.drop input{display:none}
+.alt{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 0}
+.btn{display:inline-block;border:1px solid var(--ink);background:var(--ink);color:var(--bg);font:600 15px Barlow,sans-serif;padding:11px 16px;border-radius:8px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.acc{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn:disabled{opacity:.5;cursor:default}
+textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:8px;padding:12px;font:15px/1.4 Barlow,sans-serif;background:var(--paper);color:var(--ink);margin-top:12px;display:none}
+textarea.on{display:block}
+.filepreview{display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);font-size:14px;color:var(--ink2)}
+.filepreview.on{display:block}
+.res{display:none;margin-top:26px}
+.res.on{display:block}
+.loading{display:none;margin-top:26px;padding:20px;text-align:center;color:var(--ink2)}
+.loading.on{display:block}
+.errbox{display:none;margin-top:20px;padding:14px 16px;border-radius:8px;background:var(--badsoft);color:var(--bad);border-left:6px solid var(--bad)}
+.errbox.on{display:block}
+.verdict{border-radius:12px;padding:18px 20px;margin-bottom:16px;border-left:8px solid var(--acc);background:var(--paper)}
+.verdict.ok{border-color:var(--ok);background:var(--oksoft)}.verdict.warn{border-color:var(--warn);background:var(--warnsoft)}.verdict.bad{border-color:var(--bad);background:var(--badsoft)}
+.verdict h2{font-family:"Barlow Condensed",sans-serif;font-size:30px;margin:0 0 4px;text-transform:uppercase}
+.verdict p{margin:0;font-size:16px}
+.score{float:right;font-family:"Barlow Condensed",sans-serif;font-size:44px;font-weight:700;line-height:1}
+h3{font-family:"Barlow Condensed",sans-serif;font-size:20px;text-transform:uppercase;letter-spacing:.03em;margin:22px 0 8px}
+.chk{list-style:none;padding:0;margin:0;display:grid;gap:6px}
+.chk li{display:grid;grid-template-columns:26px 1fr;gap:10px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;align-items:start}
+.chk i{display:inline-block;width:22px;height:22px;border-radius:50%;font-style:normal;font-weight:700;font-size:13px;text-align:center;line-height:22px;color:#fff}
+.chk .ok i{background:var(--ok)}.chk .warn i{background:var(--warn)}.chk .bad i{background:var(--bad)}
+.chk b{display:block}.chk small{color:var(--ink2)}
+.price{display:grid;grid-template-columns:1fr auto;gap:6px 14px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.price .v{font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.price small{color:var(--ink2)}
+.bar{grid-column:1/-1;height:10px;border-radius:999px;background:linear-gradient(90deg,var(--ok) 0 40%,var(--warn) 40% 70%,var(--bad) 70%);position:relative;margin-top:4px}
+.bar b{position:absolute;top:-5px;width:20px;height:20px;border-radius:50%;background:var(--ink);border:3px solid var(--bg);transform:translateX(-50%)}
+.q{margin:0;padding-left:20px}.q li{margin:5px 0}
+.foot{margin-top:28px;font-size:13px;color:var(--ink2);max-width:60ch}
+.tag{display:inline-block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;background:var(--acc);color:#fff;padding:3px 8px;border-radius:999px;vertical-align:middle;margin-left:8px}
+details{margin-top:14px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:2px 14px}
+details summary{cursor:pointer;padding:12px 0;font-weight:600;font-size:14px}
+details .body{padding:0 0 14px;font-size:14px;color:var(--ink2);max-width:60ch}
+details .body p{margin:8px 0}
+details .body ul{margin:8px 0;padding-left:20px}
+@media (max-width:420px){.score{float:none;display:block;margin-bottom:4px}}
 </style>
 </head>
 <body>
+
 <div class="wrap">
-<header>Granska min offert · Växjö</header>
+<header><span>Granska min offert · Växjö</span><a href="https://stahledigital.se/verkstaden">Ståhle Digital</a></header>
 <h1>Är offerten <em>rimlig?</em><br>Släpp in den och få svar.</h1>
-<p class="lead">Snart kan du dra in en hantverkaroffert här och på några sekunder få veta om den är komplett, om något saknas och om priset ligger där det brukar.</p>
-<div class="drop"><span class="pill">Kommer snart</span><b>Släpp din offert här</b>PDF, bild eller text – privatperson eller hantverkare.</div>
-<ul>
-  <li>Saknas ROT-uppgifter, startdatum, betalplan eller villkor för ändringar?</li>
-  <li>Är timpris och totalsumma rimliga för jobbet och regionen?</li>
-  <li>Vad bör du fråga hantverkaren innan du säger ja?</li>
-</ul>
-<div class="cta">
-  <p><b>Vill du veta när den öppnar?</b> Skicka ett mejl med ordet <i>offert</i> så hör vi av oss – inget nyhetsbrev, bara ett meddelande när det är dags.</p>
-  <a class="btn" href="mailto:hej@stahledigital.se?subject=Granska%20min%20offert%20%E2%80%93%20s%C3%A4g%20till%20n%C3%A4r%20den%20%C3%B6ppnar">Mejla hej@stahledigital.se</a>
+<p class="lead">Privatperson eller hantverkare: släpp in offerten (foto, PDF eller text) så får du på några sekunder veta om den är komplett, vad som saknas och om priset ligger där det brukar. Gratis, ingen inloggning.</p>
+
+<div class="drop" id="drop"><b>Släpp din offert här</b><span>PDF, foto eller text</span>
+  <div class="alt" style="justify-content:center;margin-top:16px">
+    <label class="btn acc" for="file">Välj fil</label>
+    <label class="btn" for="cam">Ta foto</label>
+  </div>
+  <input type="file" id="file" accept=".pdf,image/*,.txt">
+  <input type="file" id="cam" accept="image/*" capture="environment">
 </div>
-<footer>Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital – Verkstaden</a>. Ingen data sparas på den här sidan.</footer>
+<div class="filepreview" id="filepreview"></div>
+<div class="alt">
+  <button class="btn ghost" id="demo">Prova med en exempeloffert</button>
+  <button class="btn ghost" id="paste">Klistra in text i stället</button>
 </div>
+<textarea id="txt" placeholder="Klistra in offerttexten här…"></textarea>
+<div class="alt" id="runwrap" style="display:none"><button class="btn" id="run">Granska</button></div>
+
+<div class="loading" id="loading">Granskar offerten … tar oftast 5–15 sekunder.</div>
+<div class="errbox" id="errbox"></div>
+<div class="res" id="res"></div>
+
+<details>
+<summary>Om tjänsten och dina uppgifter</summary>
+<div class="body">
+<p>Granska min offert läser offerten med hjälp av AI (Anthropic Claude) och ger en uppskattning — inte ett juridiskt utlåtande. Prisjämförelsen bygger på grova branschreferenser, inte en fullständig prisdatabas; en andra offert är alltid det säkraste sättet att kontrollera pris.</p>
+<p>Offerten du laddar upp skickas till granskningstjänsten för att kunna svara dig. Den sparas inte permanent. En tillfällig kopia (offert + AI-svar) behålls i högst 24 timmar enbart för att kunna felsöka fel, och raderas därefter automatiskt.</p>
+<p>Läs mer i <a href="https://stahledigital.se/integritet">Ståhle Digitals integritetspolicy</a>.</p>
+</div>
+</details>
+
+<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital – Verkstaden</a>, Växjö.</p>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+
+// TODO: fyll i efter `wrangler deploy` (se worker/README.md). Exempel:
+// "https://granskaminoffert-api.dittkonto.workers.dev"
+const API_BASE = "";
+
+const demoText=`OFFERT nr 2026-118
+Byggfirma Exempel AB, Org.nr 556XXX-XXXX, Innehar F-skattsedel
+Kund: Anna Andersson, Storgatan 12, Växjö
+
+Arbete: Byte av 32 m² takpannor inkl. läkt och underlagspapp, garage.
+Material: Benders Palema betongpannor, bärläkt 25x48, underlagspapp YAP 2200.
+Arbetstid: 2 man, 3 dagar. Timpris 595 kr/h inkl. moms.
+Arbete 36 h x 595 kr = 21 420 kr
+Material 18 900 kr
+Bortforsling och container 2 500 kr
+Summa inkl. moms 42 820 kr
+ROT-avdrag på arbetskostnad: -6 426 kr
+Att betala efter ROT: 36 394 kr
+Betalning 30 dagar efter slutfört arbete. Offerten gäller 30 dagar.`;
+
+// Kanske resultat, förberäknat lokalt så exempelknappen inte kostar ett
+// riktigt AI-anrop varje gång någon nyfiket klickar på den.
+const demoResult={
+  score:78,verdict:"fragor",
+  title:"Går att skriva på – med frågor",
+  subtitle:"Grunden finns, men några saker bör bli skriftliga innan du säger ja.",
+  trade:"tak",
+  checklist:[
+    {key:"F-skatt",status:"ok",text:"F-skattsedel anges"},
+    {key:"Organisationsnummer",status:"ok",text:"Organisationsnummer finns"},
+    {key:"Moms",status:"ok",text:"Anger att priser är inkl. moms"},
+    {key:"ROT-avdrag",status:"ok",text:"ROT-avdrag redovisat på arbetskostnaden"},
+    {key:"Arbete och material separerat",status:"ok",text:"Arbete och material är specificerade var för sig"},
+    {key:"Omfattning",status:"ok",text:"32 m² anges tydligt"},
+    {key:"Tidplan / startdatum",status:"warn",text:"Arbetstid (3 dagar) anges, men inget faktiskt startdatum – be om det skriftligt."},
+    {key:"Betalningsvillkor",status:"ok",text:"30 dagar efter slutfört arbete"},
+    {key:"Giltighetstid",status:"ok",text:"Offerten gäller 30 dagar"},
+    {key:"ÄTA (ändringar och tillägg)",status:"warn",text:"Inget om hur tillkommande arbete prissätts – bestäm det nu."},
+    {key:"Försäkring / garanti",status:"warn",text:"Inget om ansvarsförsäkring eller garanti på arbetet – fråga innan du skriver på."}
+  ],
+  price:{hourlyRateSek:595,hourlyRangeLowSek:500,hourlyRangeHighSek:800,totalSumSek:42820,rotDeducted:true,
+    comment:"Timpriset ligger inom vanligt spann för taktäckning 2026 (grov branschreferens, inte en exakt källa)."},
+  questions:[
+    "Vilket startdatum gäller – kan ni bekräfta det skriftligt?",
+    "Hur prissätts tillkommande arbete (ÄTA) om något oväntat upptäcks under rivningen?",
+    "Har ni ansvarsförsäkring och vilken garanti gäller på arbetet?",
+    "Ingår bortforsling av allt rivningsmaterial, eller bara det som nämns?"
+  ],
+  meta:{demo:true}
+};
+
+let pendingFile=null; // {kind,dataBase64,mediaType,filename} eller null om text används
+
+function setLoading(on){$('loading').classList.toggle('on',on);$('run').disabled=on;}
+function showError(msg){$('errbox').textContent=msg;$('errbox').classList.add('on');}
+function clearError(){$('errbox').classList.remove('on');$('errbox').textContent='';}
+
+function statusIcon(st){return st==='ok'?'✓':st==='warn'?'!':'✕';}
+
+function render(result,isDemo){
+  const cls=result.verdict==='bra'?'ok':result.verdict==='fragor'?'warn':'bad';
+  const rows=result.checklist||[];
+  let priceHtml='';
+  const p=result.price||{};
+  if(p.hourlyRateSek){
+    const v=p.hourlyRateSek,lo=p.hourlyRangeLowSek||450,hi=p.hourlyRangeHighSek||800;
+    const pos=Math.min(100,Math.max(0,(v-(lo-100))/((hi+100)-(lo-100))*100));
+    priceHtml=`<div class="price"><div>Timpris i offerten<br><small>inkl. moms, före ROT</small></div><div class="v">${v} kr/h</div>
+    <div>Vanligt spann (grov referens)<br><small>${p.comment||''}</small></div><div class="v">${lo}–${hi} kr/h</div>
+    <div class="bar"><b style="left:${pos}%"></b></div></div>`;
+  } else {
+    priceHtml=`<div class="price"><div>Timpris</div><div class="v">–</div><div style="grid-column:1/-1;font-size:14px;color:var(--ink2)">${p.comment||'Inget timpris hittades i offerten.'}</div></div>`;
+  }
+  if(p.totalSumSek)priceHtml+=`<p style="margin:8px 0 0;font-size:14px;color:var(--ink2)">Totalsumma i offerten: <b>${p.totalSumSek.toLocaleString('sv-SE')} kr</b>${p.rotDeducted?' · ROT redovisat':''}</p>`;
+
+  $('res').innerHTML=`<div class="verdict ${cls}"><span class="score">${result.score}/100</span><h2>${result.title}${isDemo?' <span class="tag">Exempel</span>':''}</h2><p>${result.subtitle}</p></div>
+  <h3>Är den komplett?</h3><ul class="chk">${rows.map(r=>`<li class="${r.status}"><i>${statusIcon(r.status)}</i><div><b>${r.key}</b><small>${r.text}</small></div></li>`).join('')}</ul>
+  <h3>Är priset rimligt?</h3>${priceHtml}
+  <h3>Fråga innan du säger ja</h3><ol class="q">${(result.questions||[]).map(q=>`<li>${q}</li>`).join('')}</ol>
+  <div class="alt"><button class="btn ghost" onclick="location.reload()">Granska en till</button></div>`;
+  $('res').classList.add('on');
+  $('res').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+async function runReview(){
+  clearError();
+  if(!API_BASE){
+    showError('Granskningstjänsten är inte påkopplad än (API_BASE saknas i koden). Testa "Prova med en exempeloffert" under tiden.');
+    return;
+  }
+  let payload;
+  if(pendingFile){
+    payload=pendingFile;
+  } else {
+    const t=($('txt').value||'').trim();
+    if(!t){showError('Klistra in offerttext eller välj en fil först.');return;}
+    payload={kind:'text',text:t};
+  }
+  setLoading(true);
+  $('res').classList.remove('on');
+  try{
+    const resp=await fetch(API_BASE.replace(/\/$/,'')+'/review',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+    });
+    const data=await resp.json();
+    if(!resp.ok){showError(data.error||'Något gick fel. Försök igen.');return;}
+    render(data,false);
+  }catch(e){
+    showError('Kunde inte nå granskningstjänsten. Kontrollera din uppkoppling och försök igen.');
+  }finally{
+    setLoading(false);
+  }
+}
+
+$('demo').onclick=()=>{
+  pendingFile=null;
+  $('txt').value=demoText;$('txt').classList.add('on');$('runwrap').style.display='flex';
+  clearError();$('res').classList.remove('on');
+  render(demoResult,true);
+};
+$('paste').onclick=()=>{pendingFile=null;$('filepreview').classList.remove('on');$('txt').classList.add('on');$('runwrap').style.display='flex';$('txt').focus();};
+$('run').onclick=runReview;
+
+const drop=$('drop');
+['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over');}));
+
+const MAX_BYTES=8000000;
+function handleFile(f){
+  if(!f)return;
+  clearError();
+  if(f.size>MAX_BYTES){showError('Filen är för stor (max 8 MB).');return;}
+  if(f.type.startsWith('text')||/\.txt$/i.test(f.name)){
+    f.text().then(t=>{
+      pendingFile=null;
+      $('txt').value=t;$('txt').classList.add('on');$('runwrap').style.display='flex';
+      $('filepreview').classList.remove('on');
+    });
+    return;
+  }
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const dataUrl=reader.result; // "data:<mime>;base64,XXXX"
+    const base64=dataUrl.split(',')[1];
+    const kind=f.type==='application/pdf'?'pdf':'image';
+    pendingFile={kind,dataBase64:base64,mediaType:f.type,filename:f.name};
+    $('txt').classList.remove('on');
+    $('filepreview').textContent=`Vald fil: ${f.name} (${Math.round(f.size/1024)} kB)`;
+    $('filepreview').classList.add('on');
+    $('runwrap').style.display='flex';
+  };
+  reader.readAsDataURL(f);
+}
+drop.addEventListener('drop',ev=>handleFile(ev.dataTransfer.files[0]));
+$('file').addEventListener('change',ev=>handleFile(ev.target.files[0]));
+$('cam').addEventListener('change',ev=>handleFile(ev.target.files[0]));
+})();
+</script>
+
 </body>
 </html>
