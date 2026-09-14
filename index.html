@@ -4,12 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
-<meta name="description" content="Ladda upp offerten (foto, PDF eller text) och se vad som är tydligt, vad som saknas och vad du bör fråga om. Gratis, ingen inloggning.">
+<meta name="description" content="AI-stödd granskning av hantverkarofferter i PDF, foto eller text. För dig som fått en offert eller ska skicka en. Hitta oklarheter. Gratis att prova utan konto.">
 <link rel="canonical" href="https://granskaminoffert.se/">
-<meta property="og:title" content="Granska min offert">
-<meta property="og:description" content="Tydligare offerter. Färre frågetecken.">
+<meta property="og:title" content="Granska min offert – tydligare hantverkarofferter">
+<meta property="og:description" content="Granska dokumentets innehåll med AI före beslut eller utskick. PDF, foto eller text – för mottagare och hantverkare.">
 <meta property="og:url" content="https://granskaminoffert.se/">
 <meta property="og:type" content="website">
+<meta property="og:locale" content="sv_SE">
+<meta property="og:image" content="https://granskaminoffert.se/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Ståhle Digital – Digitalt hantverk som märks.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Granska min offert – tydligare hantverkarofferter">
+<meta name="twitter:description" content="AI-stödd dokumentgranskning för dig som fått eller ska skicka en offert. Gratis att prova utan konto.">
+<meta name="twitter:image" content="https://granskaminoffert.se/og.png">
+<meta name="twitter:image:alt" content="Ståhle Digital – Digitalt hantverk som märks.">
+
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Barlow:wght@400;500;600&display=swap">
 <style>
 :root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b;--ok:#2e7d4f;--warn:#b8860b;--bad:#c0392b;--oksoft:#e3f1e8;--warnsoft:#fbf0d2;--badsoft:#f9e0dc}
@@ -70,12 +81,13 @@ details .body{padding:0 0 14px;font-size:14px;color:var(--ink2);max-width:60ch}
 details .body p{margin:8px 0}
 details .body ul{margin:8px 0;padding-left:20px}
 </style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebApplication", "@id": "https://granskaminoffert.se/#app", "name": "Granska min offert", "url": "https://granskaminoffert.se/", "inLanguage": "sv-SE", "applicationCategory": "BusinessApplication", "operatingSystem": "Any", "description": "AI-stödd dokumentgranskning av hantverkarofferter i PDF, foto eller text, för den som har fått eller ska skicka en offert.", "publisher": {"@type": "Organization", "name": "Ståhle Digital", "url": "https://stahledigital.se/"}}</script>
 </head>
 <body>
 
-<div class="wrap">
+<main class="wrap">
 <header><span>Granska min offert · Växjö</span><a href="https://stahledigital.se/verkstaden">Ståhle Digital</a></header>
-<h1>Tydligare offerter.<br>Färre frågetecken.</h1>
+<h1>Granska min offert.<br>Färre frågetecken.</h1>
 <p class="lead">Få hjälp att upptäcka oklarheter, motsägelser och uppgifter som behöver förtydligas i offerten.</p>
 
 <div class="pathsel" id="pathsel">
@@ -102,7 +114,7 @@ details .body ul{margin:8px 0;padding-left:20px}
 
 <div class="loading" id="loading">Granskningen kan ta en stund.</div>
 <div class="errbox" id="errbox"></div>
-<div class="res" id="res"></div>
+<div class="res" id="res" data-nosnippet></div>
 
 <details>
 <summary>Om tjänsten och dina uppgifter</summary>
@@ -115,14 +127,13 @@ details .body ul{margin:8px 0;padding-left:20px}
 </details>
 
 <p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital – Verkstaden</a>, Växjö.</p>
-</div>
+</main>
 
 <script>
 (function(){
 const $=id=>document.getElementById(id);
 
-// TODO: fyll i efter `wrangler deploy` (se worker/README.md). Exempel:
-// "https://granskaminoffert-api.dittkonto.workers.dev"
+// Befintlig produktionsendpoint; offertinnehåll skickas enbart i POST-body.
 const API_BASE = "https://granskaminoffert-api.anders-316.workers.dev";
 
 const demoText=`OFFERT nr 2026-118

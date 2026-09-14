@@ -1,0 +1,6 @@
+# Behåll den befintliga Pages-publiceringen från main/rot.
+# Publicera bara produktens filer, aldrig intern handoff, prototyp eller backendkälla.
+exclude:
+  - KICKOFF.md
+  - worker
+  - prototyp
