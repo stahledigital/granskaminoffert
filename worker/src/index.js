@@ -128,8 +128,10 @@ ${rateLines}
    ett timpris. Ange alltid vilken yrkeskategori du bedömer jobbet tillhöra
    ("trade"-fältet); välj "okand" om det är oklart.
 
-Sätt score 0–100 (dra ifrån för varje "bad", mindre för varje "warn"). Sätt
-verdict: "bra" (≥80), "fragor" (55–79), "ny_offert" (<55).
+Sätt score 0–100 (dra ifrån för varje "bad", mindre för varje "warn"). Var
+konsekvent: bedöm likvärdiga brister likvärdigt, både inom samma offert och
+om du skulle bedöma den igen. Sätt verdict: "bra" (≥80), "fragor" (55–79),
+"ny_offert" (<55).
 
 Skriv på naturlig, rak svenska. Var koncis i varje textfält (max ~2 meningar).
 Ge 3–6 konkreta frågor att ställa hantverkaren innan kunden skriver på —
@@ -163,6 +165,21 @@ async function rateLimit(env, ip) {
   const current = parseInt((await env.REVIEWS_KV.get(key)) || "0", 10);
   if (current >= limit) return false;
   await env.REVIEWS_KV.put(key, String(current + 1), { expirationTtl: 3600 });
+  return true;
+}
+
+// Andra kostnadsspärr, oberoende av per-IP: per-IP-gränsen går att kringgå
+// helt genom att byta IP (VPN, mobildata etc). Detta är ett globalt tak för
+// ALLA användare tillsammans per dygn (UTC), som håller värsta möjliga
+// dagskostnad förutsägbar oavsett hur ratelimit-gränsen kringgås.
+// Standard 150/dygn * ~0.03 USD/anrop ≈ max 4-5 USD/dygn i värsta fall.
+async function globalDailyLimitOk(env) {
+  const limit = parseInt(env.GLOBAL_DAILY_LIMIT || "150", 10);
+  const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  const key = `global:${day}`;
+  const current = parseInt((await env.REVIEWS_KV.get(key)) || "0", 10);
+  if (current >= limit) return false;
+  await env.REVIEWS_KV.put(key, String(current + 1), { expirationTtl: 172800 });
   return true;
 }
 
@@ -222,6 +239,15 @@ async function handleReview(request, env, ctx, allowedOrigins) {
     );
   }
 
+  const globalOk = await globalDailyLimitOk(env);
+  if (!globalOk) {
+    return jsonResponse(
+      { error: "Tjänsten har nått sitt dagliga tak för granskningar. Försök igen imorgon." },
+      429,
+      headers
+    );
+  }
+
   if (!env.ANTHROPIC_API_KEY) {
     return jsonResponse(
       { error: "Tjänsten är inte klar än (saknar API-nyckel). Försök igen senare." },
@@ -253,6 +279,8 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   const anthropicBody = {
     model,
     max_tokens: 2000,
+    temperature: 0, // konsekvens: samma offert ska ge samma bedömning. VERIFIED
+    // utan denna gav samma testoffert 62/62/58 vid tre körningar i rad.
     system: systemPrompt(),
     messages: [{ role: "user", content: userContent }],
     tools: [SUBMIT_REVIEW_TOOL],
