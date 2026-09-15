@@ -122,6 +122,7 @@ details .body ul{margin:8px 0;padding-left:20px}
 <p>Granska min offert läser offerten med hjälp av AI (Anthropic Claude) och ger en uppskattning av vad som står i dokumentet — inte ett juridiskt utlåtande och ingen kontroll mot externa register (t.ex. Skatteverket).</p>
 <p>Offerten (foto, PDF eller text) skickas till Anthropic för att kunna analyseras. Anthropic behåller in- och utdata i upp till 30 dagar enligt sin egen policy, längre om innehållet flaggats av deras säkerhetssystem, och använder det inte för att träna AI-modeller utan uttryckligt tillstånd — se <a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data">Anthropics policy för dataretention</a>.</p>
 <p>Vi sparar inte själva offertfilen eller den inklistrade texten i vår egen infrastruktur. Vi behåller AI:ts svar (som kan innehålla uppgifter hämtade ur offerten, t.ex. belopp eller adress) samt teknisk information inklusive din IP-adress i högst 24 timmar, enbart för att kunna felsöka fel — därefter raderas det automatiskt.</p>
+<p>Vi använder Cloudflare Web Analytics för kakfri besöks- och prestandastatistik. Offerttext, filer och granskningsresultat skickas inte till besöksmätningen.</p>
 <p>Läs mer i <a href="https://stahledigital.se/integritet">Ståhle Digitals integritetspolicy</a>.</p>
 </div>
 </details>
@@ -369,5 +370,7 @@ $('cam').addEventListener('change',ev=>handleFile(ev.target.files[0]));
 })();
 </script>
 
+<!-- Cloudflare Web Analytics: endast sid- och prestandamätning, inga offertuppgifter. -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"e5e9c4b118aa44b5a213799ddd14f782"}'></script>
 </body>
 </html>
