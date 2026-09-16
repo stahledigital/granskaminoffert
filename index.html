@@ -2,6 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
+<meta name="app-version" content="gmo-v2">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
 <meta name="description" content="AI-stödd granskning av hantverkarofferter i PDF, foto eller text. För dig som fått en offert eller ska skicka en. Hitta oklarheter. Gratis att prova utan konto.">
@@ -38,6 +39,12 @@ h1 em{font-style:normal;color:var(--acc)}
 .pathcard span{color:var(--ink2);font-size:13px}
 .pathcard.sel{border-color:var(--acc);background:#fff4ee}
 @media (max-width:480px){.pathsel{grid-template-columns:1fr}}
+.pathnote{margin:-8px 0 20px;font-size:15px;color:var(--ink2);max-width:52ch}
+.fromsd{margin-top:28px;border:1px solid var(--line);border-left:6px solid var(--acc);border-radius:10px;padding:16px 18px;background:var(--paper)}
+.fromsd-tag{font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--acc);margin:0 0 6px}
+.fromsd p{margin:0 0 12px;font-size:15px;max-width:52ch}
+.fromsd .sub{margin:14px 0 0;font-size:14px;color:var(--ink2)}
+.fromsd .sub a{color:var(--ink)}
 .drop{display:block;border:3px dashed #16161640;border-radius:14px;background:var(--paper);padding:36px 24px 28px;text-align:center;transition:border-color .15s,background .15s}
 .drop.over{border-color:var(--acc);background:#fff4ee}
 .drop b{display:block;font-size:22px;margin-bottom:6px}
@@ -100,8 +107,9 @@ details .body ul{margin:8px 0;padding-left:20px}
 
 <div class="pathsel" id="pathsel">
   <button type="button" class="pathcard sel" data-path="mottagare"><b>Jag har fått en offert</b><span>Förstå vad som står i den och vad du bör fråga om innan du skriver på.</span></button>
-  <button type="button" class="pathcard" data-path="hantverkare"><b>Jag ska skicka en offert</b><span>Se vad som kan behöva förtydligas innan du skickar den till kunden.</span></button>
+  <button type="button" class="pathcard" data-path="hantverkare"><b>Jag ska skicka en offert</b><span>Se vad kunden kommer att fråga om – innan du skickar.</span></button>
 </div>
+<p class="pathnote" id="pathnote">Du får en lista med det som är otydligt – och kan skicka frågorna direkt till hantverkaren.</p>
 
 <div class="drop" id="drop"><b>Släpp din offert här</b><span>PDF, foto eller text</span>
   <div class="alt" style="justify-content:center;margin-top:16px">
@@ -135,7 +143,7 @@ details .body ul{margin:8px 0;padding-left:20px}
 </div>
 </details>
 
-<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital – Verkstaden</a>, Växjö.</p>
+<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital – Verkstaden</a>, Växjö. Org.nr 810930-2714 · <a href="mailto:hej@stahledigital.se">hej@stahledigital.se</a></p>
 </main>
 
 <script>
@@ -197,6 +205,8 @@ const demoResult={
 let pendingFile=null; // {kind,dataBase64,mediaType,filename} eller null om text används
 let chosenPath='mottagare'; // 'mottagare' | 'hantverkare' — styr bara etikett/kopiera-knapp, inte själva granskningen
 let lastResult=null;
+let lastIsDemo=false;
+const PATHNOTE={mottagare:'Du får en lista med det som är otydligt – och kan skicka frågorna direkt till hantverkaren.',hantverkare:'Du får en punktlista att fixa innan offerten går iväg – så slipper du frågorna efteråt.'};
 
 function setLoading(on){$('loading').classList.toggle('on',on);$('run').disabled=on;}
 function showError(msg){$('errbox').textContent=msg;$('errbox').classList.add('on');}
@@ -276,7 +286,7 @@ function renderActionList(result,path){
 function sendLabel(){return chosenPath==='hantverkare'?'Skicka punkterna till dig själv':'Skicka frågorna till hantverkaren';}
 
 function render(result,isDemo){
-  lastResult=result;
+  lastResult=result;lastIsDemo=!!isDemo;
   const clarifyN=(result.clarify||[]).length;
   const statedN=(result.stated||[]).length;
   const clarifyWord=clarifyN===1?'sak att förtydliga':'saker att förtydliga';
@@ -295,7 +305,12 @@ function render(result,isDemo){
   <details class="stated"><summary>Uppgifter som framgår (${statedN})</summary>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}</details>
   <div class="alt">
     <button class="btn ghost" onclick="location.reload()">Granska en till</button>
-  </div>`;
+  </div>
+  ${chosenPath==='hantverkare'?`<aside class="fromsd"><p class="fromsd-tag">Från Ståhle Digital</p>
+    <p>Har firman ingen hemsida, eller en som inte ger jobb? Vi bygger hemsidor för hantverkare i Växjö med omnejd.</p>
+    <a class="btn" href="https://stahledigital.se" rel="noopener">Se vad vi gör</a>
+    <p class="sub">Ska du räkna material till jobbet? <a href="https://raknaren.stahledigital.se" rel="noopener">Materialräknaren är gratis.</a></p>
+  </aside>`:''}`;
   const text=buildClipboardText(result,chosenPath);
   const subj=chosenPath==='hantverkare'?'Punkter att förtydliga i offerten':'Frågor om offerten';
   $('sendmail').href='mailto:?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(text);
@@ -330,6 +345,7 @@ async function runReview(){
     if(!t){showError('Klistra in offerttext eller välj en fil först.');return;}
     payload={kind:'text',text:t};
   }
+  payload.path=chosenPath;
   setLoading(true);
   $('res').classList.remove('on');
   try{
@@ -350,8 +366,8 @@ document.querySelectorAll('.pathcard').forEach(el=>{
   el.addEventListener('click',()=>{
     chosenPath=el.dataset.path;
     document.querySelectorAll('.pathcard').forEach(c=>c.classList.toggle('sel',c===el));
-    const btn=$('copybtn');
-    if(btn)btn.textContent=ctaLabel();
+    $('pathnote').textContent=PATHNOTE[chosenPath];
+    if(lastResult&&$('res').classList.contains('on'))render(lastResult,lastIsDemo);
   });
 });
 
