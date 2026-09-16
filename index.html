@@ -45,6 +45,7 @@ h1 em{font-style:normal;color:var(--acc)}
 .drop input{display:none}
 .alt{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 0}
 .btn{display:inline-block;border:1px solid var(--ink);background:var(--ink);color:var(--bg);font:600 15px Barlow,sans-serif;padding:11px 16px;border-radius:8px;cursor:pointer}
+.btn{text-decoration:none;text-align:center}
 .btn.ghost{background:transparent;color:var(--ink)}
 .btn.acc{background:var(--acc);border-color:var(--acc);color:#fff}
 .btn:disabled{opacity:.5;cursor:default}
@@ -61,6 +62,13 @@ textarea.on{display:block}
 .summarybox{border-radius:12px;padding:18px 20px;margin-bottom:16px;border-left:8px solid var(--ink2);background:var(--paper)}
 .summarybox h2{font-family:"Barlow Condensed",sans-serif;font-size:26px;margin:0 0 4px;text-transform:uppercase}
 .summarybox p{margin:0;font-size:16px}
+.qs{margin:0 0 12px;padding-left:22px;display:grid;gap:8px;font-size:16px;line-height:1.45}
+.qs li::marker{color:var(--acc);font-weight:700}
+.qs b{display:block;font-weight:600}.qs small{display:block;color:var(--ink2);font-size:14px}
+.send{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 22px}
+details.stated{border-top:1px solid var(--line);margin-top:18px}
+details.stated summary{cursor:pointer;padding:12px 0;font-family:"Barlow Condensed",sans-serif;font-size:20px;font-weight:700;text-transform:uppercase;list-style:none;display:flex;justify-content:space-between}
+details.stated summary::after{content:"+";color:var(--acc)}details.stated[open] summary::after{content:"–"}
 h3{font-family:"Barlow Condensed",sans-serif;font-size:20px;text-transform:uppercase;letter-spacing:.03em;margin:22px 0 8px}
 .chk{list-style:none;padding:0;margin:0;display:grid;gap:6px}
 .chk li{display:grid;grid-template-columns:26px 1fr;gap:10px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;align-items:start}
@@ -243,16 +251,29 @@ function ctaLabel(){
   return chosenPath==='hantverkare' ? 'Kopiera punkter att förtydliga' : 'Kopiera frågor till hantverkaren';
 }
 
+const SIGN='\n\nGranskat med granskaminoffert.se – gratis granskning av hantverkarofferter';
 function buildClipboardText(result,path){
   if(path==='hantverkare'){
     const items=result.clarify||[];
-    if(!items.length)return 'Inga punkter att förtydliga hittades.';
-    return 'Punkter att förtydliga innan offerten skickas:\n'+items.map(i=>`– ${i.key}: ${i.text}`).join('\n');
+    if(!items.length)return 'Inga punkter att förtydliga hittades.'+SIGN;
+    return 'Punkter att förtydliga innan offerten skickas:\n'+items.map(i=>`– ${i.key}: ${i.text}`).join('\n')+SIGN;
   }
   const qs=result.questions||[];
-  if(!qs.length)return 'Inga frågor genererades.';
-  return 'Frågor att ställa till hantverkaren:\n'+qs.map(q=>`– ${q}`).join('\n');
+  if(!qs.length)return 'Inga frågor genererades.'+SIGN;
+  return 'Hej! Jag har några frågor om offerten innan jag skriver på:\n'+qs.map(q=>`– ${q}`).join('\n')+SIGN;
 }
+function isMobile(){return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&innerWidth<900);}
+function renderActionList(result,path){
+  if(path==='hantverkare'){
+    const items=result.clarify||[];
+    const body=items.length?`<ol class="qs">${items.map(i=>`<li><b>${escapeHtml(i.key)}</b><small>${escapeHtml(i.text)}</small></li>`).join('')}</ol>`:'<p>Vi hittade inget som behöver förtydligas i det vi kontrollerar.</p>';
+    return `<h3>Punkter att förtydliga innan du skickar</h3>${body}`;
+  }
+  const qs=result.questions||[];
+  const body=qs.length?`<ol class="qs">${qs.map(q=>`<li>${escapeHtml(q)}</li>`).join('')}</ol>`:'<p>Inga frågor genererades – offerten verkar besvara det vi kontrollerar.</p>';
+  return `<h3>Frågor att ställa innan du skriver på</h3>${body}`;
+}
+function sendLabel(){return chosenPath==='hantverkare'?'Skicka punkterna till dig själv':'Skicka frågorna till hantverkaren';}
 
 function render(result,isDemo){
   lastResult=result;
@@ -262,14 +283,23 @@ function render(result,isDemo){
   const summary=`${clarifyN} ${clarifyWord}, ${calcSummaryFragment(result)}, ${statedN} uppgifter som framgår tydligt.`;
 
   $('res').innerHTML=`<div class="summarybox"><h2>Så här ser offerten ut${isDemo?' <span class="tag">Exempel</span>':''}</h2><p>${summary}</p></div>
+  ${renderActionList(result,chosenPath)}
+  <div class="send">
+    <a class="btn acc" id="sendmail" href="#">${sendLabel()}</a>
+    ${isMobile()?'<a class="btn" id="sendsms" href="#">Skicka som SMS</a>':''}
+    <button class="btn ghost" id="copybtn">Kopiera</button>
+  </div>
   <h3>Motsägelser och räknefel</h3>${renderCalcSection(result)}
-  <h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>'}
-  <h3>Uppgifter som framgår</h3>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}
+  ${chosenPath==='hantverkare'?'':`<h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>'}`}
   <h3>Är priset tydligt angivet?</h3>${renderPrice(result)}
+  <details class="stated"><summary>Uppgifter som framgår (${statedN})</summary>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}</details>
   <div class="alt">
-    <button class="btn ghost" id="copybtn">${ctaLabel()}</button>
     <button class="btn ghost" onclick="location.reload()">Granska en till</button>
   </div>`;
+  const text=buildClipboardText(result,chosenPath);
+  const subj=chosenPath==='hantverkare'?'Punkter att förtydliga i offerten':'Frågor om offerten';
+  $('sendmail').href='mailto:?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(text);
+  if($('sendsms'))$('sendsms').href='sms:?&body='+encodeURIComponent(text);
   $('res').classList.add('on');
   $('res').scrollIntoView({behavior:'smooth',block:'start'});
 
@@ -279,7 +309,7 @@ function render(result,isDemo){
     try{
       await navigator.clipboard.writeText(text);
       copyBtn.textContent='Kopierat!';
-      setTimeout(()=>{copyBtn.textContent=ctaLabel();},1800);
+      setTimeout(()=>{copyBtn.textContent='Kopiera';},1800);
     }catch(e){
       showError('Kunde inte kopiera automatiskt — markera och kopiera texten manuellt.');
     }
