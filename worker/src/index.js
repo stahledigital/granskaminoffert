@@ -1,8 +1,7 @@
 // Granska min offert — granskningsmotor (Cloudflare Worker)
 //
-// EVIDENSNOT: Byggd 2026-09-14, ej ännu E2E-testad mot skarpt Anthropic API
-// (ANTHROPIC_API_KEY saknas i den här sessionen). Markera VERIFIED först efter
-// en riktig körning med uppmätt latens/kostnad — se worker/README.md.
+// Byggd 2026-09-14, deployad och E2E-verifierad samma dag (se LEGAL_COMPLIANCE
+// och TIDSLOGG). gmo-api-v2 2026-09-16: räknare + anonym statistik, se README.
 //
 // Dataminimering (Anders beslut 2026-09-14): ingen permanent lagring. Varje
 // förfrågan + svar sparas i REVIEWS_KV med expirationTtl 24h enbart för
@@ -218,8 +217,62 @@ function corsHeaders(origin, allowedOrigins) {
     "Access-Control-Allow-Headers": "Content-Type",
     "Vary": "Origin",
     "X-Robots-Tag": "noindex, nofollow, nosnippet",
+    "X-Content-Type-Options": "nosniff",
     "Cache-Control": "no-store",
   };
+}
+
+// ---- Räknare och anonym statistik (Moneyman/Anders beslut 2026-09-16) ----
+// Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
+// Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
+// aldrig underlag för fakturering.
+const WORKER_VERSION = "gmo-api-v2";
+
+function dayKey(d = new Date()) {
+  return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
+}
+
+// Summaband för statistik. Aldrig exakt belopp — bara vilket band offerten låg i.
+export function sumBand(totalSumSek) {
+  const n = Number(totalSumSek);
+  if (!Number.isFinite(n) || n <= 0) return "okand";
+  if (n < 25000) return "<25k";
+  if (n <= 100000) return "25-100k";
+  if (n <= 300000) return "100-300k";
+  return ">300k";
+}
+
+export function normalizePath(p) {
+  return p === "mottagare" || p === "hantverkare" ? p : "okand";
+}
+
+async function bump(env, key) {
+  const current = parseInt((await env.REVIEWS_KV.get(key)) || "0", 10);
+  await env.REVIEWS_KV.put(key, String(current + 1));
+}
+
+async function recordStats(env, review, path) {
+  const ts = new Date();
+  await bump(env, "count:total");
+  await bump(env, `count:day:${dayKey(ts)}`);
+  const stat = {
+    ts: ts.toISOString(),
+    trade: review.trade || "okand",
+    calcCoverage: review.calcCoverage || "okand",
+    contradictions: Array.isArray(review.contradictions) ? review.contradictions.length : 0,
+    clarify: Array.isArray(review.clarify) ? review.clarify.length : 0,
+    sumBand: sumBand(review.price && review.price.totalSumSek),
+    path: normalizePath(path),
+  };
+  await env.REVIEWS_KV.put(`stat:${ts.toISOString()}:${crypto.randomUUID()}`, JSON.stringify(stat));
+}
+
+async function readCounters(env) {
+  const [total, today] = await Promise.all([
+    env.REVIEWS_KV.get("count:total"),
+    env.REVIEWS_KV.get(`count:day:${dayKey()}`),
+  ]);
+  return { reviewsToday: parseInt(today || "0", 10), reviewsTotal: parseInt(total || "0", 10) };
 }
 
 function jsonResponse(body, status, headers) {
@@ -288,7 +341,7 @@ async function handleReview(request, env, ctx, allowedOrigins) {
     return jsonResponse({ error: "Ogiltig förfrågan (JSON)." }, 400, headers);
   }
 
-  const { kind, text, dataBase64, mediaType, filename } = body || {};
+  const { kind, text, dataBase64, mediaType, filename, path } = body || {};
   const maxBytes = parseInt(env.MAX_UPLOAD_BYTES || "8000000", 10);
 
   if (!kind || (kind === "text" && !text) || (kind !== "text" && !dataBase64)) {
@@ -403,6 +456,9 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   const latencyMs = Date.now() - startedAt;
   const cost = computeCostUsd(model, usage);
 
+  ctx.waitUntil(recordStats(env, review, path).catch((e) => console.log(JSON.stringify({ route: "review", warn: "stats", error: String(e) }))));
+  console.log(JSON.stringify({ route: "review", status: 200, ms: latencyMs, kind, costUsd: cost ? cost.usd : null }));
+
   ctx.waitUntil(
     env.REVIEWS_KV.put(
       `debug:${debugId}`,
@@ -449,8 +505,10 @@ export default {
     }
 
     if (url.pathname === "/health") {
+      let counters = { reviewsToday: null, reviewsTotal: null };
+      try { counters = await readCounters(env); } catch (e) { /* KV nere: svara ändå */ }
       return jsonResponse(
-        { ok: true, hasApiKey: Boolean(env.ANTHROPIC_API_KEY) },
+        { ok: true, hasApiKey: Boolean(env.ANTHROPIC_API_KEY), ...counters, version: WORKER_VERSION },
         200,
         corsHeaders(origin, allowedOrigins)
       );

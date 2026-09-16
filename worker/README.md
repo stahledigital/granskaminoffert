@@ -1,74 +1,57 @@
-# Granska min offert — backend (Cloudflare Worker)
+# Granska min offert — backend (Cloudflare Worker `granskaminoffert-api`)
 
-Status 2026-09-14: kod skriven och syntaxkontrollerad lokalt. **Inte ännu
-deployad eller E2E-testad mot skarpt Anthropic API** — det kräver din
-medverkan enligt nedan (T4-gräns: pengar/credentials, se
-`AI_ARBETSDOKTRIN.md` §7).
+Live: `https://granskaminoffert-api.anders-316.workers.dev` (kontots gratis workers.dev, ingen egen domän, ingen DNS).
+Deployad och E2E-verifierad 2026-09-14. Version i koden: `WORKER_VERSION` (`/health` visar den).
 
-Ingen DNS rörs. Ingen ny Cloudflare-domän behövs — vi använder kontots
-gratis `*.workers.dev`-subdomän.
+## Vad den gör
+- `GET /health` → `{"ok":true,"hasApiKey":true,"reviewsToday":n,"reviewsTotal":n,"version":"gmo-api-vN"}`.
+  Kostar inget. `reviewsToday`/`reviewsTotal` räknar lyckade granskningar (UTC-dygn).
+- `POST /review` → tar `{kind:"text"|"image"|"pdf", text|dataBase64, mediaType, filename, path}` och svarar med det
+  strukturerade granskningsresultatet plus `meta` (modell, latens, kostnad i USD och grov SEK).
+  `path` är vald väg i frontend (`mottagare`/`hantverkare`) och används bara för statistik.
+- `OPTIONS` besvaras för CORS. Allt annat → 404.
 
-## Vad du behöver ha/göra (en gång)
+## Skydd
+- CORS låst till `ALLOWED_ORIGIN` (kommaseparerad lista tillåten). Observera: CORS stoppar andra webbplatser, inte curl.
+- Rate limit `RATE_LIMIT_PER_HOUR` per IP (KV, TTL 1 h) och globalt dagstak `GLOBAL_DAILY_LIMIT` (standard 150).
+  Räknarna är läs-öka-skriv i KV och inte atomära; taket är ett kostnadsskydd, inte en exakt spärr.
+- Max text 20 000 tecken, max fil `MAX_UPLOAD_BYTES` (8 MB). Svar: `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff`.
 
-1. **Cloudflare-konto** — ni har redan ett (utan domäner). Logga in på
-   https://dash.cloudflare.com.
-2. **Anthropic API-nyckel** — om du inte redan har en: skapa på
-   https://console.anthropic.com/settings/keys. Spara den ingenstans i
-   projektmappen, chatten eller Git.
-3. **wrangler** (Cloudflares CLI) — installeras med `npm install -g wrangler`
-   eller körs via `npx wrangler`.
+## Lagring i KV `REVIEWS_KV`
+| Nyckel | Innehåll | TTL |
+|---|---|---|
+| `rl:<ip>:<timme>` | räknare för rate limit | 1 h |
+| `global:<dag>` | räknare för dagstaket (alla försök) | 48 h |
+| `debug:<uuid>` | felsökningspost: tid, IP, kind, filnamn, modell, latens, usage, kostnad, AI-svaret (vid fel: felet). Ingen offert. | 24 h (Anders beslut 2026-09-14) |
+| `count:total`, `count:day:<dag>` | antal lyckade granskningar | ingen |
+| `stat:<tid>:<uuid>` | anonym statistikpost: `ts, trade, calcCoverage, contradictions (antal), clarify (antal), sumBand (<25k / 25-100k / 100-300k / >300k / okand), path`. Ingen IP, inget filnamn, ingen fritext, ingen offert. (Moneyman/Anders beslut 2026-09-16) | ingen |
 
-## Deploy — steg för steg
+## Vars (wrangler.toml `[vars]`) och secrets
+`ALLOWED_ORIGIN`, `ANTHROPIC_MODEL`, `MAX_UPLOAD_BYTES`, `RATE_LIMIT_PER_HOUR`, valfritt `GLOBAL_DAILY_LIMIT`.
+Secret: `ANTHROPIC_API_KEY` — sätts av Anders i Cloudflare (dashboard eller `wrangler secret put`). Aldrig i repo eller chatt.
+KV-id:t i `wrangler.toml` är en platshållare; den deployade workerns bindning bor i Cloudflare-dashboarden.
 
-Kör i Terminal (eller ge mig tillfällig åtkomst så kör jag detta åt dig, se
-nedan — nyckeln skrivs då aldrig i chatten, bara direkt i Cloudflares
-dashboard/CLI-prompt):
-
-```bash
-cd "Ståhle Digital/granskaminoffert/worker"
-npx wrangler login                       # öppnar webbläsaren, logga in
-npx wrangler kv namespace create REVIEWS_KV
-# klistra in det id som skrivs ut i wrangler.toml (fältet "id")
-npx wrangler secret put ANTHROPIC_API_KEY
-# klistra in din Anthropic-nyckel när den frågar — syns aldrig i historik/repo
-npx wrangler deploy
+## Deploy
+Nuvarande väg (2026-09-16): Anders klistrar in `src/index.js` i Cloudflare → Workers & Pages → granskaminoffert-api → Edit code (Quick Edit) → Deploy.
+Den som levererar koden ska ange md5 för `src/index.js` så att rätt version klistras in:
 ```
-
-Efter `deploy` skriver wrangler ut en URL i stil med
-`https://granskaminoffert-api.<ditt-konto>.workers.dev`. Den URL:en ska in i
-`index.html` (`const API_BASE = "..."`) — säg till mig så uppdaterar jag
-frontend och committar, eller ändra raden själv.
-
-Testa att det fungerar utan att det kostar någon token:
-
-```bash
-curl https://granskaminoffert-api.<ditt-konto>.workers.dev/health
-# ska svara {"ok":true,"hasApiKey":true}
+md5 worker/src/index.js          # på Macen
 ```
+Alternativ med CLI, från `worker/`: `npx wrangler deploy` (kräver inloggning och ifyllt KV-id i wrangler.toml).
 
-## Om du hellre ger mig tillfällig åtkomst
+Verifiera efter deploy, utan kostnad:
+```
+curl https://granskaminoffert-api.anders-316.workers.dev/health
+```
+`version` ska visa den nya `WORKER_VERSION`.
 
-Du svarade att du vill ge mig tillfällig åtkomst i stället för att göra hela
-deployen själv. Enklast: öppna Cloudflare-dashboarden i din vanliga Chrome
-(inloggad), säg till, så navigerar jag dit via Claude in Chrome och gör
-stegen ovan i dashboardens UI (Workers & Pages → Create → klistra in kod →
-Settings → Variables → lägg till secret). När vi når secret-fältet skriver
-**du** in nyckeln själv i webbläsaren — jag klickar bara fram till fältet,
-värdet går aldrig genom mig eller chatten. Återkalla sedan min
-Chrome-åtkomst när det är klart.
+## Test
+```
+node --test worker/test/index.test.mjs
+```
+Kör utan nätverk och utan nyckel: summaband, vägnormalisering, /health, CORS, 400 på tom förfrågan, och en mockad lyckad
+granskning som kontrollerar att räknarna ökar och att statistikposten inte innehåller IP, filnamn, namn, adress eller belopp.
 
 ## Kostnad
-
-Ingen prenumeration krävs för MVP: Workers free-nivå (100 000 anrop/dag) och
-KV free-nivå räcker gott för lanseringsvolym. Anthropic-anropen kostar per
-faktisk användning — se `meta.costUsd` i varje svar; jag rapporterar
-uppmätt (inte uppskattad) kostnad per granskning så fort vi kört på riktigt.
-
-## Dataminimering (ditt beslut 2026-09-14)
-
-Varje förfrågan (offertinnehåll + AI-svar) sparas i KV-namnet `REVIEWS_KV`
-med `expirationTtl: 86400` — raderas automatiskt av Cloudflare efter 24
-timmar, ingen manuell åtgärd krävs. Inget annat lager (ingen databas, ingen
-extern loggtjänst). Detta behöver läggas till i
-`Administration/Strategi/LEGAL_COMPLIANCE.md`, avsnitt
-"Persondata- och webbregister" — se separat TODO i huvudrapporten.
+Workers och KV på gratisnivå. Anthropic-anropen kostar per användning: `meta.costUsd` i varje svar är den mätta siffran
+(prislista per modell i `MODEL_PRICING_USD_PER_MTOK` — uppdatera vid modellbyte). Modellbyte görs bara med mätning före/efter.
