@@ -1,5 +1,15 @@
 # Granska min offert – ändringslogg
 
+## gmo-v3 / gmo-api-v3 – 2026-09-17 (kampanjkrav)
+Backend (`worker/src/index.js`):
+- Globalt dagstak standard 150 → 300 granskningar/dygn (`GLOBAL_DAILY_LIMIT`, även i wrangler.toml).
+- Räknare per väg (`count:path:*`) och per delningskanal (`count:share:email|sms|copy`), totalt och per dag. Allt läsbart utan kod i `/health` (`byPath`, `shares`, `dailyLimit`).
+- Ny `POST /event` (`{type:"share",channel}`) – bara från vår origin, svarar alltid 204, räknar bara kanal. Ingen IP, inget innehåll.
+Frontend (`index.html`):
+- Klick på "Skicka via e-post", "Skicka som SMS" och "Kopiera" skickas som beacon till `/event`. Exempeloffert räknas inte.
+- UTM-parametrar rörs inte av sidan (ingen URL-omskrivning) – kontrollerat.
+Drift: `DEPLOY_GRANSKAMINOFFERT_WORKER.command` (dubbelklick på Macen) publicerar workern med wrangler; fyller i KV-id automatiskt.
+
 ## gmo-v2 / gmo-api-v2 – 2026-09-16
 Frontend (`index.html`):
 - Rad under vägvalskorten som byts med vald väg (mottagare/hantverkare). Ny undertext på hantverkarkortet.

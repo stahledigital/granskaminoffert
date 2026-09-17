@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v2">
+<meta name="app-version" content="gmo-v3">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
 <meta name="description" content="AI-stödd granskning av hantverkarofferter i PDF, foto eller text. För dig som fått en offert eller ska skicka en. Hitta oklarheter. Gratis att prova utan konto.">
@@ -314,7 +314,8 @@ function render(result,isDemo){
   const text=buildClipboardText(result,chosenPath);
   const subj=chosenPath==='hantverkare'?'Punkter att förtydliga i offerten':'Frågor om offerten';
   $('sendmail').href='mailto:?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(text);
-  if($('sendsms'))$('sendsms').href='sms:?&body='+encodeURIComponent(text);
+  $('sendmail').addEventListener('click',()=>trackShare('email'));
+  if($('sendsms')){$('sendsms').href='sms:?&body='+encodeURIComponent(text);$('sendsms').addEventListener('click',()=>trackShare('sms'));}
   $('res').classList.add('on');
   $('res').scrollIntoView({behavior:'smooth',block:'start'});
 
@@ -323,12 +324,24 @@ function render(result,isDemo){
     const text=buildClipboardText(lastResult,chosenPath);
     try{
       await navigator.clipboard.writeText(text);
+      trackShare('copy');
       copyBtn.textContent='Kopierat!';
       setTimeout(()=>{copyBtn.textContent='Kopiera';},1800);
     }catch(e){
       showError('Kunde inte kopiera automatiskt — markera och kopiera texten manuellt.');
     }
   };
+}
+
+// Räknar bara att en delningsknapp trycktes (kanal), inget innehåll. Exempeloffert räknas inte.
+function trackShare(channel){
+  try{
+    if(!API_BASE||!lastResult||lastIsDemo)return;
+    const url=API_BASE.replace(/\/$/,'')+'/event';
+    const body=JSON.stringify({type:'share',channel});
+    if(navigator.sendBeacon){navigator.sendBeacon(url,new Blob([body],{type:'application/json'}));}
+    else{fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:true}).catch(()=>{});}
+  }catch(e){}
 }
 
 async function runReview(){

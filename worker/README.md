@@ -29,10 +29,10 @@ Deployad och E2E-verifierad 2026-09-14. Version i koden: `WORKER_VERSION` (`/hea
 ## Vars (wrangler.toml `[vars]`) och secrets
 `ALLOWED_ORIGIN`, `ANTHROPIC_MODEL`, `MAX_UPLOAD_BYTES`, `RATE_LIMIT_PER_HOUR`, valfritt `GLOBAL_DAILY_LIMIT`.
 Secret: `ANTHROPIC_API_KEY` — sätts av Anders i Cloudflare (dashboard eller `wrangler secret put`). Aldrig i repo eller chatt.
-KV-id:t i `wrangler.toml` är en platshållare; den deployade workerns bindning bor i Cloudflare-dashboarden.
+KV-id:t i `wrangler.toml` fylls i av deploy-skriptet första gången (platshållare i repot tills dess).
 
 ## Deploy
-Nuvarande väg (2026-09-16): Anders klistrar in `src/index.js` i Cloudflare → Workers & Pages → granskaminoffert-api → Edit code (Quick Edit) → Deploy.
+Nuvarande väg (2026-09-17): dubbelklicka `DEPLOY_GRANSKAMINOFFERT_WORKER.command` i repo-roten (kör `npx wrangler deploy`, fyller i KV-id i wrangler.toml första gången, visar `/health`). Reservväg: klistra in `src/index.js` i Cloudflare → Workers & Pages → granskaminoffert-api → Edit code (Quick Edit) → Deploy.
 Den som levererar koden ska ange md5 för `src/index.js` så att rätt version klistras in:
 ```
 md5 worker/src/index.js          # på Macen

@@ -2,9 +2,10 @@ name = "granskaminoffert-api"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
-# KV-namespace för 24h felsökningslagring (Anders beslut 2026-09-14).
-# Skapa med: wrangler kv namespace create REVIEWS_KV
-# och klistra in det id:t som visas här innan deploy.
+# KV-namespace för 24h felsökningslagring och anonyma räknare.
+# Id:t fylls i automatiskt av DEPLOY_GRANSKAMINOFFERT_WORKER.command
+# (letar upp namespace med "REVIEWS" i namnet på kontot). Skapa annars med:
+#   npx wrangler kv namespace create REVIEWS_KV
 [[kv_namespaces]]
 binding = "REVIEWS_KV"
 id = "REPLACE_AFTER_WRANGLER_KV_NAMESPACE_CREATE"
@@ -15,6 +16,8 @@ ALLOWED_ORIGIN = "https://granskaminoffert.se"
 ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
 MAX_UPLOAD_BYTES = "8000000"
 RATE_LIMIT_PER_HOUR = "8"
+# Globalt tak per dygn (UTC) för alla användare tillsammans. Kampanjbeslut 2026-09-17: 300.
+GLOBAL_DAILY_LIMIT = "300"
 
 # Secret (ALDRIG i denna fil, aldrig i repo):
-#   wrangler secret put ANTHROPIC_API_KEY
+#   npx wrangler secret put ANTHROPIC_API_KEY

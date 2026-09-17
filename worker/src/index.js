@@ -226,7 +226,7 @@ function corsHeaders(origin, allowedOrigins) {
 // Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
 // Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
 // aldrig underlag för fakturering.
-const WORKER_VERSION = "gmo-api-v2";
+const WORKER_VERSION = "gmo-api-v3";
 
 function dayKey(d = new Date()) {
   return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
@@ -255,6 +255,8 @@ async function recordStats(env, review, path) {
   const ts = new Date();
   await bump(env, "count:total");
   await bump(env, `count:day:${dayKey(ts)}`);
+  await bump(env, `count:path:${normalizePath(path)}`);
+  await bump(env, `count:path:${normalizePath(path)}:${dayKey(ts)}`);
   const stat = {
     ts: ts.toISOString(),
     trade: review.trade || "okand",
@@ -267,12 +269,46 @@ async function recordStats(env, review, path) {
   await env.REVIEWS_KV.put(`stat:${ts.toISOString()}:${crypto.randomUUID()}`, JSON.stringify(stat));
 }
 
+// Delningsklick: "Skicka via e-post" / "Skicka som SMS" / "Kopiera". Bara en
+// räknare per kanal, inget innehåll, ingen IP. Skickas från sidan med sendBeacon.
+const SHARE_CHANNELS = ["email", "sms", "copy"];
+export function normalizeChannel(c) {
+  return SHARE_CHANNELS.includes(c) ? c : null;
+}
+
+async function recordShare(env, channel) {
+  await bump(env, `count:share:${channel}`);
+  await bump(env, `count:share:${channel}:${dayKey()}`);
+}
+
 async function readCounters(env) {
-  const [total, today] = await Promise.all([
-    env.REVIEWS_KV.get("count:total"),
-    env.REVIEWS_KV.get(`count:day:${dayKey()}`),
-  ]);
-  return { reviewsToday: parseInt(today || "0", 10), reviewsTotal: parseInt(total || "0", 10) };
+  const day = dayKey();
+  const keys = [
+    "count:total", `count:day:${day}`,
+    "count:path:mottagare", `count:path:mottagare:${day}`,
+    "count:path:hantverkare", `count:path:hantverkare:${day}`,
+    "count:path:okand",
+    "count:share:email", `count:share:email:${day}`,
+    "count:share:sms", `count:share:sms:${day}`,
+    "count:share:copy", `count:share:copy:${day}`,
+  ];
+  const v = await Promise.all(keys.map((k) => env.REVIEWS_KV.get(k)));
+  const n = (i) => parseInt(v[i] || "0", 10);
+  return {
+    reviewsToday: n(1),
+    reviewsTotal: n(0),
+    byPath: {
+      mottagare: { total: n(2), today: n(3) },
+      hantverkare: { total: n(4), today: n(5) },
+      okand: { total: n(6) },
+    },
+    shares: {
+      email: { total: n(7), today: n(8) },
+      sms: { total: n(9), today: n(10) },
+      copy: { total: n(11), today: n(12) },
+    },
+    dailyLimit: parseInt(env.GLOBAL_DAILY_LIMIT || "300", 10),
+  };
 }
 
 function jsonResponse(body, status, headers) {
@@ -296,9 +332,9 @@ async function rateLimit(env, ip) {
 // helt genom att byta IP (VPN, mobildata etc). Detta är ett globalt tak för
 // ALLA användare tillsammans per dygn (UTC), som håller värsta möjliga
 // dagskostnad förutsägbar oavsett hur ratelimit-gränsen kringgås.
-// Standard 150/dygn * ~0.03 USD/anrop ≈ max 4-5 USD/dygn i värsta fall.
+// Standard 300/dygn * ~0.03 USD/anrop ≈ max 9 USD/dygn i värsta fall (kampanjbeslut 2026-09-17).
 async function globalDailyLimitOk(env) {
-  const limit = parseInt(env.GLOBAL_DAILY_LIMIT || "150", 10);
+  const limit = parseInt(env.GLOBAL_DAILY_LIMIT || "300", 10);
   const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
   const key = `global:${day}`;
   const current = parseInt((await env.REVIEWS_KV.get(key)) || "0", 10);
@@ -516,6 +552,20 @@ export default {
 
     if (url.pathname === "/review" && request.method === "POST") {
       return handleReview(request, env, ctx, allowedOrigins);
+    }
+
+    // Delningsklick. Tar bara emot från vår egen sida (Origin-kontroll), och
+    // räknar bara kanal. Svarar alltid 204 så att sidan aldrig påverkas.
+    if (url.pathname === "/event" && request.method === "POST") {
+      const headers = corsHeaders(origin, allowedOrigins);
+      if (!allowedOrigins.includes(origin)) return new Response(null, { status: 403, headers });
+      let channel = null;
+      try {
+        const body = await request.json();
+        channel = normalizeChannel(body && body.type === "share" ? body.channel : null);
+      } catch (e) { /* ogiltig kropp: ignorera */ }
+      if (channel) ctx.waitUntil(recordShare(env, channel).catch(() => {}));
+      return new Response(null, { status: 204, headers });
     }
 
     return jsonResponse({ error: "Not found" }, 404, corsHeaders(origin, allowedOrigins));
