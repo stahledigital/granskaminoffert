@@ -106,11 +106,16 @@ export function runRules(x, ref) {
       if (ok) {
         add("rot_belopp", "ok", "ROT-belopp", `ROT-avdraget ${kr(rotAmt)} är ${Math.round(rot.rate * 100)} % av arbetskostnaden ${kr(laborInclVat)} inklusive moms.`, src(ref, "skatteverket_rot"));
       } else if (Math.abs(usedRate - rot.oldRate) < 0.02) {
-        // c) 50 % med betalning 2026
-        const pay2025 = payDate && inRange(payDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
-        add("rot_belopp", pay2025 ? "ok" : "fel", "ROT-sats",
+        // c) 50 % gällde bara betalning 2025-05-12 – 2025-12-31. Betalningsdatumet
+        // styr; finns bara offertdatum i fönstret vet vi inte när betalningen sker.
+        const hasPay = Boolean(x.plannedPaymentDate);
+        const pay2025 = hasPay && inRange(x.plannedPaymentDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
+        const quote2025 = !hasPay && x.quoteDate && inRange(x.quoteDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
+        add("rot_belopp", pay2025 ? "ok" : quote2025 ? "fraga" : "fel", "ROT-sats",
           pay2025
             ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %, vilket gällde för betalningar ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}. Betalningsdatumet i offerten ligger i det fönstret.`
+            : quote2025
+            ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. Det gällde bara arbete som betalades ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}, och offerten anger inte när betalningen sker. Betalas arbetet 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${kr(expected)} i stället för ${kr(rotAmt)}.`
             : `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. ${rot.quote} För betalning 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${kr(expected)} i stället för ${kr(rotAmt)}.`,
           src(ref, "skatteverket_rot"));
       } else {

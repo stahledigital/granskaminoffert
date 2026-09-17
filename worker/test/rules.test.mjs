@@ -67,6 +67,10 @@ test("2025-offert med 50 % som betalas 2026: fel med Skatteverket-citat", () => 
   // Samma offert betald i december 2025: ok
   const r2 = runRules({ ...FIXTURES.offert2025Femtio, plannedPaymentDate: "2025-12-15" }, REF);
   assert.equal(byId(r2, "rot_belopp").status, "ok");
+  // Offertdatum 2025 men inget betaldatum: fråga, inte ok
+  const r3 = runRules({ ...FIXTURES.offert2025Femtio, plannedPaymentDate: null }, REF);
+  assert.equal(byId(r3, "rot_belopp").status, "fraga");
+  assert.match(byId(r3, "rot_belopp").text, /anger inte när betalningen sker/);
   const c = compareToBands(FIXTURES.offert2025Femtio, REF);
   assert.equal(byId(c, "tim_malare").mode, "inom");
   assert.equal(byId(c, "projekt").mode, "inom"); // arbete 24 000 / 60 m² = 400 kr/m²

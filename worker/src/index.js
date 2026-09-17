@@ -79,7 +79,7 @@ const EXTRACTED_SCHEMA = {
     totalSumSek: { ...NUM_OR_NULL, description: "Summan att betala enligt offerten (efter ROT om ROT dragits av i totalen). null om ingen total anges." },
     totalIncludesVat: { type: ["boolean", "null"], description: "true om totalen uttryckligen är inkl. moms, false om uttryckligen exkl., null om oklart." },
     quoteDate: { type: ["string", "null"], description: "Offertens datum som ÅÅÅÅ-MM-DD. null om inget datum." },
-    plannedPaymentDate: { type: ["string", "null"], description: "Planerad betalning/fakturering som ÅÅÅÅ-MM-DD om det framgår. null annars." },
+    plannedPaymentDate: { type: ["string", "null"], description: "När betalning eller fakturering planeras, som ÅÅÅÅ-MM-DD. Anges bara månad eller \"vid slutfört arbete i februari 2026\": använd månadens första dag (2026-02-01). Anges bara år: ÅÅÅÅ-01-01. null om inget alls framgår." },
     customerType: { type: ["string", "null"], enum: ["privatperson", "foretag", null], description: "Om kunden är privatperson eller företag, när det framgår." },
     workDescription: { type: ["string", "null"], description: "Arbetet i högst 15 ord, med offertens egna ord. Inga namn, adresser eller företag." },
     county: { type: ["string", "null"], description: "Län om ort framgår (t.ex. 'Kronoberg'). null annars. Aldrig adress." },
@@ -283,7 +283,7 @@ function corsHeaders(origin, allowedOrigins) {
 // Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
 // Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
 // aldrig underlag för fakturering.
-const WORKER_VERSION = "gmo-api-v4";
+const WORKER_VERSION = "gmo-api-v4.1";
 
 function dayKey(d = new Date()) {
   return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
