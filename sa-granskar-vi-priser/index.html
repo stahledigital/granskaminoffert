@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="app-version" content="gmo-v4">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Så granskar vi priser – Granska min offert</title>
+<meta name="description" content="Hur prisbilden i Granska min offert räknas: vilka källor vi lutar oss mot, vad ett referensintervall är och inte är, och vad som sparas om du bidrar till statistiken.">
+<link rel="canonical" href="https://granskaminoffert.se/sa-granskar-vi-priser/">
+<meta property="og:title" content="Så granskar vi priser – Granska min offert">
+<meta property="og:description" content="Källor, metod och gränser för prisbilden i Granska min offert.">
+<meta property="og:url" content="https://granskaminoffert.se/sa-granskar-vi-priser/">
+<meta property="og:type" content="article">
+<meta property="og:locale" content="sv_SE">
+<meta property="og:image" content="https://granskaminoffert.se/og.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;padding:0 16px;padding-block:0 56px;line-height:1.5}
+.wrap{max-width:680px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:baseline;padding-block:24px 0;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);font-weight:600}
+header a{color:inherit;text-decoration:none}
+h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:clamp(36px,8vw,56px);line-height:.95;margin:22px 0 12px;text-wrap:balance}
+h2{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:26px;text-transform:uppercase;letter-spacing:.02em;margin:34px 0 8px}
+p,li{font-size:16px;max-width:62ch}
+.lead{font-size:18px;color:var(--ink2);margin:0 0 22px}
+ol,ul{padding-left:22px}
+li{margin:6px 0}
+a{color:var(--ink)}
+.box{border:1px solid var(--line);border-left:6px solid var(--acc);border-radius:10px;padding:14px 18px;background:var(--paper);margin:18px 0}
+.box p{margin:6px 0}
+table{border-collapse:collapse;width:100%;font-size:15px;margin:10px 0}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2)}
+.tw{overflow-x:auto}
+.foot{margin-top:34px;font-size:13px;color:var(--ink2)}
+.btn{display:inline-block;border:1px solid var(--ink);background:var(--ink);color:var(--bg);font:600 15px Barlow,sans-serif;padding:11px 16px;border-radius:8px;text-decoration:none;margin-top:10px}
+</style>
+</head>
+<body>
+<main class="wrap">
+<header><span>Granska min offert · Växjö</span><a href="/">Till granskningen</a></header>
+<h1>Så granskar vi priser.</h1>
+<p class="lead">Prisbilden i resultatet är ingen dom. Den är en jämförelse mot offentliga källor, med källa och datum i varje mening, och en lista på vad som går – och inte går – att kontrollera i just din offert.</p>
+
+<div class="box">
+<p><b>Kort version.</b> Ett pris utanför våra referensintervall är en fråga att ställa, inte ett fel. Pris beror på omfattning, material, ort och hur bråttom det är. Vi säger aldrig att en offert är dyr eller billig – vi säger var den ligger i förhållande till det vi kan hitta i öppna källor.</p>
+</div>
+
+<h2>Två lager: regler och referens</h2>
+<p><b>Regelkontroller</b> görs av vår egen kod, inte av AI. Det är räkneregler med ett facit: att ROT-avdraget är 30 procent av arbetskostnaden inklusive moms (Skatteverket), att ROT inte räknats på material eller resor, att timmar gånger timpris blir arbetssumman, att raderna summerar till totalen, att momsen anges konsekvent, och att offerten säger om priset är fast, ungefärligt eller löpande. Här kan resultatet bli <i>stämmer</i> eller <i>stämmer inte</i>.</p>
+<p><b>Referensjämförelsen</b> sätter offertens timpris och totalpris i förhållande till intervall vi har byggt av offentliga källor. Här finns inget facit – bara tre lägen: under referensgolvet, inom intervallet eller över intervallet. Varje sådan mening anger källa och datum.</p>
+<p>AI (Anthropic Claude) används för ett enda steg: att läsa offerten och plocka ut siffrorna – timpris, timmar, arbete, material, ROT, datum. Det som inte står i offerten lämnas tomt; AI:n får inte gissa. All räkning och jämförelse sker sedan i vanlig, granskningsbar kod.</p>
+
+<h2>Källorna, i den ordning vi litar på dem</h2>
+<ol>
+<li><b>SCB:s lönestrukturstatistik</b> (lön per yrke, SSYK 4-siffrig, år 2025). Enda källan med redovisad metod, konfidensintervall och fri licens. Ger vårt <i>referensgolv</i>: vad en anställd i yrket kostar arbetsgivaren per debiterbar timme, inklusive arbetsgivaravgift 31,42 % (Skatteverket), semesterlön och avtalsförsäkringar, vid 80 procents debiteringsgrad. Golvet är en härledning, inte en uppmätt siffra.</li>
+<li><b>Skatteverket.</b> ROT-reglerna: 30 procent av arbetskostnaden, högst 50 000 kr per person och år, ROT och RUT tillsammans högst 75 000 kr, betalningsdatumet styr (50 procent gällde bara arbete som betalades 12 maj–31 december 2025), listan över arbeten som inte ger ROT, samt schablonerna för värmepumpar (35 procent av totalpriset räknas som arbete vid berg-, jord- och sjövärme, 30 procent vid luftvärmepump). Citeras med datum.</li>
+<li><b>Byggahus.se:s ringundersökningar</b> (snickare mars 2026, elektriker maj 2026, VVS juni–augusti 2026; målare och plattsättare februari 2024). Tre firmor i tretton städer, redovisad metod, min, max och snitt. Vi använder dem som marknadens mittpunkt och hänvisar till dem med namn – vi kopierar inte deras tabeller.</li>
+<li><b>SCB:s byggkostnadsindex</b> (BKI, delserien arbetslön). Används för att räkna upp intervallen en gång om året utan att läsa om alla guider. Senaste tolv månaderna: arbetslön +2,7 %, material +3,9 % (augusti 2025 till augusti 2026).</li>
+<li><b>Kollektivavtalen och Konsumentverket.</b> Byggavtalet (203 kr/h från maj 2026), Installationsavtalet och Måleriavtalet ger den lägsta lagliga lönenivån. Konsumentverket ger de formella kraven på en offert: fast eller ungefärligt pris, att ett ungefärligt pris får överskridas med högst 15 procent, och att ett pris till privatperson utan uppgift om moms ska läsas som inklusive moms (Villaägarna).</li>
+</ol>
+<p>Som stöd, inte som grund, läser vi prisguider från Hantverkskollen, Offerta, HelpHero, BraByggare, Byggstart, Elektriker.se och Dorunner. De har många observationer men redovisar sällan metod, så projektintervallen (badrum, altan, fönster, tak, målning, fasad, kakel, bergvärme, elcentral) är märkta som grova referenser. För kök finns inget tillräckligt underlag – där säger vi "referens saknas".</p>
+
+<h2>Referensintervall, version 2026-09</h2>
+<p>Timpris till privatperson, före ROT, inklusive moms. Golvet är härlett från SCB 2025, intervallet är vår sammanvägning av marknadskällorna 2026, taket är marknadens övre kvartil plus 15 procent.</p>
+<div class="tw"><table>
+<tr><th>Yrke</th><th>Referensgolv</th><th>Intervall</th><th>Marknadsmitt (källa)</th></tr>
+<tr><td>Snickare</td><td>~570 kr/h</td><td>550–800 kr/h</td><td>707 kr/h (Byggahus.se mars 2026)</td></tr>
+<tr><td>Elektriker</td><td>~565 kr/h</td><td>650–950 kr/h</td><td>835 kr/h (Byggahus.se maj 2026)</td></tr>
+<tr><td>VVS-montör</td><td>~605 kr/h</td><td>700–1 050 kr/h</td><td>851 kr/h (Byggahus.se jun–aug 2026)</td></tr>
+<tr><td>Målare</td><td>~530 kr/h</td><td>480–750 kr/h</td><td>~600 kr/h (Hantverkskollen 2026, Byggahus.se 2024)</td></tr>
+<tr><td>Plattsättare</td><td>~630 kr/h</td><td>580–900 kr/h</td><td>~690 kr/h (Hantverkskollen 2026, Byggahus.se 2024)</td></tr>
+</table></div>
+<p>Vanliga tillägg som vi inte flaggar: framkörning eller servicebil 400–1 000 kr per besök och materialpåslag 10–25 procent (Offerta, HelpHero, Hantverkskollen 2025–2026).</p>
+<p><b>Kronoberg.</b> Vi använder rikstäckande intervall. SCB:s lönestatistik för Småland med öarna ligger 0 till 3,4 procent under Stockholm, och Byggahus.se ser ingen storstadspremie i timpriserna. Räkna med rikets nivå, eventuellt 0–10 procent lägre timpris. Vi har ingen egen mätning i Växjö ännu.</p>
+
+<h2>Vad intervallen inte är</h2>
+<ul>
+<li>Inte ett facit. Ett pris utanför intervallet kan ha goda skäl: specialkompetens, kort uppdrag, långa resor, ovanligt material eller ett svårt hus.</li>
+<li>Inte en bedömning av företaget. Vi vet ingenting om firman, bara vad som står i dokumentet.</li>
+<li>Inte juridisk rådgivning. Regelkontrollerna bygger på Skatteverkets och Konsumentverkets publicerade regler, men det är alltid källan som gäller.</li>
+<li>Inte uppmätta i Växjö. Intervallen bygger på nationella källor och prisguider.</li>
+</ul>
+
+<h2>Om du bidrar till prisstatistiken</h2>
+<p>Rutan "Bidra anonymt till prisstatistik" är avbockad som standard. Kryssar du i den sparar vi, utan koppling till dig eller offerten: jobbtyp, län, summaband (till exempel 25–100 tkr), timprisband (till exempel 600–799 kr/h), ungefärlig andel arbete och material, om ROT förekom, vilka kontroller som föll ut och datum. Aldrig fritext, företagsnamn, organisationsnummer, personnamn, adress, IP-adress eller filnamn. När det finns tillräckligt många bidrag per jobbtyp kan vi visa egna intervall per län, märkta med antal. Mer i avsnittet <a href="/#om">Om tjänsten och dina uppgifter</a> på startsidan.</p>
+
+<h2>Uppdatering</h2>
+<p>Referensdata har ett versionsdatum som visas i varje rapport. SCB:s lönestatistik och byggkostnadsindex hämtas via SCB:s öppna API en gång om året (januari) och intervallen räknas om; marknadskällorna läses om varje kvartal; ROT-reglerna kontrolleras mot Skatteverket vid varje uppdatering. Aktuell version: <b>2026-09</b> (källor lästa 2026-09-17).</p>
+
+<a class="btn" href="/">Granska en offert</a>
+
+<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital – Verkstaden</a>, Växjö. Org.nr 810930-2714 · <a href="mailto:hej@stahledigital.se">hej@stahledigital.se</a></p>
+</main>
+</body>
+</html>

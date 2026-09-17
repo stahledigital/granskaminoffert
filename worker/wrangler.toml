@@ -8,7 +8,7 @@ compatibility_date = "2026-09-01"
 #   npx wrangler kv namespace create REVIEWS_KV
 [[kv_namespaces]]
 binding = "REVIEWS_KV"
-id = "REPLACE_AFTER_WRANGLER_KV_NAMESPACE_CREATE"
+id = "65e71b59b2ce4f3aa4974b3a83bd92e4"
 
 [vars]
 # Kommaseparerad lista om fler origins behövs (t.ex. under test).

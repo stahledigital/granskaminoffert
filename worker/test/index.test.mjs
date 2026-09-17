@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker, { sumBand, normalizePath } from "../src/index.js";
+import { findForbidden } from "../src/rules.js";
 
 // Minimal KV-attrapp med samma yta som Cloudflares (get/put).
 function fakeKV() {
@@ -44,7 +45,7 @@ test("/health utan granskningar", async () => {
   const j = await r.json();
   assert.equal(j.ok, true); assert.equal(j.hasApiKey, true);
   assert.equal(j.reviewsToday, 0); assert.equal(j.reviewsTotal, 0);
-  assert.equal(j.version, "gmo-api-v3");
+  assert.equal(j.version, "gmo-api-v4");
   assert.equal(j.dailyLimit, 300);
   assert.deepEqual(j.shares.email, { total: 0, today: 0 });
   assert.deepEqual(j.byPath.hantverkare, { total: 0, today: 0 });
@@ -128,4 +129,42 @@ test("granskning räknas per väg", async () => {
   const j = await (await worker.fetch(new Request("https://x/health"), e, c)).json();
   assert.deepEqual(j.byPath.mottagare, { total: 1, today: 1 });
   assert.deepEqual(j.byPath.hantverkare, { total: 0, today: 0 });
+});
+
+test("prislager i svaret, förbjudna ord tvättas, prisstatistik bara vid opt-in", async () => {
+  const extracted = { jobType: "tak", trades: ["snickare"], hourlyRateSek: 595, hours: 36, laborSumSek: 21420, materialSumSek: 18900,
+    travelSumSek: null, otherSumSek: 2500, materialMarkupPct: null, rotAmountSek: 6426, rotRatePct: null, rotPersons: null, rotOnMaterialOrTravel: null,
+    priceType: null, vatMode: "inkl", totalSumSek: 36394, totalIncludesVat: true, quoteDate: "2026-09-10", plannedPaymentDate: null,
+    customerType: "privatperson", workDescription: "Byte av takpannor", county: "Kronoberg", areaM2: 32, unitCount: null };
+  const dirty = { ...fakeReview, calcNote: "Detta verkar vara ett överpris, kanske svart.", extracted };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ content: [{ type: "tool_use", name: "submit_review", input: dirty }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 });
+  const call = async (e, c, stats) => {
+    const r = await worker.fetch(new Request("https://x/review", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "CF-Connecting-IP": "203.0.113.9" }, body: JSON.stringify({ kind: "text", text: "Offert", path: "mottagare", stats }) }), e, c);
+    assert.equal(r.status, 200);
+    return r.json();
+  };
+  try {
+    const e1 = env(); const c1 = ctx();
+    const j = await call(e1, c1, false);
+    await Promise.all(c1.jobs);
+    assert.equal(j.priceReport.referenceVersion, "2026-09");
+    assert.ok(j.priceReport.checked.some((c) => c.id === "rot_belopp" && c.status === "ok"));
+    assert.ok(j.priceReport.compared.some((c) => c.id === "tim_snickare" && c.mode === "inom"));
+    assert.ok(j.priceReport.checked.some((c) => c.id === "summa" && c.status === "ok"));
+    assert.equal(findForbidden(j).length, 0);
+    assert.ok(!/överpris|svart/i.test(j.calcNote));
+    assert.equal([...e1.REVIEWS_KV.m.keys()].filter((k) => k.startsWith("pstat:")).length, 0);
+
+    const e2 = env(); const c2 = ctx();
+    await call(e2, c2, true);
+    await Promise.all(c2.jobs);
+    const pk = [...e2.REVIEWS_KV.m.keys()].filter((k) => k.startsWith("pstat:"));
+    assert.equal(pk.length, 1);
+    const p = JSON.parse(e2.REVIEWS_KV.m.get(pk[0]));
+    assert.deepEqual(Object.keys(p).sort(), ["county", "failedChecks", "jobType", "laborSharePct", "rateBand", "rot", "sumBand", "ts"]);
+    assert.equal(p.rateBand, "400-599");
+    assert.equal(p.sumBand, "25-100k");
+    assert.ok(!JSON.stringify(p).includes("595") && !JSON.stringify(p).includes("36394") && !JSON.stringify(p).includes("takpannor"));
+  } finally { globalThis.fetch = realFetch; }
 });

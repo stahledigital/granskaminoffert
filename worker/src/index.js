@@ -8,6 +8,9 @@
 // felsökning, och raderas automatiskt av Cloudflare — ingen manuell radering
 // krävs. Inget annat lager (ingen databas, inga externa loggtjänster).
 
+import REFERENCE from "./reference.json" with { type: "json" };
+import { runRules, checkNormalAddons, compareToBands, findForbidden, scrubForbidden } from "./rules.js";
+
 const ANTHROPIC_VERSION = "2023-06-01";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
@@ -40,6 +43,49 @@ const FINDING_ITEM_SCHEMA = {
         "en identifierare. Max ca 4 ord.",
     },
     text: { type: "string" },
+  },
+};
+
+// Strukturerade fält för prisregler (PRISUNDERLAG punkt 2). Fält som inte
+// står i offerten är null — modellen får aldrig gissa. Reglerna räknas sedan
+// i rules.js, deterministiskt.
+const NUM_OR_NULL = { type: ["number", "null"] };
+const EXTRACTED_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "jobType", "trades", "hourlyRateSek", "hours", "laborSumSek", "materialSumSek",
+    "travelSumSek", "materialMarkupPct", "rotAmountSek", "rotRatePct", "rotPersons",
+    "rotOnMaterialOrTravel", "priceType", "vatMode", "totalSumSek", "totalIncludesVat",
+    "quoteDate", "plannedPaymentDate", "customerType", "workDescription", "county", "areaM2", "unitCount", "otherSumSek",
+  ],
+  properties: {
+    jobType: { type: ["string", "null"], enum: ["badrum", "altan", "fonster", "tak", "malning", "fasad", "kakel", "bergvarme", "luftvarmepump", "elcentral", "kok", "annat", null],
+      description: "Typ av jobb enligt listan, annars 'annat'. null om det inte framgår." },
+    trades: { type: "array", items: { type: "string", enum: ["snickare", "elektriker", "vvs", "malare", "plattsattare", "annat"] },
+      description: "Yrken vars timpris eller arbete förekommer i offerten. Tom lista om oklart." },
+    hourlyRateSek: { ...NUM_OR_NULL, description: "Timpris i kr som det står i offerten (utan moms-omräkning). null om inget anges." },
+    hours: { ...NUM_OR_NULL, description: "Antal arbetstimmar som anges. null om inget anges." },
+    laborSumSek: { ...NUM_OR_NULL, description: "Arbetskostnad i kr som egen summa i offerten. null om arbete inte anges separat." },
+    materialSumSek: { ...NUM_OR_NULL, description: "Materialkostnad i kr som egen summa. null om inte separat." },
+    travelSumSek: { ...NUM_OR_NULL, description: "Resor/framkörning/servicebil i kr totalt. null om inget anges." },
+    materialMarkupPct: { ...NUM_OR_NULL, description: "Materialpåslag i procent om det anges uttryckligen. null annars." },
+    rotAmountSek: { ...NUM_OR_NULL, description: "ROT-avdrag i kr som anges. null om inget ROT-avdrag anges." },
+    rotRatePct: { ...NUM_OR_NULL, description: "ROT-sats i procent om den anges uttryckligen (30 eller 50). null annars." },
+    rotPersons: { ...NUM_OR_NULL, description: "Antal personer som ROT-avdraget delas på, om det anges. null annars." },
+    rotOnMaterialOrTravel: { type: ["boolean", "null"], description: "true bara om offerten uttryckligen räknar ROT på material, resor eller servicebil. null om det inte går att avgöra." },
+    priceType: { type: ["string", "null"], enum: ["fast", "ungefarligt", "lopande", null], description: "Pristyp som offerten anger. null om det inte framgår." },
+    vatMode: { type: "string", enum: ["inkl", "exkl", "blandat", "ej_angivet"], description: "Hur moms anges för beloppen." },
+    totalSumSek: { ...NUM_OR_NULL, description: "Summan att betala enligt offerten (efter ROT om ROT dragits av i totalen). null om ingen total anges." },
+    totalIncludesVat: { type: ["boolean", "null"], description: "true om totalen uttryckligen är inkl. moms, false om uttryckligen exkl., null om oklart." },
+    quoteDate: { type: ["string", "null"], description: "Offertens datum som ÅÅÅÅ-MM-DD. null om inget datum." },
+    plannedPaymentDate: { type: ["string", "null"], description: "Planerad betalning/fakturering som ÅÅÅÅ-MM-DD om det framgår. null annars." },
+    customerType: { type: ["string", "null"], enum: ["privatperson", "foretag", null], description: "Om kunden är privatperson eller företag, när det framgår." },
+    workDescription: { type: ["string", "null"], description: "Arbetet i högst 15 ord, med offertens egna ord. Inga namn, adresser eller företag." },
+    county: { type: ["string", "null"], description: "Län om ort framgår (t.ex. 'Kronoberg'). null annars. Aldrig adress." },
+    areaM2: { ...NUM_OR_NULL, description: "Yta i m² som arbetet avser, om den anges (badrum, tak, altan, målade väggar/tak, kakel, fasad). null annars." },
+    unitCount: { ...NUM_OR_NULL, description: "Antal enheter om arbetet räknas per styck (t.ex. antal fönster). null annars." },
+    otherSumSek: { ...NUM_OR_NULL, description: "Summa i kr för övriga rader som varken är arbete, material eller resor (t.ex. container, bortforsling, ställning, tillstånd). null om inga sådana rader." },
   },
 };
 
@@ -135,6 +181,7 @@ const SUBMIT_REVIEW_TOOL = {
           "3–6 konkreta frågor en MOTTAGARE av offerten kan ställa till " +
           "hantverkaren innan hen skriver på. Alltid frågeformulerat.",
       },
+      extracted: EXTRACTED_SCHEMA,
     },
   },
 };
@@ -193,10 +240,20 @@ verifiering — var ärlig om osäkerhet i calcNote, överdriv aldrig säkerhete
 
 PRISBILD: notera timpris (om angivet) och totalsumma i price-fältet. Gissa
 aldrig fram ett timpris om det inte anges — notera bara att ingen finns.
-Jämför INTE mot något branschgenomsnitt eller någon marknadsprisdatabas; det
-finns ingen sådan källa kopplad till tjänsten just nu. comment-fältet
-kommenterar bara hur tydligt/fullständigt prisuppgifterna är angivna, aldrig
-om priset är rimligt.
+Jämför INTE själv mot något branschgenomsnitt; prisjämförelsen görs av
+tjänstens egen kod mot källbelagda referensintervall, efter din läsning.
+comment-fältet kommenterar bara hur tydligt/fullständigt prisuppgifterna är
+angivna, aldrig om priset är rimligt.
+
+EXTRAKTION (extracted-fältet): fyll i exakt de siffror och uppgifter som står
+i offerten. Fält som inte står där är null — räkna aldrig fram, gissa aldrig,
+anta aldrig. Timpris skrivs som det står (inkl. eller exkl. moms styrs av
+vatMode). totalSumSek är summan att betala. Datum som ÅÅÅÅ-MM-DD.
+workDescription är högst 15 ord utan namn, adress eller företagsnamn.
+
+ORDVAL: orden "för dyrt", "överpris", "svart", "oseriöst" och "fusk" får inte
+förekomma någonstans i ditt svar. Beskriv i stället neutralt vad som står och
+vad som saknas.
 
 Ange alltid yrkeskategori (trade-fältet); välj "okand" om det är oklart.
 
@@ -226,7 +283,7 @@ function corsHeaders(origin, allowedOrigins) {
 // Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
 // Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
 // aldrig underlag för fakturering.
-const WORKER_VERSION = "gmo-api-v3";
+const WORKER_VERSION = "gmo-api-v4";
 
 function dayKey(d = new Date()) {
   return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
@@ -242,6 +299,36 @@ export function sumBand(totalSumSek) {
   return ">300k";
 }
 
+// Timprisband för statistik (aldrig exakt timpris).
+export function rateBand(rate) {
+  const n = Number(rate);
+  if (!Number.isFinite(n) || n <= 0) return "okand";
+  if (n < 400) return "<400";
+  if (n < 600) return "400-599";
+  if (n < 800) return "600-799";
+  if (n < 1000) return "800-999";
+  return ">=1000";
+}
+
+// Prisrapport: tre delar (PRISUNDERLAG punkt 5).
+export function buildPriceReport(x) {
+  const checked = [...runRules(x, REFERENCE), ...checkNormalAddons(x, REFERENCE)];
+  const cmp = compareToBands(x, REFERENCE);
+  const compared = cmp.filter((c) => c.mode !== "ej_bedombar");
+  const cannot = [
+    ...checked.filter((c) => c.status === "ej_bedombar").map((c) => ({ title: c.title, text: c.text, source: c.source })),
+    ...cmp.filter((c) => c.mode === "ej_bedombar").map((c) => ({ title: c.title, text: c.text, source: c.source })),
+  ];
+  return {
+    referenceVersion: REFERENCE.version,
+    checked: checked.filter((c) => c.status !== "ej_bedombar"),
+    compared,
+    cannotAssess: cannot,
+    disclaimer: REFERENCE.wording.disclaimer,
+    methodUrl: "https://granskaminoffert.se/sa-granskar-vi-priser",
+  };
+}
+
 export function normalizePath(p) {
   return p === "mottagare" || p === "hantverkare" ? p : "okand";
 }
@@ -251,12 +338,33 @@ async function bump(env, key) {
   await env.REVIEWS_KV.put(key, String(current + 1));
 }
 
-async function recordStats(env, review, path) {
+async function recordStats(env, review, path, optIn) {
   const ts = new Date();
   await bump(env, "count:total");
   await bump(env, `count:day:${dayKey(ts)}`);
   await bump(env, `count:path:${normalizePath(path)}`);
   await bump(env, `count:path:${normalizePath(path)}:${dayKey(ts)}`);
+  // Prisstatistik bara med uttryckligt samtycke (kryssruta, förvald AV).
+  // Bara band och ja/nej – aldrig belopp, fritext, namn, ort-adress, IP, filnamn.
+  if (optIn === true) {
+    const x = review.extracted || {};
+    const pr = review.priceReport || {};
+    const labor = Number(x.laborSumSek), material = Number(x.materialSumSek);
+    const share = Number.isFinite(labor) && Number.isFinite(material) && labor + material > 0
+      ? Math.round((labor / (labor + material)) * 10) * 10 : null;
+    const pstat = {
+      ts: ts.toISOString().slice(0, 10),
+      jobType: x.jobType || "okand",
+      county: typeof x.county === "string" ? x.county.slice(0, 30) : "okand",
+      sumBand: sumBand(x.totalSumSek),
+      rateBand: rateBand(x.hourlyRateSek),
+      laborSharePct: share,
+      rot: Number.isFinite(Number(x.rotAmountSek)) && Number(x.rotAmountSek) > 0,
+      failedChecks: (pr.checked || []).filter((c) => c.status === "fel").map((c) => c.id),
+    };
+    await env.REVIEWS_KV.put(`pstat:${ts.toISOString()}:${crypto.randomUUID()}`, JSON.stringify(pstat));
+    await bump(env, "count:pstat");
+  }
   const stat = {
     ts: ts.toISOString(),
     trade: review.trade || "okand",
@@ -492,7 +600,16 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   const latencyMs = Date.now() - startedAt;
   const cost = computeCostUsd(model, usage);
 
-  ctx.waitUntil(recordStats(env, review, path).catch((e) => console.log(JSON.stringify({ route: "review", warn: "stats", error: String(e) }))));
+  // Prislager (PRISUNDERLAG): deterministiska regler + jämförelse mot band.
+  review.priceReport = buildPriceReport(review.extracted || {});
+  // Hård spärr: förbjudna ord får inte lämna workern.
+  const hits = findForbidden(review);
+  if (hits.length) {
+    console.log(JSON.stringify({ route: "review", warn: "forbidden_words", hits }));
+    review = scrubForbidden(review);
+  }
+
+  ctx.waitUntil(recordStats(env, review, path, body.stats === true).catch((e) => console.log(JSON.stringify({ route: "review", warn: "stats", error: String(e) }))));
   console.log(JSON.stringify({ route: "review", status: 200, ms: latencyMs, kind, costUsd: cost ? cost.usd : null }));
 
   ctx.waitUntil(

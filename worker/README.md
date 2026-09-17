@@ -55,3 +55,10 @@ granskning som kontrollerar att räknarna ökar och att statistikposten inte inn
 ## Kostnad
 Workers och KV på gratisnivå. Anthropic-anropen kostar per användning: `meta.costUsd` i varje svar är den mätta siffran
 (prislista per modell i `MODEL_PRICING_USD_PER_MTOK` — uppdatera vid modellbyte). Modellbyte görs bara med mätning före/efter.
+
+## Prislager (gmo-api-v4, 2026-09-17)
+- `src/reference.json`: referensdata version 2026-09. Ändras bara via Moneymans PRISUNDERLAG eller `scripts/update_reference.mjs` (SCB). Varje band har källa, datum och V/U/E.
+- `src/rules.js`: `runRules` (regler a–i), `checkNormalAddons`, `compareToBands` (låst ordval ur reference.json), `findForbidden`/`scrubForbidden` (orden "för dyrt", "överpris", "svart", "oseriöst", "fusk" får aldrig lämna workern – testet `test/rules.test.mjs` kontrollerar alla regeltexter och referensdata).
+- Svaret får `priceReport` = `{ referenceVersion, checked[], compared[], cannotAssess[], disclaimer, methodUrl }`.
+- Prisstatistik (`pstat:*` i KV) sparas bara när anropet har `stats: true` (kryssruta, förvald av). Innehåll: jobbtyp, län, summaband, timprisband, arbetsandel (avrundad 10 %), ROT ja/nej, fallna kontroller, datum. Läs ut med `npx wrangler kv key list --binding REVIEWS_KV --prefix pstat:`.
+- Årlig uppdatering: `node scripts/update_reference.mjs` (torrkörning) → granska → `--write` → uppdatera tabellen på `/sa-granskar-vi-priser/` → commit → deploy.

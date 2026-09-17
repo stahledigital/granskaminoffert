@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v3">
+<meta name="app-version" content="gmo-v4">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
 <meta name="description" content="AI-stödd granskning av hantverkarofferter i PDF, foto eller text. För dig som fått en offert eller ska skicka en. Hitta oklarheter. Gratis att prova utan konto.">
@@ -66,6 +66,14 @@ textarea.on{display:block}
 .loading.on{display:block}
 .errbox{display:none;margin-top:20px;padding:14px 16px;border-radius:8px;background:var(--badsoft);color:var(--bad);border-left:6px solid var(--bad)}
 .errbox.on{display:block}
+.optin{display:flex;gap:10px;align-items:flex-start;margin:14px 0 0;font-size:14px;color:var(--ink2);max-width:60ch}
+.optin input{width:20px;height:20px;margin:1px 0 0;flex:none;accent-color:var(--acc)}
+.optin a{color:var(--ink)}
+.pb h4{font-family:"Barlow Condensed",sans-serif;font-size:19px;text-transform:uppercase;letter-spacing:.02em;margin:18px 0 6px}
+.pb ul.chk{margin-top:0}
+.pb .src{display:block;margin-top:3px;font-size:12px;color:var(--ink2)}
+.pb .disc{font-size:13px;color:var(--ink2);margin:14px 0 0;max-width:62ch}
+.pb .disc a{color:var(--ink)}
 .summarybox{border-radius:12px;padding:18px 20px;margin-bottom:16px;border-left:8px solid var(--ink2);background:var(--paper)}
 .summarybox h2{font-family:"Barlow Condensed",sans-serif;font-size:26px;margin:0 0 4px;text-transform:uppercase}
 .summarybox p{margin:0;font-size:16px}
@@ -126,19 +134,23 @@ details .body ul{margin:8px 0;padding-left:20px}
   <button class="btn ghost" id="paste">Klistra in text i stället</button>
 </div>
 <textarea id="txt" placeholder="Klistra in offerttexten här…"></textarea>
-<div class="alt" id="runwrap" style="display:none"><button class="btn" id="run">Granska</button></div>
+<div id="runwrap" style="display:none">
+  <label class="optin"><input type="checkbox" id="statsopt"> <span>Bidra anonymt till prisstatistik. Sparar bara jobbtyp, län, prisband och vilka kontroller som föll ut – aldrig text, namn, företag eller belopp. <a href="/sa-granskar-vi-priser/">Läs vad som sparas</a>.</span></label>
+  <div class="alt"><button class="btn" id="run">Granska</button></div>
+</div>
 
 <div class="loading" id="loading">Granskningen kan ta en stund.</div>
 <div class="errbox" id="errbox"></div>
 <div class="res" id="res" data-nosnippet></div>
 
-<details>
+<details id="om">
 <summary>Om tjänsten och dina uppgifter</summary>
 <div class="body">
 <p>Granska min offert läser offerten med hjälp av AI (Anthropic Claude) och ger en uppskattning av vad som står i dokumentet — inte ett juridiskt utlåtande och ingen kontroll mot externa register (t.ex. Skatteverket).</p>
 <p>Offerten (foto, PDF eller text) skickas till Anthropic för att kunna analyseras. Anthropic behåller in- och utdata i upp till 30 dagar enligt sin egen policy, längre om innehållet flaggats av deras säkerhetssystem, och använder det inte för att träna AI-modeller utan uttryckligt tillstånd — se <a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data">Anthropics policy för dataretention</a>.</p>
 <p>Vi sparar inte själva offertfilen eller den inklistrade texten i vår egen infrastruktur. Vi behåller AI:ts svar (som kan innehålla uppgifter hämtade ur offerten, t.ex. belopp eller adress) samt teknisk information inklusive din IP-adress i högst 24 timmar, enbart för att kunna felsöka fel — därefter raderas det automatiskt.</p>
 <p>Vi använder Cloudflare Web Analytics för kakfri besöks- och prestandastatistik. Offerttext, filer och granskningsresultat skickas inte till besöksmätningen.</p>
+<p>Prisbilden i resultatet räknas av vår egen kod mot referensintervall från offentliga källor (SCB, Skatteverket, Konsumentverket och namngivna prisguider) – se <a href="/sa-granskar-vi-priser/">Så granskar vi priser</a>. Om du kryssar i "Bidra anonymt till prisstatistik" sparar vi, utan koppling till dig eller offerten, ett fåtal grova uppgifter: jobbtyp, län, summaband, timprisband, ungefärlig andel arbete/material, om ROT förekom, vilka kontroller som föll ut och datum. Aldrig fritext, företagsnamn, organisationsnummer, personnamn, adress, IP-adress eller filnamn. Rutan är avbockad som standard. Uppgifterna används för att på sikt visa egna referensintervall per län.</p>
 <p>Läs mer i <a href="https://stahledigital.se/integritet">Ståhle Digitals integritetspolicy</a>.</p>
 </div>
 </details>
@@ -199,6 +211,7 @@ const demoResult={
     "Har ni ansvarsförsäkring och vilken garanti gäller på arbetet?",
     "Ingår bortforsling av allt rivningsmaterial, eller bara det som nämns?"
   ],
+  priceReport:Object.assign({"checked":[{"id":"moms","status":"ok","title":"Moms","text":"Priserna anges inklusive moms, konsekvent.","source":""},{"id":"rot_belopp","status":"ok","title":"ROT-belopp","text":"ROT-avdraget 6 426 kr är 30 % av arbetskostnaden 21 420 kr inklusive moms.","source":"Skatteverket, Rot och rut, sidan ändrad 2026-03-03"},{"id":"arbetssumma","status":"ok","title":"Timmar × timpris","text":"36 timmar × 595 kr = 21 420 kr, vilket stämmer med arbetssumman.","source":""},{"id":"summa","status":"ok","title":"Summering","text":"Raderna summerar till 42 820 kr, och efter ROT-avdrag 6 426 kr blir det 36 394 kr att betala – det stämmer.","source":""},{"id":"pristyp","status":"flagga","title":"Pristyp","text":"Offerten anger inte om priset är fast, ungefärligt eller löpande. Ett ungefärligt pris får överskridas med högst 15 %; ett löpande pris har inget tak.","source":"Konsumentverket, Anlita hantverkare, 2026"}],"compared":[{"id":"tim_snickare","mode":"inom","title":"Timpris snickare","text":"Timpriset 595 kr per timme inkl. moms ligger inom det intervall vi ser för snickare 2026 (550–800 kr per timme inkl. moms; Byggahus.se mars 2026, SCB lönestatistik 2025).","source":"Byggahus.se mars 2026, SCB lönestatistik 2025"},{"id":"projekt","mode":"inom","title":"Totalpris takomläggning","text":"Totalpriset 1 338 kr per m² ligger inom det spann publika prisguider anger för takomläggning 2026 (1 200–3 000 kr per m², typiskt ~1 500 kr/m²; Byggstart 2026). Guiderna redovisar inte metod – se det som en grov referens.","source":"Byggstart 2026"}],"cannotAssess":[{"title":"Betalningsdatum","text":"Varken offertdatum eller planerad betalning anges. ROT-satsen styrs av när betalningen sker, så kontrollen ovan utgår från betalning i år.","source":"Skatteverket, Rot och rut, sidan ändrad 2026-03-03"}]},{referenceVersion:"2026-09",disclaimer:"Referensintervallen bygger på offentliga källor och är en uppskattning, inte facit. Ett pris utanför intervallet är en fråga att ställa, inte ett fel."}),
   meta:{demo:true}
 };
 
@@ -257,6 +270,28 @@ function renderPrice(result){
   return `<div class="price"><div style="font-size:14px;color:var(--ink2)">${escapeHtml(p.comment||'Inget pris hittades i offerten.')}</div></div>`;
 }
 
+const PB_ICON={ok:['ok','✓'],fel:['bad','✕'],fraga:['warn','?'],flagga:['warn','!']};
+function pbList(items,iconFn){
+  return `<ul class="chk">${items.map(i=>{const [cls,ic]=iconFn(i);return `<li class="${cls}"><i>${ic}</i><div><b>${escapeHtml(i.title)}</b><small>${escapeHtml(i.text)}${i.source?`<span class="src">Källa: ${escapeHtml(i.source)}</span>`:''}</small></div></li>`;}).join('')}</ul>`;
+}
+function renderPriceReport(result){
+  const pr=result.priceReport;
+  if(!pr)return renderPrice(result);
+  const checked=pr.checked||[],cmp=pr.compared||[],cannot=pr.cannotAssess||[];
+  let out='<div class="pb">';
+  out+=renderPrice(result);
+  out+=`<h4>Kontrollerat</h4>${checked.length?pbList(checked,i=>PB_ICON[i.status]||['warn','!']):'<p>Underlaget räcker inte för någon regelkontroll.</p>'}`;
+  out+=`<h4>Jämfört</h4>${cmp.length?pbList(cmp,i=>i.mode==='inom'?['ok','✓']:['warn','?']):'<p>Inget timpris eller totalpris att jämföra mot referensintervallen.</p>'}`;
+  if(cannot.length)out+=`<h4>Går inte att bedöma</h4>${pbList(cannot,()=>['warn','–'])}`;
+  out+=`<p class="disc">${escapeHtml(pr.disclaimer||'')} <a href="/sa-granskar-vi-priser/">Så granskar vi priser</a> · referensdata version ${escapeHtml(pr.referenceVersion||'')}.</p></div>`;
+  return out;
+}
+function priceCounts(result){
+  const pr=result.priceReport;if(!pr)return null;
+  const bad=(pr.checked||[]).filter(c=>c.status==='fel').length;
+  const ask=(pr.checked||[]).filter(c=>c.status==='fraga'||c.status==='flagga').length+(pr.compared||[]).filter(c=>c.mode!=='inom').length;
+  return {bad,ask};
+}
 function ctaLabel(){
   return chosenPath==='hantverkare' ? 'Kopiera punkter att förtydliga' : 'Kopiera frågor till hantverkaren';
 }
@@ -269,8 +304,12 @@ function buildClipboardText(result,path){
     return 'Punkter att förtydliga innan offerten skickas:\n'+items.map(i=>`– ${i.key}: ${i.text}`).join('\n')+SIGN;
   }
   const qs=result.questions||[];
-  if(!qs.length)return 'Inga frågor genererades.'+SIGN;
-  return 'Hej! Jag har några frågor om offerten innan jag skriver på:\n'+qs.map(q=>`– ${q}`).join('\n')+SIGN;
+  const pr=result.priceReport;
+  const pl=pr?[...(pr.checked||[]).filter(c=>c.status!=='ok'),...(pr.compared||[]).filter(c=>c.mode!=='inom'),...(pr.cannotAssess||[])]:[];
+  if(!qs.length&&!pl.length)return 'Inga frågor genererades.'+SIGN;
+  let t='Hej! Jag har några frågor om offerten innan jag skriver på:\n'+qs.map(q=>`– ${q}`).join('\n');
+  if(pl.length)t+='\n\nOm priset:\n'+pl.map(c=>`– ${c.title}: ${c.text}`).join('\n');
+  return t+SIGN;
 }
 function isMobile(){return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&innerWidth<900);}
 function renderActionList(result,path){
@@ -290,7 +329,9 @@ function render(result,isDemo){
   const clarifyN=(result.clarify||[]).length;
   const statedN=(result.stated||[]).length;
   const clarifyWord=clarifyN===1?'sak att förtydliga':'saker att förtydliga';
-  const summary=`${clarifyN} ${clarifyWord}, ${calcSummaryFragment(result)}, ${statedN} uppgifter som framgår tydligt.`;
+  const pc=priceCounts(result);
+  const priceFrag=pc?(pc.bad?`, ${pc.bad} ${pc.bad===1?'prisregel som inte stämmer':'prisregler som inte stämmer'}`:', prisreglerna stämmer')+(pc.ask?` och ${pc.ask} ${pc.ask===1?'prisfråga att ställa':'prisfrågor att ställa'}`:''):'';
+  const summary=`${clarifyN} ${clarifyWord}, ${calcSummaryFragment(result)}${priceFrag}, ${statedN} uppgifter som framgår tydligt.`;
 
   $('res').innerHTML=`<div class="summarybox"><h2>Så här ser offerten ut${isDemo?' <span class="tag">Exempel</span>':''}</h2><p>${summary}</p></div>
   ${renderActionList(result,chosenPath)}
@@ -301,7 +342,7 @@ function render(result,isDemo){
   </div>
   <h3>Motsägelser och räknefel</h3>${renderCalcSection(result)}
   ${chosenPath==='hantverkare'?'':`<h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>'}`}
-  <h3>Är priset tydligt angivet?</h3>${renderPrice(result)}
+  <h3>Prisbild</h3>${renderPriceReport(result)}
   <details class="stated"><summary>Uppgifter som framgår (${statedN})</summary>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}</details>
   <div class="alt">
     <button class="btn ghost" onclick="location.reload()">Granska en till</button>
@@ -359,6 +400,7 @@ async function runReview(){
     payload={kind:'text',text:t};
   }
   payload.path=chosenPath;
+  payload.stats=!!($('statsopt')&&$('statsopt').checked);
   setLoading(true);
   $('res').classList.remove('on');
   try{
