@@ -9,7 +9,7 @@ Ladda upp, fota eller klistra in en hantverkaroffert och få en begriplig genomg
 - **Kickoff och vision:** `KICKOFF.md` (publiceras inte).
 
 ## Släppa
-Frontend: committa på `main`, dubbelklicka `PUSH_GRANSKAMINOFFERT.command` (eller `PUSH_ALLT.command`) i projektroten. Pages bygger på någon minut; verifiera att `app-version` på live matchar.
+Frontend: committa på `main`, dubbelklicka `Kommandon/PUSH_GRANSKAMINOFFERT.command` (eller `Kommandon/PUSH_ALLT.command`) i Ståhle Digital. Pages bygger på någon minut; verifiera att `app-version` på live matchar.
 Backend: dubbelklicka `DEPLOY_GRANSKAMINOFFERT_WORKER.command` (wrangler deploy + /health-kontroll). Reserv: Quick Edit i Cloudflare, se `worker/README.md`. Ordning vid prisändringar: frontend/metodsida först, sedan workern – prisjämförelsen får inte vara live utan `/sa-granskar-vi-priser/`.
 
 ## Test
