@@ -206,7 +206,10 @@ clarify/stated):
 1) contradictions — FAKTISKA motsägelser eller räknefel du HITTAT: belopp som
    inte stämmer när du räknar efter, eller uppgifter som motsäger varandra i
    dokumentet. Bara verkliga fynd. Se räknekontrollen nedan för själva
-   uträkningen.
+   uträkningen. En kontroll som STÄMMER hör aldrig hemma här — skriv inte
+   poster i stil med "X anges till 7 800 kr, och 30 % av arbetskostnaden blir
+   7 800 kr, alltså stämmer det". Stämmer det, lämna listan tom och skriv det i
+   calcNote i stället.
 
 2) clarify — sådant som SAKNAS eller är otydligt: F-skattsedel,
    organisationsnummer, moms (inkl./exkl. tydligt angivet), arbete och
