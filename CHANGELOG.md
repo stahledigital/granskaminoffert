@@ -1,5 +1,8 @@
 # Granska min offert – ändringslogg
 
+## gmo-v12 – 2026-09-19
+- Favicon och hemskärmsikon: Ståhle Digitals ikon v2 (orange ring, inget grönt). RG-014.
+
 ## gmo-v11 – 2026-09-19
 - Barlow självhostad i `fonts/` (OFL 1.1). Inga anrop till Googles servrar när sidan öppnas (RG-021).
 
