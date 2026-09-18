@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## gmo-v8 / gmo-api-v8 – 2026-09-18 (Rainmans kodgranskning)
+- Zoom tillåten igen: `maximum-scale=1` borttagen ur viewport (RG-002, WCAG 1.4.4).
+- Fel filformat (t.ex. HEIC som inte konverterats) avvisas **före** kvoterna, så det kostar inte besökaren en av timmens granskningar (RG-012). Nytt test räknar KV-nycklarna.
+- Ny första broms: Cloudflares egen räknare per IP (`REVIEW_RL`, 4/minut, atomär). Stoppar samtidiga anrop som kunde smita förbi KV-räknarna (RG-007). KV-gränserna (8/timme/IP, 300/dygn) ligger kvar. Tester 35 → 37.
+- Metodsidan märkt gmo-v8 (var gmo-v6, RG-025).
 
 ## gmo-v7 – 2026-09-18
 - Länken till Materialräknaren pekar på den nya adressen stahledigital.se/verkstaden/materialraknaren.

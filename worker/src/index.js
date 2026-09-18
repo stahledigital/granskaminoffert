@@ -295,7 +295,7 @@ function corsHeaders(origin, allowedOrigins) {
 // Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
 // Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
 // aldrig underlag för fakturering.
-const WORKER_VERSION = "gmo-api-v7";
+const WORKER_VERSION = "gmo-api-v8";
 
 function dayKey(d = new Date()) {
   return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
@@ -562,6 +562,30 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   if (kind !== "text" && dataBase64.length * 0.75 > maxBytes) {
     return jsonResponse({ error: "Filen är för stor (max ~8 MB)." }, 400, headers);
   }
+  // Format kontrolleras FÖRE kvoterna: ett fel format ska inte kosta besökaren
+  // en av timmens granskningar (Rainmans kodgranskning RG-012, 2026-09-18).
+  if (kind !== "text" && kind !== "image" && kind !== "pdf") {
+    return jsonResponse({ error: "Okänt filformat." }, 400, headers);
+  }
+  if (kind === "image" && mediaType && !ALLOWED_IMAGE_TYPES.includes(String(mediaType).toLowerCase())) {
+    return jsonResponse(
+      { error: "Bildformatet går inte att läsa. Spara bilden som JPEG eller PNG, eller klistra in texten i stället." },
+      400, headers);
+  }
+
+  // Första bromsen: Cloudflares egen räknare per IP (atomär, till skillnad från
+  // KV). Stoppar samtidiga anrop som annars kan smita förbi KV-räknarna
+  // (RG-007). Saknas bindningen gäller KV-gränserna nedan som förut.
+  if (env.REVIEW_RL) {
+    try {
+      const { success } = await env.REVIEW_RL.limit({ key: ip });
+      if (!success) {
+        return jsonResponse({ error: "För många granskningar just nu. Försök igen om en stund." }, 429, headers);
+      }
+    } catch (e) {
+      console.log("REVIEW_RL fel", String(e && e.message || e));
+    }
+  }
 
   const allowed = await rateLimit(env, ip);
   if (!allowed) {
@@ -601,13 +625,6 @@ async function handleReview(request, env, ctx, allowedOrigins) {
         "\n</offert>",
     });
   } else if (kind === "image") {
-    // Bara filtyper modellen faktiskt tar emot. HEIC från en iPhone gav
-    // tidigare ett obegripligt fel EFTER att besökarens kvot förbrukats.
-    if (mediaType && !ALLOWED_IMAGE_TYPES.includes(String(mediaType).toLowerCase())) {
-      return jsonResponse(
-        { error: "Bildformatet går inte att läsa. Spara bilden som JPEG eller PNG, eller klistra in texten i stället." },
-        400, headers);
-    }
     userContent.push({ type: "text", text: "Här är ett foto av offerten:" });
     userContent.push({
       type: "image",
@@ -619,8 +636,6 @@ async function handleReview(request, env, ctx, allowedOrigins) {
       type: "document",
       source: { type: "base64", media_type: "application/pdf", data: dataBase64 },
     });
-  } else {
-    return jsonResponse({ error: "Okänt filformat." }, 400, headers);
   }
 
   const model = env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";

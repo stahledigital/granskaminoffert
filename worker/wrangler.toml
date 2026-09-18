@@ -10,6 +10,13 @@ compatibility_date = "2026-09-01"
 binding = "REVIEWS_KV"
 id = "65e71b59b2ce4f3aa4974b3a83bd92e4"
 
+# Cloudflares egen räknare per IP (atomär). Första bromsen före KV-gränserna.
+# 4 granskningar per minut och IP räcker för en människa som provar flera filer.
+[[ratelimits]]
+name = "REVIEW_RL"
+namespace_id = "1002"
+simple = { limit = 4, period = 60 }
+
 [vars]
 # Kommaseparerad lista om fler origins behövs (t.ex. under test).
 ALLOWED_ORIGIN = "https://granskaminoffert.se"

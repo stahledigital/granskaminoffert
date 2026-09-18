@@ -45,7 +45,7 @@ test("/health utan granskningar", async () => {
   const j = await r.json();
   assert.equal(j.ok, true); assert.equal(j.hasApiKey, true);
   assert.equal(j.reviewsToday, 0); assert.equal(j.reviewsTotal, 0);
-  assert.equal(j.version, "gmo-api-v7");
+  assert.equal(j.version, "gmo-api-v8");
   assert.equal(j.dailyLimit, 300);
   assert.deepEqual(j.shares.email, { total: 0, today: 0 });
   assert.deepEqual(j.byPath.hantverkare, { total: 0, today: 0 });
@@ -198,6 +198,27 @@ test("okänt bildformat avvisas innan modellen anropas", async () => {
     assert.equal(r.status, 400);
     assert.equal(anropad, false, "modellen anropades trots okänt format");
   } finally { globalThis.fetch = realFetch; }
+});
+
+test("fel format kostar ingen kvot (RG-012)", async () => {
+  const e = env();
+  const r = await worker.fetch(
+    new Request("https://x/review", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN },
+      body: JSON.stringify({ kind: "image", dataBase64: "AAAA", mediaType: "image/heic" }) }),
+    e, ctx());
+  assert.equal(r.status, 400);
+  const nycklar = [...e.REVIEWS_KV.m.keys()].filter((k) => k.startsWith("rl:") || k.startsWith("global:"));
+  assert.deepEqual(nycklar, [], "kvoten räknades upp för ett fel format");
+});
+
+test("Cloudflare-räknaren stoppar före KV (RG-007)", async () => {
+  const e = env({ REVIEW_RL: { async limit() { return { success: false }; } } });
+  const r = await worker.fetch(
+    new Request("https://x/review", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN },
+      body: JSON.stringify({ kind: "text", text: "Offert" }) }),
+    e, ctx());
+  assert.equal(r.status, 429);
+  assert.equal([...e.REVIEWS_KV.m.keys()].length, 0);
 });
 
 test("län normaliseras till en fast lista", async () => {
