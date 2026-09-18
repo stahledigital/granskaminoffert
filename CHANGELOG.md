@@ -1,5 +1,8 @@
 # Granska min offert – ändringslogg
 
+## gmo-v9 – 2026-09-19
+- Kontrast (Anders beslut 18/9, RG-003): orange **text** använder mörkare `--acc-text:#b8431f` (5,0:1). Orange knapp och etikett får mörk text i stället för vit (3,2 → 5,7:1). Linjer och ytor behåller #f0643b.
+
 ## gmo-v8 / gmo-api-v8 – 2026-09-18 (Rainmans kodgranskning)
 - Zoom tillåten igen: `maximum-scale=1` borttagen ur viewport (RG-002, WCAG 1.4.4).
 - Fel filformat (t.ex. HEIC som inte konverterats) avvisas **före** kvoterna, så det kostar inte besökaren en av timmens granskningar (RG-012). Nytt test räknar KV-nycklarna.
