@@ -34,6 +34,13 @@ const SCB_BKI = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/PR/PR0502/PR050
 // proxy golvläggare 7122 (PRISUNDERLAG). Saknas årets värde ("..") används
 // senaste tillgängliga år, och det noteras.
 const SSYK = { snickare: "7111", elektriker: "7411", vvs: "7125", malare: "7131", plattsattare: "7122" };
+// Reservyrke när SCB sekretessprickar en liten grupp. 7122 (golvläggare, proxy
+// för plattsättare) saknas för 2025 och kommer inte att fyllas i efterhand –
+// nästa chans är 2026 års statistik. Blir den också prickad används murare,
+// som ligger på samma nivå (2025 P10 39 100 → 449 kr/h inkl.).
+// PRISUNDERLAG rev 4, 2026-09-18.
+const RESERV_SSYK = { plattsattare: "7112" };
+const MAX_UPPRAKNING_AR = 1; // en gammal siffra får räknas upp högst ett år
 const HOURS_PER_MONTH = 174, WAGE_GROWTH = 1.03, COST_FACTOR = 1.55, VAT = 1.25;
 
 async function px(url, query) {
@@ -47,7 +54,7 @@ async function fetchWages() {
   const years = meta.variables.find((v) => v.code === "Tid").values;
   const data = await px(SCB_LON, [
     { code: "Sektor", selection: { filter: "item", values: ["0"] } },
-    { code: "Yrke2012", selection: { filter: "item", values: Object.values(SSYK) } },
+    { code: "Yrke2012", selection: { filter: "item", values: [...new Set([...Object.values(SSYK), ...Object.values(RESERV_SSYK)])] } },
     { code: "Kon", selection: { filter: "item", values: ["1+2"] } },
     // 000007CF = 10:e percentilen (rev 3). 000007CD var medellön.
     { code: "ContentsCode", selection: { filter: "item", values: ["000007CF"] } },
@@ -102,12 +109,24 @@ const before = { version: ref.version, updated: ref.updated };
   const senasteAr = Math.max(...Object.values(wages).map((w) => Number(w.year)));
   for (const [trade, code] of Object.entries(SSYK)) {
     const h = ref.hourly[trade];
-    const w = wages[code];
+    let w = wages[code];
     if (!w) { notes.push(`${trade}: inget SCB-värde för ${code} – golvet oförändrat`); continue; }
     // Saknas årets värde (SCB sekretessprickar små yrkesgrupper) används senaste
     // tillgängliga år och lönen räknas upp ett steg per år som fattas – samma
     // metod som PRISUNDERLAG rev 3 använde för plattsättare (2024-värde).
-    const arBakom = Math.max(0, senasteAr - Number(w.year));
+    let arBakom = Math.max(0, senasteAr - Number(w.year));
+    let proxyNot = "";
+    if (arBakom > MAX_UPPRAKNING_AR && RESERV_SSYK[trade]) {
+      const r = wages[RESERV_SSYK[trade]];
+      const rBakom = r ? Math.max(0, senasteAr - Number(r.year)) : Infinity;
+      if (r && rBakom <= MAX_UPPRAKNING_AR) {
+        w = r; arBakom = rBakom; proxyNot = ` [proxy: SSYK ${RESERV_SSYK[trade]}, murare – egen kod sekretessprickad]`;
+      } else {
+        notes.push(`  STOPP ${trade}: senaste siffran är ${arBakom} år gammal och reservyrket hjälper inte. Ta beslut med Moneyman.`);
+        bad = true;
+        continue;
+      }
+    }
     const uppräkning = WAGE_GROWTH ** (1 + arBakom);
     const floorIncl = Math.floor(((w.monthly / HOURS_PER_MONTH) * uppräkning * COST_FACTOR * VAT) / 10) * 10;
     const floorExcl = Math.round(floorIncl / VAT);
@@ -118,7 +137,7 @@ const before = { version: ref.version, updated: ref.updated };
     h.exclVat.normal = h.inclVat.normal.map((v) => r10(v / VAT));
     h.exclVat.ceiling = r10(h.inclVat.ceiling / VAT);
     h.source = h.source.replace(/SCB lönestatistik \d{4}(\/\d{4})?/, `SCB lönestatistik ${w.year}`);
-    notes.push(`${trade}: SCB ${w.year} P10 månadslön ${w.monthly}${arBakom ? ` (uppräknad ${arBakom} år)` : ""} → golv ${floorIncl} kr/h inkl. (var ${before}); band ${h.inclVat.normal.join("–")}, tak ${h.inclVat.ceiling}`);
+    notes.push(`${trade}: SCB ${w.year} P10 månadslön ${w.monthly}${arBakom ? ` (uppräknad ${arBakom} år)` : ""}${proxyNot} → golv ${floorIncl} kr/h inkl. (var ${before}); band ${h.inclVat.normal.join("–")}, tak ${h.inclVat.ceiling}`);
     if (!(h.inclVat.floor < h.inclVat.normal[0] && h.exclVat.floor < h.exclVat.normal[0])) {
       notes.push(`  STOPP ${trade}: golvet hamnade PÅ eller ÖVER bandets undre gräns. Kapa aldrig golvet – kontrollera underlaget med Moneyman.`);
       bad = true;
