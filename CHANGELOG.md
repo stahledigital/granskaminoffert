@@ -1,5 +1,16 @@
 # Granska min offert – ändringslogg
 
+## gmo-api-v7 – 2026-09-18 (PRISUNDERLAG rev 4)
+Moneymans rev 4, godkänd av Anders. Frontend oförändrad (gmo-v6); metodsidans rättelse och versionsmärkning kom i `388463c`.
+- **Lönekostnadsraden upprepar inte längre marknadsradens intervall.** Meningen "Det ligger också under det intervall vi ser för {trade} 2026 ({range})." är struken ur `wording.belowFloor`. Texten slutar med "Fråga vad som ingår, om företaget har F-skatt och försäkring." Intervallet står redan i marknadsraden ovanför. Nytt test: ingen mening får stå två gånger i de två raderna, och lönekostnadsraden får inte nämna intervallet.
+- **Uppräkningsregeln har blivit en testbar funktion** (`worker/scripts/lon_val.mjs`, sex tester):
+  - En SCB-siffra får räknas upp högst ett år, för alla yrken. Tidigare räknades den upp hur många år som helst för yrken utan reserv.
+  - Saknar SCB plattsättare (7122), eller är siffran för gammal, räknas det på murare (7112). Raden märks "proxy: murare" både i skriptets utskrift och i källan under lönekostnadsraden.
+  - **Fel i `388463c` som nu är lagat:** saknades 7122 helt bland de två år som hämtas, vilket är just 2026-läget, blev golvet oförändrat och reservyrket prövades aldrig.
+  - Går inget att använda stoppar skriptet och skriver ingenting.
+- Torrkörning mot SCB 18/9: alla fem golv oförändrade. Plattsättare 2024 räknas upp 1 år, eftersom senaste statistikår är 2025.
+- Tester 29 → 35 (plus 2 nya påståenden i timpris 350-testet).
+
 ## gmo-v6 / gmo-api-v6 – 2026-09-18 (PRISUNDERLAG rev 3)
 Moneymans rev 3: referensgolvet var för högt räknat för alla fem yrken – på SCB:s **medellön** delat med debiteringsgraden 0,8. Medellön är ingen golvnivå (hälften tjänar mindre) och 0,8 är ett antagande om hur firman drivs, inte om vad en anställd kostar. Marknadens billigaste fjärdedel låg under det gamla golvet.
 - **Nya golv** (kr/h exkl./inkl. moms, före ROT): snickare 304/380, elektriker 248/310, VVS 304/380, målare 288/360, plattsättare 360/450. Banden, taken och marknadsmitten är oförändrade. Ny regel: SCB 10:e percentilen ÷ 174 h × 1,03 × 1,55, inkl. moms nedåt till jämna 10 kr.

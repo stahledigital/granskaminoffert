@@ -557,7 +557,7 @@
   },
   "wording": {
     "_note": "LÅST ordval enligt PRISUNDERLAG avsnittet 'Ordval — låst' (rev 3, 2026-09-18). Ändras inte utan Moneyman/Anders.",
-    "belowFloor": "Timpriset {rate} ligger under vad en anställd {trade} kostar arbetsgivaren per arbetad timme, även med en lön bland de lägsta tio procenten i yrket (referensgolv ~{floor} per timme {unit}, härlett från SCB:s lönestatistik 2025 och Skatteverkets arbetsgivaravgift). Det ligger också under det intervall vi ser för {trade} 2026 ({range}). Fråga vad som ingår, om företaget har F-skatt och försäkring.",
+    "belowFloor": "Timpriset {rate} ligger under vad en anställd {trade} kostar arbetsgivaren per arbetad timme, även med en lön bland de lägsta tio procenten i yrket (referensgolv ~{floor} per timme {unit}, härlett från SCB:s lönestatistik 2025 och Skatteverkets arbetsgivaravgift). Fråga vad som ingår, om företaget har F-skatt och försäkring.",
     "belowNormal": "Timpriset {rate} ligger under det intervall vi ser för {trade} 2026 ({range}; {source}). Lågt pris kan bero på en liten firma med låga omkostnader eller på att vissa kostnader debiteras separat. Fråga vad som ingår – till exempel framkörning, material och bortforsling.",
     "withinNormal": "Timpriset {rate} ligger inom det intervall vi ser för {trade} 2026 ({range}; {source}).",
     "aboveNormal": "Timpriset {rate} ligger över det intervall vi ser för {trade} 2026 ({range}; {source}). Be om motivering – specialkompetens, kort uppdrag eller resor kan förklara det.",

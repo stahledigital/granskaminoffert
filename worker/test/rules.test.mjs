@@ -105,6 +105,13 @@ test("timpris 350: under referensgolvet med låst ordval, moms antas inkl.", () 
   assert.match(lon.text, /referensgolv ~380 kr per timme inkl\. moms/);
   assert.match(lon.text, /F-skatt och försäkring/);
   assert.match(lon.source, /10:e percentilen/);
+  // Rev 4: lönekostnadsraden upprepar inte marknadsradens intervall, och ingen
+  // mening står två gånger i de två raderna tillsammans (ny mening = versal efter punkt,
+  // så att "inkl. moms" inte räknas som meningsslut).
+  assert.match(lon.text, /F-skatt och försäkring\.$/);
+  assert.doesNotMatch(lon.text, /intervall/);
+  const meningar = [marknad.text, lon.text].flatMap((s) => s.split(/(?<=[.!?])\s+(?=[A-ZÅÄÖ])/)).map((m) => m.trim()).filter(Boolean);
+  assert.equal(new Set(meningar).size, meningar.length, "samma mening står två gånger: " + meningar.join(" | "));
   const proj = byId(c, "projekt");
   assert.equal(proj, undefined); // jobType "annat" har inget band
 });

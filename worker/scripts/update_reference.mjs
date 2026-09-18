@@ -21,6 +21,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { valjLon, RESERV, MAX_UPPRAKNING_AR } from "./lon_val.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REF_PATH = join(HERE, "..", "src", "reference.json");
@@ -34,13 +35,9 @@ const SCB_BKI = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/PR/PR0502/PR050
 // proxy golvläggare 7122 (PRISUNDERLAG). Saknas årets värde ("..") används
 // senaste tillgängliga år, och det noteras.
 const SSYK = { snickare: "7111", elektriker: "7411", vvs: "7125", malare: "7131", plattsattare: "7122" };
-// Reservyrke när SCB sekretessprickar en liten grupp. 7122 (golvläggare, proxy
-// för plattsättare) saknas för 2025 och kommer inte att fyllas i efterhand –
-// nästa chans är 2026 års statistik. Blir den också prickad används murare,
-// som ligger på samma nivå (2025 P10 39 100 → 449 kr/h inkl.).
-// PRISUNDERLAG rev 4, 2026-09-18.
-const RESERV_SSYK = { plattsattare: "7112" };
-const MAX_UPPRAKNING_AR = 1; // en gammal siffra får räknas upp högst ett år
+// Reservyrke och uppräkningsgräns: se lon_val.mjs (PRISUNDERLAG rev 4). 7122 saknas
+// för 2025 och fylls inte i efterhand; saknas den i 2026 års statistik räknas
+// plattsättare på murare 7112 (2025 P10 39 100 → 449 kr/h inkl.).
 const HOURS_PER_MONTH = 174, WAGE_GROWTH = 1.03, COST_FACTOR = 1.55, VAT = 1.25;
 
 async function px(url, query) {
@@ -54,7 +51,7 @@ async function fetchWages() {
   const years = meta.variables.find((v) => v.code === "Tid").values;
   const data = await px(SCB_LON, [
     { code: "Sektor", selection: { filter: "item", values: ["0"] } },
-    { code: "Yrke2012", selection: { filter: "item", values: [...new Set([...Object.values(SSYK), ...Object.values(RESERV_SSYK)])] } },
+    { code: "Yrke2012", selection: { filter: "item", values: [...new Set([...Object.values(SSYK), ...Object.values(RESERV).map((r) => r.code)])] } },
     { code: "Kon", selection: { filter: "item", values: ["1+2"] } },
     // 000007CF = 10:e percentilen (rev 3). 000007CD var medellön.
     { code: "ContentsCode", selection: { filter: "item", values: ["000007CF"] } },
@@ -109,23 +106,19 @@ const before = { version: ref.version, updated: ref.updated };
   const senasteAr = Math.max(...Object.values(wages).map((w) => Number(w.year)));
   for (const [trade, code] of Object.entries(SSYK)) {
     const h = ref.hourly[trade];
-    let w = wages[code];
-    if (!w) { notes.push(`${trade}: inget SCB-värde för ${code} – golvet oförändrat`); continue; }
-    // Saknas årets värde (SCB sekretessprickar små yrkesgrupper) används senaste
-    // tillgängliga år och lönen räknas upp ett steg per år som fattas – samma
-    // metod som PRISUNDERLAG rev 3 använde för plattsättare (2024-värde).
-    let arBakom = Math.max(0, senasteAr - Number(w.year));
-    let proxyNot = "";
-    if (arBakom > MAX_UPPRAKNING_AR && RESERV_SSYK[trade]) {
-      const r = wages[RESERV_SSYK[trade]];
-      const rBakom = r ? Math.max(0, senasteAr - Number(r.year)) : Infinity;
-      if (r && rBakom <= MAX_UPPRAKNING_AR) {
-        w = r; arBakom = rBakom; proxyNot = ` [proxy: SSYK ${RESERV_SSYK[trade]}, murare – egen kod sekretessprickad]`;
-      } else {
-        notes.push(`  STOPP ${trade}: senaste siffran är ${arBakom} år gammal och reservyrket hjälper inte. Ta beslut med Moneyman.`);
-        bad = true;
-        continue;
-      }
+    const val = valjLon(trade, code, wages, senasteAr);
+    if (!val.ok) {
+      notes.push(`  STOPP ${trade}: ${val.reason}. Högst ${MAX_UPPRAKNING_AR} års uppräkning är tillåten. Ta beslut med Moneyman.`);
+      bad = true;
+      continue;
+    }
+    const { w, arBakom } = val;
+    const proxyNot = val.proxy ? ` [proxy: ${val.proxy}, SSYK ${val.proxyCode}]` : "";
+    if (val.proxy) {
+      // Märk raden även i det användaren ser (källan under lönekostnadsraden).
+      h.floorSource = `SCB lönestrukturstatistik ${w.year}, proxy: ${val.proxy} (SSYK ${val.proxyCode}; ${code} sekretessbelagd), 10:e percentilen` +
+        `${arBakom ? `, uppräknad ${arBakom} år` : ""}, /174 h × 1,03 × 1,55 (arbetsgivaravgift 31,42 %, semesterlön, avtalsförsäkring); ` +
+        `Skatteverket ${new Date().getFullYear()}; ${new Date().toISOString().slice(0, 10)}`;
     }
     const uppräkning = WAGE_GROWTH ** (1 + arBakom);
     const floorIncl = Math.floor(((w.monthly / HOURS_PER_MONTH) * uppräkning * COST_FACTOR * VAT) / 10) * 10;
