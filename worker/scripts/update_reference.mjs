@@ -19,6 +19,7 @@ import { dirname, join } from "node:path";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REF_PATH = join(HERE, "..", "src", "reference.json");
 const WRITE = process.argv.includes("--write");
+const FORCE = process.argv.includes("--force");
 
 const SCB_LON = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/AM/AM0110/AM0110A/LoneSpridSektYrk4AN";
 const SCB_BKI = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/PR/PR0502/PR0502A/FPIBOM2015";
@@ -82,6 +83,7 @@ const rBand = (n) => (n >= 10000 ? Math.round(n / 1000) * 1000 : n >= 1000 ? Mat
 
 async function main() {
   const ref = JSON.parse(readFileSync(REF_PATH, "utf8"));
+const before = { version: ref.version, updated: ref.updated };
   const wages = await fetchWages();
   const bki = await fetchBki();
   console.log(`BKI ${bki.period}: arbetslön ${((bki.labor - 1) * 100).toFixed(1)} %, material ${((bki.material - 1) * 100).toFixed(1)} %`);
@@ -117,6 +119,17 @@ async function main() {
   console.log(notes.join("\n"));
   console.log("\nKontrollera manuellt före commit: ROT-reglerna mot Skatteverket, marknadsmitt mot Byggahus/Hantverkskollen, och att sidan /sa-granskar-vi-priser visar samma siffror.");
   if (WRITE) {
+    // Banden indexeras multiplikativt mot filen som redan ligger där. Körs
+    // skriptet två gånger med --write blir uppräkningen dubbel, utan varning.
+    // (Kodgranskning 2026-09-18.)
+    if (FORCE !== true && String(before.updated || "").slice(0, 7) === ref.version) {
+      console.error(
+        `STOPP: reference.json är redan uppdaterad ${before.updated} (version ${ref.version}).\n` +
+        "En ny körning med --write skulle indexera banden en gång till, ovanpå den förra.\n" +
+        "Är det verkligen meningen: kör om med --force."
+      );
+      process.exit(1);
+    }
     writeFileSync(REF_PATH, JSON.stringify(ref, null, 2) + "\n");
     console.log(`Skrev ${REF_PATH} (version ${ref.version}).`);
   } else {
