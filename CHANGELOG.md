@@ -1,5 +1,8 @@
 # Granska min offert – ändringslogg
 
+
+## gmo-v7 – 2026-09-18
+- Länken till Materialräknaren pekar på den nya adressen stahledigital.se/verkstaden/materialraknaren.
 ## gmo-api-v7 – 2026-09-18 (PRISUNDERLAG rev 4)
 Moneymans rev 4, godkänd av Anders. Frontend oförändrad (gmo-v6); metodsidans rättelse och versionsmärkning kom i `388463c`.
 - **Lönekostnadsraden upprepar inte längre marknadsradens intervall.** Meningen "Det ligger också under det intervall vi ser för {trade} 2026 ({range})." är struken ur `wording.belowFloor`. Texten slutar med "Fråga vad som ingår, om företaget har F-skatt och försäkring." Intervallet står redan i marknadsraden ovanför. Nytt test: ingen mening får stå två gånger i de två raderna, och lönekostnadsraden får inte nämna intervallet.

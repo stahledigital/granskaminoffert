@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v6">
+<meta name="app-version" content="gmo-v7">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
 <meta name="description" content="AI-stödd granskning av hantverkarofferter i PDF, foto eller text. För dig som fått en offert eller ska skicka en. Hitta oklarheter. Gratis att prova utan konto.">
@@ -350,7 +350,7 @@ function render(result,isDemo){
   ${chosenPath==='hantverkare'?`<aside class="fromsd"><p class="fromsd-tag">Från Ståhle Digital</p>
     <p>Har firman ingen hemsida, eller en som inte ger jobb? Vi bygger hemsidor för hantverkare i Växjö med omnejd.</p>
     <a class="btn" href="https://stahledigital.se" rel="noopener">Se vad vi gör</a>
-    <p class="sub">Ska du räkna material till jobbet? <a href="https://raknaren.stahledigital.se" rel="noopener">Materialräknaren är gratis.</a></p>
+    <p class="sub">Ska du räkna material till jobbet? <a href="https://stahledigital.se/verkstaden/materialraknaren" rel="noopener">Materialräknaren är gratis.</a></p>
   </aside>`:''}`;
   const text=buildClipboardText(result,chosenPath);
   const subj=chosenPath==='hantverkare'?'Punkter att förtydliga i offerten':'Frågor om offerten';
