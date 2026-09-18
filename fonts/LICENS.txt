@@ -1,0 +1,4 @@
+Barlow och Barlow Condensed – Jeremy Tribby (https://github.com/jpt/barlow).
+Licens: SIL Open Font License 1.1 (https://openfontlicense.org). Fri att använda, bädda in och sprida.
+Filerna är Googles latin-delmängd (U+0000–00FF m.fl., täcker åäö), hämtade 2026-09-19 och självhostade
+så att inga besökare skickas till Googles servrar.

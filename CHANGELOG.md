@@ -1,5 +1,8 @@
 # Granska min offert – ändringslogg
 
+## gmo-v11 – 2026-09-19
+- Barlow självhostad i `fonts/` (OFL 1.1). Inga anrop till Googles servrar när sidan öppnas (RG-021).
+
 ## gmo-v10 – 2026-09-19
 - Metodsidan: tabellen som rullar i sidled går att nå med tangentbord (axe: scrollable-region-focusable).
 
