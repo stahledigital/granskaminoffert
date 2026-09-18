@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v4">
+<meta name="app-version" content="gmo-v5">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
 <meta name="description" content="AI-stödd granskning av hantverkarofferter i PDF, foto eller text. För dig som fått en offert eller ska skicka en. Hitta oklarheter. Gratis att prova utan konto.">
@@ -403,16 +403,20 @@ async function runReview(){
   payload.stats=!!($('statsopt')&&$('statsopt').checked);
   setLoading(true);
   $('res').classList.remove('on');
+  const avbryt=new AbortController();
+  const tidsgrans=setTimeout(()=>avbryt.abort(),120000); // hellre ett ärligt fel än evig väntan
   try{
     const resp=await fetch(API_BASE.replace(/\/$/,'')+'/review',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:avbryt.signal
     });
     const data=await resp.json();
     if(!resp.ok){showError(data.error||'Något gick fel. Försök igen.');return;}
     render(data,false);
   }catch(e){
-    showError('Kunde inte nå granskningstjänsten. Kontrollera din uppkoppling och försök igen.');
+    if(e&&e.name==='AbortError')showError('Granskningen tog för lång tid. Försök igen, eller klistra in offerttexten i stället för att skicka en bild.');
+    else showError('Kunde inte nå granskningstjänsten. Kontrollera din uppkoppling och försök igen.');
   }finally{
+    clearTimeout(tidsgrans);
     setLoading(false);
   }
 }
@@ -440,9 +444,50 @@ const drop=$('drop');
 ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over');}));
 
 const MAX_BYTES=8000000;
+const MAX_KANT=1800;      // längsta sida i pixlar – mer än så tillför inget för läsbarheten
+const KRYMP_OVER=1200000; // bilder över ~1,2 MB krymps innan de skickas
+
+// Bilden ritas om till JPEG i webbläsaren. Två vinster: en HEIC från iPhone
+// blir läsbar (Safari avkodar den åt oss), och uppladdningen går snabbare på
+// mobil. Går något fel skickas originalet – då tar workern felet i stället.
+function forbered(f){
+  const bild=f.type&&f.type.startsWith('image/');
+  if(!bild||(f.size<KRYMP_OVER&&f.type!=='image/heic'&&f.type!=='image/heif'))return Promise.resolve(f);
+  return new Promise(klar=>{
+    const url=URL.createObjectURL(f);
+    const img=new Image();
+    img.onload=()=>{
+      try{
+        const skala=Math.min(1,MAX_KANT/Math.max(img.naturalWidth,img.naturalHeight));
+        const c=document.createElement('canvas');
+        c.width=Math.round(img.naturalWidth*skala);c.height=Math.round(img.naturalHeight*skala);
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+        c.toBlob(b=>{
+          URL.revokeObjectURL(url);
+          if(!b||b.size>=f.size&&f.type==='image/jpeg')return klar(f);
+          klar(new File([b],(f.name||'offert').replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'}));
+        },'image/jpeg',0.82);
+      }catch(e){URL.revokeObjectURL(url);klar(f);}
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);klar(f);};
+    img.src=url;
+  });
+}
+
 function handleFile(f){
   if(!f)return;
   clearError();
+  if(f.type&&f.type.startsWith('image/')){
+    forbered(f).then(g=>{
+      if(g.size>MAX_BYTES){showError('Bilden är för stor (max 8 MB). Fota med lägre upplösning eller klistra in texten.');return;}
+      laddaFil(g);
+    });
+    return;
+  }
+  laddaFil(f);
+}
+
+function laddaFil(f){
   if(f.size>MAX_BYTES){showError('Filen är för stor (max 8 MB).');return;}
   if(f.type.startsWith('text')||/\.txt$/i.test(f.name)){
     f.text().then(t=>{

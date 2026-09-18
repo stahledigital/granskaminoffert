@@ -45,7 +45,7 @@ test("/health utan granskningar", async () => {
   const j = await r.json();
   assert.equal(j.ok, true); assert.equal(j.hasApiKey, true);
   assert.equal(j.reviewsToday, 0); assert.equal(j.reviewsTotal, 0);
-  assert.equal(j.version, "gmo-api-v4.1");
+  assert.equal(j.version, "gmo-api-v5");
   assert.equal(j.dailyLimit, 300);
   assert.deepEqual(j.shares.email, { total: 0, today: 0 });
   assert.deepEqual(j.byPath.hantverkare, { total: 0, today: 0 });
@@ -60,7 +60,7 @@ test("CORS: främmande origin får bara den tillåtna", async () => {
 });
 
 test("tom förfrågan ger 400", async () => {
-  const r = await worker.fetch(new Request("https://x/review", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } }), env(), ctx());
+  const r = await worker.fetch(new Request("https://x/review", { method: "POST", body: "{}", headers: { "Content-Type": "application/json", Origin: ORIGIN } }), env(), ctx());
   assert.equal(r.status, 400);
 });
 
@@ -167,4 +167,51 @@ test("prislager i svaret, förbjudna ord tvättas, prisstatistik bara vid opt-in
     assert.equal(p.sumBand, "25-100k");
     assert.ok(!JSON.stringify(p).includes("595") && !JSON.stringify(p).includes("36394") && !JSON.stringify(p).includes("takpannor"));
   } finally { globalThis.fetch = realFetch; }
+});
+
+
+// ---- Tillagt efter kodgranskningen 2026-09-18 ----
+
+test("/review utan origin avvisas – CORS skyddar inte mot curl", async () => {
+  const r = await worker.fetch(
+    new Request("https://x/review", { method: "POST", body: JSON.stringify({ kind: "text", text: "x" }), headers: { "Content-Type": "application/json" } }),
+    env(), ctx());
+  assert.equal(r.status, 403);
+});
+
+test("/review från främmande origin avvisas", async () => {
+  const r = await worker.fetch(
+    new Request("https://x/review", { method: "POST", body: JSON.stringify({ kind: "text", text: "x" }), headers: { "Content-Type": "application/json", Origin: "https://evil.example" } }),
+    env(), ctx());
+  assert.equal(r.status, 403);
+});
+
+test("okänt bildformat avvisas innan modellen anropas", async () => {
+  const realFetch = globalThis.fetch;
+  let anropad = false;
+  globalThis.fetch = async () => { anropad = true; return new Response("{}", { status: 200 }); };
+  try {
+    const r = await worker.fetch(
+      new Request("https://x/review", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN },
+        body: JSON.stringify({ kind: "image", dataBase64: "AAAA", mediaType: "image/heic" }) }),
+      env(), ctx());
+    assert.equal(r.status, 400);
+    assert.equal(anropad, false, "modellen anropades trots okänt format");
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test("län normaliseras till en fast lista", async () => {
+  const { normalizeCounty } = await import("../src/index.js");
+  assert.equal(normalizeCounty("Kronobergs län"), "kronoberg");
+  assert.equal(normalizeCounty("VÄSTRA GÖTALAND"), "västra götaland");
+  assert.equal(normalizeCounty("Storgatan 12, Växjö"), "okand");
+  assert.equal(normalizeCounty(null), "okand");
+});
+
+test("KV som kastar släcker inte tjänsten", async () => {
+  const trasigKV = { async get() { throw new Error("kv nere"); }, async put() { throw new Error("kv nere"); } };
+  const r = await worker.fetch(new Request("https://x/health"), env({ REVIEWS_KV: trasigKV }), ctx());
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  assert.equal(j.ok, true);
 });

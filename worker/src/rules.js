@@ -70,6 +70,10 @@ export function runRules(x, ref) {
 
   // Räkna om arbetskostnad till inkl. moms för ROT-kontrollen.
   const laborInclVat = labor === null ? null : vat === "exkl" ? labor * 1.25 : labor;
+  // Är momsläget okänt vet vi inte om arbetssumman är inkl. eller exkl. moms.
+  // Skillnaden är 25 %, alltså större än ROT-toleransen – då får utfallet inte
+  // bli "fel", utan en fråga. (Kodgranskning 2026-09-18.)
+  const vatUnknown = vat === "ej_angivet" || vat === "blandat";
 
   // --- i) Fast pris utan uppdelning ---
   if (x.priceType === "fast" && labor === null && rotAmt !== null) {
@@ -105,6 +109,10 @@ export function runRules(x, ref) {
       const usedRate = rotRate !== null ? rotRate : rotAmt / laborInclVat;
       if (ok) {
         add("rot_belopp", "ok", "ROT-belopp", `ROT-avdraget ${kr(rotAmt)} är ${Math.round(rot.rate * 100)} % av arbetskostnaden ${kr(laborInclVat)} inklusive moms.`, src(ref, "skatteverket_rot"));
+      } else if (vatUnknown && withinTol(rotAmt, labor * 1.25 * rot.rate, rot.tolerance)) {
+        add("rot_belopp", "fraga", "ROT-belopp",
+          `ROT-avdraget ${kr(rotAmt)} stämmer om arbetskostnaden ${kr(labor)} är angiven exklusive moms, men inte om den är inklusive moms. Offerten anger inte vilket – fråga efter det, så går beloppet att kontrollera.`,
+          src(ref, "skatteverket_rot"));
       } else if (Math.abs(usedRate - rot.oldRate) < 0.02) {
         // c) 50 % gällde bara betalning 2025-05-12 – 2025-12-31. Betalningsdatumet
         // styr; finns bara offertdatum i fönstret vet vi inte när betalningen sker.
@@ -169,8 +177,11 @@ export function runRules(x, ref) {
   if (total !== null && labor !== null && material !== null) {
     const rows = labor + material + (travel || 0) + other;
     const rowsWithVat = vat === "exkl" && x.totalIncludesVat ? rows * 1.25 : rows;
-    const okBefore = withinTol(rowsWithVat, total, 0.02);
-    const okAfter = rotAmt !== null && withinTol(rowsWithVat - rotAmt, total, 0.02);
+    // Är raderna exkl. moms och totalens momsläge oklart kan totalen vara
+    // inkl. moms – godkänn båda tolkningarna i stället för att flagga fel.
+    const vatOpen = vat === "exkl" && x.totalIncludesVat === null && rowsWithVat === rows;
+    const okBefore = withinTol(rowsWithVat, total, 0.02) || (vatOpen && withinTol(rows * 1.25, total, 0.02));
+    const okAfter = rotAmt !== null && (withinTol(rowsWithVat - rotAmt, total, 0.02) || (vatOpen && withinTol(rows * 1.25 - rotAmt, total, 0.02)));
     add("summa", okBefore || okAfter ? "ok" : "fel", "Summering",
       okBefore ? `Raderna (arbete ${kr(labor)} + material ${kr(material)}${travel ? ` + resor ${kr(travel)}` : ""}${other ? ` + övrigt ${kr(other)}` : ""}) summerar till totalen ${kr(total)}.`
         : okAfter ? `Raderna summerar till ${kr(rowsWithVat)}, och efter ROT-avdrag ${kr(rotAmt)} blir det ${kr(total)} att betala – det stämmer.`
@@ -252,7 +263,12 @@ export function compareToBands(x, ref) {
         text: W.noRate.replace("{q}", W.questions.askRate), source: band.source });
       continue;
     }
-    const b = useIncl ? band.inclVat : band.exclVat;
+    const raw = useIncl ? band.inclVat : band.exclVat;
+    // Golvet ska ligga under eller på bandets undre gräns. Ligger det över
+    // blir "under normalt" omöjligt att nå och ett timpris inom det intervall
+    // vi själva publicerar beskrivs som under vad en anställd kostar.
+    // (Kodgranskning 2026-09-18; underlaget rättas av Moneyman.)
+    const b = raw.floor > raw.normal[0] ? { ...raw, floor: raw.normal[0] } : raw;
     const range = `${krRange(b.normal[0], b.normal[1])} per timme ${unit}`;
     const fill = (s) => s.replace("{rate}", kr(rate) + " per timme " + unit).replace("{range}", range)
       .replace("{floor}", kr(b.floor)).replace("{unit}", unit).replace("{trade}", band.label).replace("{source}", band.source);
@@ -307,7 +323,16 @@ export function compareToBands(x, ref) {
 }
 
 // ---- Hård strängkontroll: förbjudna ord får inte förekomma någonstans ----
-const FORBIDDEN_RE = new RegExp(`(${FORBIDDEN_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "giu");
+// Ersätter förbjudna ord med neutral formulering. Samma mönster används för
+// att SÖKA och för att TVÄTTA, så att inget kan hittas utan att också bytas ut.
+const REPLACEMENTS = [
+  [/för dyrt/giu, "över referensintervallet"],
+  [/överpris(satt|satt|er|et|at|ad|ade)?/giu, "pris över referensintervallet"],
+  [/oseriös(t|a)?/giu, "otydlig"],
+  [/fusk(et|ar|a|ande)?/giu, "avvikelse"],
+  [/svart(a|jobb|arbete|arbeten|jobbet)?/giu, "ej redovisat"],
+];
+const FORBIDDEN_RE = new RegExp(`(${REPLACEMENTS.map(([re]) => re.source).join("|")})`, "giu");
 
 export function findForbidden(value, path = "", acc = []) {
   if (typeof value === "string") {
@@ -321,15 +346,6 @@ export function findForbidden(value, path = "", acc = []) {
   return acc;
 }
 
-// Ersätter förbjudna ord med neutral formulering. Används som sista spärr på
-// modellens fritext; regel- och jämförelsetexterna är hårdkodade utan orden.
-const REPLACEMENTS = [
-  [/för dyrt/giu, "över referensintervallet"],
-  [/överpris(er|et|at|ad)?/giu, "pris över referensintervallet"],
-  [/oseriös(t|a)?/giu, "otydlig"],
-  [/fusk(et|ar|a)?/giu, "avvikelse"],
-  [/\bsvart(a|jobb|arbete|arbeten)?\b/giu, "ej redovisat"],
-];
 export function scrubForbidden(value) {
   if (typeof value === "string") {
     let s = value;

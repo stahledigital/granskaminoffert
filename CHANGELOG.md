@@ -1,5 +1,18 @@
 # Granska min offert – ändringslogg
 
+## gmo-v5 / gmo-api-v5 – 2026-09-18
+Säkerhets- och robusthetsrond efter kodgranskningen (`Claude outputs/donatello/KODGRANSKNING_2026-09-18.md`).
+- **`/review` kräver nu godkänd origin** (403 annars). `/event` hade kontrollen, den dyra vägen hade den inte – och workers.dev-adressen står i klartext i sidan. Test finns som fångar det om det tas bort igen.
+- **Offerten behandlas som data, inte instruktioner.** Inklistrad text läggs i `<offert>…</offert>` och systemprompten säger uttryckligen att text i dokumentet aldrig får styra bedömningen; sådana försök nämns i contradictions.
+- **Avkortade modellsvar avvisas** (`stop_reason: max_tokens`) i stället för att prisreglerna räknar vidare på halva fält. Takhöjden 2000 → 4000 tokens.
+- **Tidsgränser:** 90 s mot modellen i workern, 120 s i sidan, med ett begripligt fel i stället för evig väntan.
+- **Bildformat kontrolleras före modellanropet.** HEIC från iPhone gav tidigare ett obegripligt fel efter att besökarens kvot redan förbrukats. Sidan ritar dessutom om bilder till JPEG, max 1800 px längsta sida – HEIC blir läsbar och uppladdningen snabbare på mobil.
+- **KV kan inte längre släcka tjänsten.** Alla läsningar och skrivningar är inpackade; en full eller trasig KV ger sämre statistik, inte 500. `/health` cachar räknarna 60 sekunder i stället för 13 KV-läsningar per anrop.
+- **Persondata:** filnamnet sparas inte längre i felsökningsposten (bara filändelsen), `county` i prisstatistiken valideras mot Sveriges 21 län i stället för fritext, och statistikposterna har utgångsdatum (24 mån) i stället för att ligga kvar för alltid.
+- **Ordspärren** använder samma mönster för att söka och tvätta (tidigare hittades "svartmålad" men tvättades inte, och "överprissatt" blev obegriplig svenska), och svaret kontrolleras en gång till efter tvätten – hittas något då skickas 502 i stället.
+- **Prisregler:** okänt momsläge ger nu **fråga** i stället för "stämmer inte" på ROT-beloppet och på summeringen – skillnaden är 25 %, alltså större än toleransen. Referensgolvet kapas till bandets undre gräns när underlaget säger emot sig självt (snickare, målare och plattsättare hade golv över bandet, vilket fick timpris *inom* det intervall vi publicerar att beskrivas som under vad en anställd kostar). Underlaget rättas av Moneyman; koden kan inte längre ge motsägelsen.
+- Tester: 18 → 26, alla gröna. Nya fall: origin-kontrollen, okänt bildformat, KV som kastar, län-normalisering, golvkapningen för alla yrken och båda momslägen, ordspärren efter tvätt, okänt momsläge på ROT.
+
 ## gmo-api-v4.1 – 2026-09-17 (efter fem skarpa testofferter)
 - ROT 50 % med offertdatum 2025 men utan betaldatum ger nu "fråga" (betalningsdatum styr), inte "ok". Extraktionen får instruktion att tolka "faktureras i februari 2026" som 2026-02-01.
 

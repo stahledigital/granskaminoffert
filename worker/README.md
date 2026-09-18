@@ -13,7 +13,7 @@ Deployad och E2E-verifierad 2026-09-14. Version i koden: `WORKER_VERSION` (`/hea
 
 ## Skydd
 - CORS låst till `ALLOWED_ORIGIN` (kommaseparerad lista tillåten). Observera: CORS stoppar andra webbplatser, inte curl.
-- Rate limit `RATE_LIMIT_PER_HOUR` per IP (KV, TTL 1 h) och globalt dagstak `GLOBAL_DAILY_LIMIT` (standard 150).
+- Rate limit `RATE_LIMIT_PER_HOUR` per IP (KV, TTL 1 h) och globalt dagstak `GLOBAL_DAILY_LIMIT` (standard 300).
   Räknarna är läs-öka-skriv i KV och inte atomära; taket är ett kostnadsskydd, inte en exakt spärr.
 - Max text 20 000 tecken, max fil `MAX_UPLOAD_BYTES` (8 MB). Svar: `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff`.
 
@@ -22,6 +22,9 @@ Deployad och E2E-verifierad 2026-09-14. Version i koden: `WORKER_VERSION` (`/hea
 |---|---|---|
 | `rl:<ip>:<timme>` | räknare för rate limit | 1 h |
 | `global:<dag>` | räknare för dagstaket (alla försök) | 48 h |
+| `count:*` | anonyma räknare: totalt, per dygn, per väg, delningsklick | ingen |
+| `stat:<ts>:<uuid>` | anonym post per granskning: bransch, täckning, antal frågor, summaband, väg | 24 mån |
+| `pstat:<ts>:<uuid>` | prisstatistik, bara med kryssad ruta: jobbtyp, län (fast lista), summaband, timprisband, arbetsandel, ja/nej ROT | 24 mån |
 | `debug:<uuid>` | felsökningspost: tid, IP, kind, filnamn, modell, latens, usage, kostnad, AI-svaret (vid fel: felet). Ingen offert. | 24 h (Anders beslut 2026-09-14) |
 | `count:total`, `count:day:<dag>` | antal lyckade granskningar | ingen |
 | `stat:<tid>:<uuid>` | anonym statistikpost: `ts, trade, calcCoverage, contradictions (antal), clarify (antal), sumBand (<25k / 25-100k / 100-300k / >300k / okand), path`. Ingen IP, inget filnamn, ingen fritext, ingen offert. (Moneyman/Anders beslut 2026-09-16) | ingen |
@@ -62,3 +65,16 @@ Workers och KV på gratisnivå. Anthropic-anropen kostar per användning: `meta.
 - Svaret får `priceReport` = `{ referenceVersion, checked[], compared[], cannotAssess[], disclaimer, methodUrl }`.
 - Prisstatistik (`pstat:*` i KV) sparas bara när anropet har `stats: true` (kryssruta, förvald av). Innehåll: jobbtyp, län, summaband, timprisband, arbetsandel (avrundad 10 %), ROT ja/nej, fallna kontroller, datum. Läs ut med `npx wrangler kv key list --binding REVIEWS_KV --prefix pstat:`.
 - Årlig uppdatering: `node scripts/update_reference.mjs` (torrkörning) → granska → `--write` → uppdatera tabellen på `/sa-granskar-vi-priser/` → commit → deploy.
+
+
+## Endpoints
+
+| Väg | Metod | Skydd |
+|---|---|---|
+| `/review` | POST | Origin måste finnas i `ALLOWED_ORIGIN` (403 annars), rate limit per IP och timme, globalt dagstak, max 8 MB, bara jpeg/png/webp/gif eller PDF |
+| `/event` | POST | Origin måste finnas i `ALLOWED_ORIGIN` (403 annars). Bara delningskanal, inget innehåll |
+| `/health` | GET | Öppen. Räknarna cachas 60 sekunder per isolat |
+
+Origin-kontrollen på `/review` tillkom 2026-09-18: CORS stoppar andra webbplatser i en
+webbläsare men inte `curl`, och workers.dev-adressen står i klartext i `index.html`.
+Kontrollen stoppar inte en bestämd angripare — det gör bara ett spend limit hos Anthropic.

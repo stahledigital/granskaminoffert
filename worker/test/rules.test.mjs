@@ -96,7 +96,7 @@ test("timpris 350: under referensgolvet med låst ordval, moms antas inkl.", () 
   const c = compareToBands(FIXTURES.timpris350, REF);
   const t = byId(c, "tim_snickare");
   assert.equal(t.mode, "under");
-  assert.match(t.text, /under vad en anställd snickare normalt kostar arbetsgivaren \(referensgolv ~570 kr per timme inkl\. moms, härlett från SCB:s lönestatistik 2025\)/);
+  assert.match(t.text, /under vad en anställd snickare normalt kostar arbetsgivaren \(referensgolv ~550 kr per timme inkl\. moms, härlett från SCB:s lönestatistik 2025\)/);
   assert.match(t.text, /F-skatt och försäkring/);
   const proj = byId(c, "projekt");
   assert.equal(proj, undefined); // jobType "annat" har inget band
@@ -143,4 +143,44 @@ test("timprisband för statistik", () => {
   assert.equal(rateBand(350), "<400");
   assert.equal(rateBand(650), "600-799");
   assert.equal(rateBand(null), "okand");
+});
+
+
+// ---- Tillagt efter kodgranskningen 2026-09-18 ----
+
+test("referensgolvet kapas till bandets undre gräns när underlaget säger emot sig självt", () => {
+  // snickare hade floor 570 och normal [550, 800] i reference.json. Med golvet
+  // över bandet blev "under normalt" omöjligt att nå, och ett timpris inom det
+  // intervall vi publicerar beskrevs som under vad en anställd kostar.
+  for (const [trade, band] of Object.entries(REF.hourly)) {
+    if (trade.startsWith("_") || !band || !band.inclVat) continue;
+    for (const mode of ["inclVat", "exclVat"]) {
+      const b = band[mode];
+      if (!b) continue;
+      const out = compareToBands({ ...base, hourlyRateSek: b.normal[0] + 1, trades: [trade], vatMode: mode === "inclVat" ? "inkl" : "exkl" }, REF);
+      const row = out.find((r) => r.id === `tim_${trade}`);
+      assert.ok(row, `saknar rad för ${trade}`);
+      assert.notEqual(row.mode, "under", `${trade} ${mode}: pris inom bandet beskrivs som under golvet`);
+    }
+  }
+});
+
+test("okänt momsläge ger fråga, inte fel, på ROT-beloppet", () => {
+  // Arbetssumma 40 000 angiven utan momsläge. 30 % av 40 000 * 1,25 = 15 000.
+  const out = runRules({
+    ...base, vatMode: "ej_angivet", laborSumSek: 40000, rotAmountSek: 15000,
+    totalSumSek: 60000, priceType: "loptid",
+  }, REF);
+  const rot = out.find((c) => c.id === "rot_belopp");
+  assert.ok(rot, "ingen ROT-kontroll");
+  assert.equal(rot.status, "fraga");
+  assert.match(rot.text, /exklusive moms/);
+});
+
+test("ordspärren tvättar allt den hittar", () => {
+  const svar = { a: "svartmålad fasad", b: "helt överprissatt", c: "det här är fusk", d: "för dyrt", e: "oseriöst" };
+  const hits = findForbidden(svar);
+  assert.ok(hits.length > 0, "hittade inget att tvätta");
+  const rent = scrubForbidden(svar);
+  assert.equal(findForbidden(rent).length, 0, "ord kvar efter tvätt: " + JSON.stringify(rent));
 });
