@@ -45,7 +45,7 @@ test("/health utan granskningar", async () => {
   const j = await r.json();
   assert.equal(j.ok, true); assert.equal(j.hasApiKey, true);
   assert.equal(j.reviewsToday, 0); assert.equal(j.reviewsTotal, 0);
-  assert.equal(j.version, "gmo-api-v5");
+  assert.equal(j.version, "gmo-api-v6");
   assert.equal(j.dailyLimit, 300);
   assert.deepEqual(j.shares.email, { total: 0, today: 0 });
   assert.deepEqual(j.byPath.hantverkare, { total: 0, today: 0 });
@@ -148,7 +148,7 @@ test("prislager i svaret, förbjudna ord tvättas, prisstatistik bara vid opt-in
     const e1 = env(); const c1 = ctx();
     const j = await call(e1, c1, false);
     await Promise.all(c1.jobs);
-    assert.equal(j.priceReport.referenceVersion, "2026-09");
+    assert.equal(j.priceReport.referenceVersion, "2026-09-18");
     assert.ok(j.priceReport.checked.some((c) => c.id === "rot_belopp" && c.status === "ok"));
     assert.ok(j.priceReport.compared.some((c) => c.id === "tim_snickare" && c.mode === "inom"));
     assert.ok(j.priceReport.checked.some((c) => c.id === "summa" && c.status === "ok"));

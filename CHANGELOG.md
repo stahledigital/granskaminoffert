@@ -1,5 +1,16 @@
 # Granska min offert – ändringslogg
 
+## gmo-v6 / gmo-api-v6 – 2026-09-18 (PRISUNDERLAG rev 3)
+Moneymans rev 3: referensgolvet var för högt räknat för alla fem yrken – på SCB:s **medellön** delat med debiteringsgraden 0,8. Medellön är ingen golvnivå (hälften tjänar mindre) och 0,8 är ett antagande om hur firman drivs, inte om vad en anställd kostar. Marknadens billigaste fjärdedel låg under det gamla golvet.
+- **Nya golv** (kr/h exkl./inkl. moms, före ROT): snickare 304/380, elektriker 248/310, VVS 304/380, målare 288/360, plattsättare 360/450. Banden, taken och marknadsmitten är oförändrade. Ny regel: SCB 10:e percentilen ÷ 174 h × 1,03 × 1,55, inkl. moms nedåt till jämna 10 kr.
+- **Kapningen från 2026-09-18 är borttagen.** Den fick meningen att citera SCB för ett tal som kom från bandet, och gav varje pris under bandet texten om lönekostnad. Invarianten golv < bandets undre gräns bevakas nu av ett test som stoppar bygget, och av skriptet som vägrar skriva.
+- **Fyra lägen i stället för tre**, och två rader i rapporten: *Marknad* alltid (vad marknaden tar betalt), *Lönekostnad* bara när priset ligger under golvet (om priset ens täcker lönen för en anställd). Nytt läge "under intervallet men över golvet" med egen text: lågt pris, fråga vad som ingår.
+- **Låst ordval ändrat** (Anders ja 2026-09-18): under-golv-texten säger nu "även med en lön bland de lägsta tio procenten i yrket" i stället för "normalt".
+- **Bugg hittad och lagad i samma pass:** textmallarna fylldes med `String.replace` och en strängnyckel, som bara byter ut första förekomsten. Nya under-golv-texten innehåller `{trade}` två gånger, så andra blev kvar som `{trade}` i klartext. Nu global ersättning, plus ett test som underkänner alla texter där en platshållare läckt ut.
+- **`update_reference.mjs`** hämtar 10:e percentilen (ContentsCode 000007CF), räknar utan debiteringsgrad och räknar upp ett steg per år som saknas när SCB sekretessprickar ett yrke. Torrkörning 18/9 återskapar alla fem golv exakt ur SCB:s API – en oberoende kontroll av Moneymans tabell.
+- Metodsidan: nytt avsnitt "Två frågor, inte en" som skiljer intervallet (marknad) från golvet (lönekostnad), golvet beskrivet per arbetad timme, fyra lägen, nya siffror i tabellen, version 2026-09-18.
+- Tester 26 → 29.
+
 ## gmo-v5 / gmo-api-v5 – 2026-09-18
 Säkerhets- och robusthetsrond efter kodgranskningen (`Claude outputs/donatello/KODGRANSKNING_2026-09-18.md`).
 - **`/review` kräver nu godkänd origin** (403 annars). `/event` hade kontrollen, den dyra vägen hade den inte – och workers.dev-adressen står i klartext i sidan. Test finns som fångar det om det tas bort igen.

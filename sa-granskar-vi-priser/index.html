@@ -50,12 +50,12 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2
 
 <h2>Två lager: regler och referens</h2>
 <p><b>Regelkontroller</b> görs av vår egen kod, inte av AI. Det är räkneregler med ett facit: att ROT-avdraget är 30 procent av arbetskostnaden inklusive moms (Skatteverket), att ROT inte räknats på material eller resor, att timmar gånger timpris blir arbetssumman, att raderna summerar till totalen, att momsen anges konsekvent, och att offerten säger om priset är fast, ungefärligt eller löpande. Här kan resultatet bli <i>stämmer</i> eller <i>stämmer inte</i>.</p>
-<p><b>Referensjämförelsen</b> sätter offertens timpris och totalpris i förhållande till intervall vi har byggt av offentliga källor. Här finns inget facit – bara tre lägen: under referensgolvet, inom intervallet eller över intervallet. Varje sådan mening anger källa och datum.</p>
+<p><b>Referensjämförelsen</b> sätter offertens timpris och totalpris i förhållande till intervall vi har byggt av offentliga källor. Här finns inget facit – bara fyra lägen: under referensgolvet, under intervallet men över golvet, inom intervallet, eller över intervallet. Varje sådan mening anger källa och datum.</p>
 <p>AI (Anthropic Claude) används för ett enda steg: att läsa offerten och plocka ut siffrorna – timpris, timmar, arbete, material, ROT, datum. Det som inte står i offerten lämnas tomt; AI:n får inte gissa. All räkning och jämförelse sker sedan i vanlig, granskningsbar kod.</p>
 
 <h2>Källorna, i den ordning vi litar på dem</h2>
 <ol>
-<li><b>SCB:s lönestrukturstatistik</b> (lön per yrke, SSYK 4-siffrig, år 2025). Enda källan med redovisad metod, konfidensintervall och fri licens. Ger vårt <i>referensgolv</i>: vad en anställd i yrket kostar arbetsgivaren per debiterbar timme, inklusive arbetsgivaravgift 31,42 % (Skatteverket), semesterlön och avtalsförsäkringar, vid 80 procents debiteringsgrad. Golvet är en härledning, inte en uppmätt siffra.</li>
+<li><b>SCB:s lönestrukturstatistik</b> (lön per yrke, SSYK 4-siffrig, år 2025). Enda källan med redovisad metod, konfidensintervall och fri licens. Ger vårt <i>referensgolv</i>: vad en anställd med låg lön i yrket kostar arbetsgivaren per arbetad timme. Vi räknar på den lön som bara var tionde anställd ligger under (10:e percentilen), plus arbetsgivaravgift 31,42 % (Skatteverket), semesterlön och avtalsförsäkringar. Golvet är en härledning, inte en uppmätt siffra.</li>
 <li><b>Skatteverket.</b> ROT-reglerna: 30 procent av arbetskostnaden, högst 50 000 kr per person och år, ROT och RUT tillsammans högst 75 000 kr, betalningsdatumet styr (50 procent gällde bara arbete som betalades 12 maj–31 december 2025), listan över arbeten som inte ger ROT, samt schablonerna för värmepumpar (35 procent av totalpriset räknas som arbete vid berg-, jord- och sjövärme, 30 procent vid luftvärmepump). Citeras med datum.</li>
 <li><b>Byggahus.se:s ringundersökningar</b> (snickare mars 2026, elektriker maj 2026, VVS juni–augusti 2026; målare och plattsättare februari 2024). Tre firmor i tretton städer, redovisad metod, min, max och snitt. Vi använder dem som marknadens mittpunkt och hänvisar till dem med namn – vi kopierar inte deras tabeller.</li>
 <li><b>SCB:s byggkostnadsindex</b> (BKI, delserien arbetslön). Används för att räkna upp intervallen en gång om året utan att läsa om alla guider. Senaste tolv månaderna: arbetslön +2,7 %, material +3,9 % (augusti 2025 till augusti 2026).</li>
@@ -63,15 +63,20 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2
 </ol>
 <p>Som stöd, inte som grund, läser vi prisguider från Hantverkskollen, Offerta, HelpHero, BraByggare, Byggstart, Elektriker.se och Dorunner. De har många observationer men redovisar sällan metod, så projektintervallen (badrum, altan, fönster, tak, målning, fasad, kakel, bergvärme, elcentral) är märkta som grova referenser. För kök finns inget tillräckligt underlag – där säger vi "referens saknas".</p>
 
-<h2>Referensintervall, version 2026-09</h2>
-<p>Timpris till privatperson, före ROT, inklusive moms. Golvet är härlett från SCB 2025, intervallet är vår sammanvägning av marknadskällorna 2026, taket är marknadens övre kvartil plus 15 procent.</p>
+<h2>Två frågor, inte en</h2>
+<p><b>Intervallet svarar på vad marknaden tar betalt.</b> Det är byggt av prisundersökningar där hantverkare faktiskt har lämnat pris, och det är den jämförelsen du ser i varje rapport. Ligger timpriset i intervallet säger vi det, ligger det under eller över säger vi det också – och varför det kan vara rimligt ändå.</p>
+<p><b>Golvet svarar på något annat: om priset ens täcker lönekostnaden för en anställd.</b> Det är räknat från SCB:s lönestatistik och Skatteverkets arbetsgivaravgift, inte från vad någon tar betalt. Den raden visas bara när timpriset ligger under golvet. Ett pris mellan golvet och intervallet är alltså lågt, men inte orimligt – då frågar vi i stället vad som ingår.</p>
+<p>Golvet är kostnaden per <i>arbetad</i> timme, medan offertens timpris gäller en <i>debiterad</i> timme. Alla timmar går inte att debitera, så jämförelsen är medvetet försiktig åt hantverkarens håll: ett pris som underskrider golvet underskrider det med marginal.</p>
+
+<h2>Referensintervall, version 2026-09-18</h2>
+<p>Timpris till privatperson, före ROT, inklusive moms. Golvet är härlett från SCB 2025 (10:e percentilen), intervallet är vår sammanvägning av marknadskällorna 2026, taket är marknadens övre kvartil plus 15 procent.</p>
 <div class="tw"><table>
 <tr><th>Yrke</th><th>Referensgolv</th><th>Intervall</th><th>Marknadsmitt (källa)</th></tr>
-<tr><td>Snickare</td><td>~570 kr/h</td><td>550–800 kr/h</td><td>707 kr/h (Byggahus.se mars 2026)</td></tr>
-<tr><td>Elektriker</td><td>~565 kr/h</td><td>650–950 kr/h</td><td>835 kr/h (Byggahus.se maj 2026)</td></tr>
-<tr><td>VVS-montör</td><td>~605 kr/h</td><td>700–1 050 kr/h</td><td>851 kr/h (Byggahus.se jun–aug 2026)</td></tr>
-<tr><td>Målare</td><td>~530 kr/h</td><td>480–750 kr/h</td><td>~600 kr/h (Hantverkskollen 2026, Byggahus.se 2024)</td></tr>
-<tr><td>Plattsättare</td><td>~630 kr/h</td><td>580–900 kr/h</td><td>~690 kr/h (Hantverkskollen 2026, Byggahus.se 2024)</td></tr>
+<tr><td>Snickare</td><td>~380 kr/h</td><td>550–800 kr/h</td><td>707 kr/h (Byggahus.se mars 2026)</td></tr>
+<tr><td>Elektriker</td><td>~310 kr/h</td><td>650–950 kr/h</td><td>835 kr/h (Byggahus.se maj 2026)</td></tr>
+<tr><td>VVS-montör</td><td>~380 kr/h</td><td>700–1 050 kr/h</td><td>851 kr/h (Byggahus.se jun–aug 2026)</td></tr>
+<tr><td>Målare</td><td>~360 kr/h</td><td>480–750 kr/h</td><td>~600 kr/h (Hantverkskollen 2026, Byggahus.se 2024)</td></tr>
+<tr><td>Plattsättare</td><td>~450 kr/h</td><td>580–900 kr/h</td><td>~690 kr/h (Hantverkskollen 2026, Byggahus.se 2024)</td></tr>
 </table></div>
 <p>Vanliga tillägg som vi inte flaggar: framkörning eller servicebil 400–1 000 kr per besök och materialpåslag 10–25 procent (Offerta, HelpHero, Hantverkskollen 2025–2026).</p>
 <p><b>Kronoberg.</b> Vi använder rikstäckande intervall. SCB:s lönestatistik för Småland med öarna ligger 0 till 3,4 procent under Stockholm, och Byggahus.se ser ingen storstadspremie i timpriserna. Räkna med rikets nivå, eventuellt 0–10 procent lägre timpris. Vi har ingen egen mätning i Växjö ännu.</p>
@@ -88,7 +93,7 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2
 <p>Rutan "Bidra anonymt till prisstatistik" är avbockad som standard. Kryssar du i den sparar vi, utan koppling till dig eller offerten: jobbtyp, län, summaband (till exempel 25–100 tkr), timprisband (till exempel 600–799 kr/h), ungefärlig andel arbete och material, om ROT förekom, vilka kontroller som föll ut och datum. Aldrig fritext, företagsnamn, organisationsnummer, personnamn, adress, IP-adress eller filnamn. När det finns tillräckligt många bidrag per jobbtyp kan vi visa egna intervall per län, märkta med antal. Mer i avsnittet <a href="/#om">Om tjänsten och dina uppgifter</a> på startsidan.</p>
 
 <h2>Uppdatering</h2>
-<p>Referensdata har ett versionsdatum som visas i varje rapport. SCB:s lönestatistik och byggkostnadsindex hämtas via SCB:s öppna API en gång om året (januari) och intervallen räknas om; marknadskällorna läses om varje kvartal; ROT-reglerna kontrolleras mot Skatteverket vid varje uppdatering. Aktuell version: <b>2026-09</b> (källor lästa 2026-09-17).</p>
+<p>Referensdata har ett versionsdatum som visas i varje rapport. SCB:s lönestatistik och byggkostnadsindex hämtas via SCB:s öppna API en gång om året (januari) och intervallen räknas om; marknadskällorna läses om varje kvartal; ROT-reglerna kontrolleras mot Skatteverket vid varje uppdatering. Aktuell version: <b>2026-09-18</b> (källor lästa 2026-09-17, referensgolven omräknade 2026-09-18 från SCB:s 10:e percentil).</p>
 
 <a class="btn" href="/">Granska en offert</a>
 

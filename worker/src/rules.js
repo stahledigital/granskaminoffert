@@ -263,21 +263,33 @@ export function compareToBands(x, ref) {
         text: W.noRate.replace("{q}", W.questions.askRate), source: band.source });
       continue;
     }
-    const raw = useIncl ? band.inclVat : band.exclVat;
-    // Golvet ska ligga under eller på bandets undre gräns. Ligger det över
-    // blir "under normalt" omöjligt att nå och ett timpris inom det intervall
-    // vi själva publicerar beskrivs som under vad en anställd kostar.
-    // (Kodgranskning 2026-09-18; underlaget rättas av Moneyman.)
-    const b = raw.floor > raw.normal[0] ? { ...raw, floor: raw.normal[0] } : raw;
+    // Golvet ska ligga under bandets undre gräns. Kapningen som fanns här
+    // 2026-09-18 är borttagen sedan PRISUNDERLAG rev 3 rättade golvet (SCB
+    // 10:e percentilen i stället för medellön genom debiteringsgrad). Ett kapat
+    // golv fick meningen att citera SCB för ett tal som kom från bandet.
+    // Invarianten bevakas i stället av ett test som stoppar bygget.
+    const b = useIncl ? band.inclVat : band.exclVat;
     const range = `${krRange(b.normal[0], b.normal[1])} per timme ${unit}`;
-    const fill = (s) => s.replace("{rate}", kr(rate) + " per timme " + unit).replace("{range}", range)
-      .replace("{floor}", kr(b.floor)).replace("{unit}", unit).replace("{trade}", band.label).replace("{source}", band.source);
+    // Global ersättning: nya under-golv-texten (rev 3) innehåller {trade} två
+    // gånger, och String.replace med en sträng byter bara ut den första.
+    const put = (s, key, value) => s.split(key).join(value);
+    const fill = (s) => [["{rate}", kr(rate) + " per timme " + unit], ["{range}", range], ["{floor}", kr(b.floor)],
+      ["{unit}", unit], ["{trade}", band.label], ["{source}", band.source]]
+      .reduce((acc, [k, v]) => put(acc, k, v), s);
+    // Två frågor, samma timpris (PRISUNDERLAG rev 3):
+    //   Marknad     – vad tar marknaden betalt?   (alltid med)
+    //   Lönekostnad – täcker priset ens lönen?    (bara när priset ligger under golvet)
     let mode, text;
-    if (rate < b.floor) { mode = "under"; text = fill(W.belowFloor); }
-    else if (rate > b.normal[1]) { mode = "over"; text = fill(W.aboveNormal); }
+    if (rate > b.normal[1]) { mode = "over"; text = fill(W.aboveNormal); }
     else if (rate < b.normal[0]) { mode = "under_band"; text = fill(W.belowNormal); }
     else { mode = "inom"; text = fill(W.withinNormal); }
-    out.push({ id: `tim_${t}`, mode, title: `Timpris ${band.label}`, text, source: band.source });
+    out.push({ id: `tim_${t}`, mode, title: `Marknad – timpris ${band.label}`, text, source: band.source });
+    if (rate < b.floor) {
+      out.push({
+        id: `lonekostnad_${t}`, mode: "under", title: `Lönekostnad – timpris ${band.label}`,
+        text: fill(W.belowFloor), source: band.floorSource || band.source,
+      });
+    }
   }
 
   const p = x.jobType && ref.projects[x.jobType];
@@ -311,7 +323,9 @@ export function compareToBands(x, ref) {
       perTxt = p.per === "m2" ? " per m²" : " per styck";
     }
     const range = `${krRange(p.normal[0], p.normal[1])}${perTxt}${p.scope ? ", " + p.scope : ""}`;
-    const fill = (s) => s.replace("{total}", kr(value) + perTxt).replace("{range}", range).replace("{job}", p.label).replace("{source}", p.source);
+    const putP = (s, key, value) => s.split(key).join(value);
+    const fill = (s) => [["{total}", kr(value) + perTxt], ["{range}", range], ["{job}", p.label], ["{source}", p.source]]
+      .reduce((acc, [k, v]) => putP(acc, k, v), s);
     const lab = p.basis === "arbete";
     let mode, text;
     if (value < p.normal[0]) { mode = "under"; text = fill(lab ? W.projectLaborBelow : W.projectBelow); }

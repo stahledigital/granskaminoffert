@@ -94,10 +94,17 @@ test("timpris 350: under referensgolvet med låst ordval, moms antas inkl.", () 
   assert.equal(byId(r, "rot_belopp").status, "ok");
   assert.equal(byId(r, "pristyp").status, "flagga");
   const c = compareToBands(FIXTURES.timpris350, REF);
-  const t = byId(c, "tim_snickare");
-  assert.equal(t.mode, "under");
-  assert.match(t.text, /under vad en anställd snickare normalt kostar arbetsgivaren \(referensgolv ~550 kr per timme inkl\. moms, härlett från SCB:s lönestatistik 2025\)/);
-  assert.match(t.text, /F-skatt och försäkring/);
+  // Rev 3: två rader. Marknad alltid, lönekostnad bara när priset ligger under golvet.
+  const marknad = byId(c, "tim_snickare");
+  assert.equal(marknad.mode, "under_band");
+  assert.match(marknad.title, /^Marknad – timpris snickare$/);
+  const lon = byId(c, "lonekostnad_snickare");
+  assert.ok(lon, "saknar lönekostnadsrad för 350 kr/h");
+  assert.equal(lon.mode, "under");
+  assert.match(lon.text, /även med en lön bland de lägsta tio procenten i yrket/);
+  assert.match(lon.text, /referensgolv ~380 kr per timme inkl\. moms/);
+  assert.match(lon.text, /F-skatt och försäkring/);
+  assert.match(lon.source, /10:e percentilen/);
   const proj = byId(c, "projekt");
   assert.equal(proj, undefined); // jobType "annat" har inget band
 });
@@ -148,20 +155,18 @@ test("timprisband för statistik", () => {
 
 // ---- Tillagt efter kodgranskningen 2026-09-18 ----
 
-test("referensgolvet kapas till bandets undre gräns när underlaget säger emot sig självt", () => {
-  // snickare hade floor 570 och normal [550, 800] i reference.json. Med golvet
-  // över bandet blev "under normalt" omöjligt att nå, och ett timpris inom det
-  // intervall vi publicerar beskrevs som under vad en anställd kostar.
+test("golvet ligger under bandets undre gräns för varje yrke och båda momslägen", () => {
+  // Byggstopp. Ligger golvet över bandet blir läget "under bandet men över
+  // golvet" omöjligt att nå, och ett timpris inom det intervall vi publicerar
+  // beskrivs som under vad en anställd kostar. PRISUNDERLAG rev 3.
   for (const [trade, band] of Object.entries(REF.hourly)) {
     if (trade.startsWith("_") || !band || !band.inclVat) continue;
     for (const mode of ["inclVat", "exclVat"]) {
       const b = band[mode];
       if (!b) continue;
-      const out = compareToBands({ ...base, hourlyRateSek: b.normal[0] + 1, trades: [trade], vatMode: mode === "inclVat" ? "inkl" : "exkl" }, REF);
-      const row = out.find((r) => r.id === `tim_${trade}`);
-      assert.ok(row, `saknar rad för ${trade}`);
-      assert.notEqual(row.mode, "under", `${trade} ${mode}: pris inom bandet beskrivs som under golvet`);
+      assert.ok(b.floor < b.normal[0], `${trade} ${mode}: golv ${b.floor} ligger inte under bandets undre gräns ${b.normal[0]}`);
     }
+    assert.ok(band.floorSource, `${trade}: saknar floorSource`);
   }
 });
 
@@ -183,4 +188,45 @@ test("ordspärren tvättar allt den hittar", () => {
   assert.ok(hits.length > 0, "hittade inget att tvätta");
   const rent = scrubForbidden(svar);
   assert.equal(findForbidden(rent).length, 0, "ord kvar efter tvätt: " + JSON.stringify(rent));
+});
+
+test("mellan golv och band: lågt pris, men ingen rad om lönekostnad", () => {
+  // Snickare, golv 380, band 550–800 inkl. moms. 500 kr/h ligger däremellan.
+  const c = compareToBands({ ...base, hourlyRateSek: 500, trades: ["snickare"], vatMode: "inkl" }, REF);
+  const marknad = byId(c, "tim_snickare");
+  assert.equal(marknad.mode, "under_band");
+  assert.match(marknad.text, /Lågt pris kan bero på en liten firma med låga omkostnader/);
+  assert.match(marknad.text, /framkörning, material och bortforsling/);
+  assert.equal(byId(c, "lonekostnad_snickare"), undefined, "lönekostnadsraden ska inte visas över golvet");
+  assert.ok(!/anställd/.test(marknad.text), "marknadsraden ska inte påstå något om lönekostnad");
+});
+
+test("de fyra lägena i rak ordning för snickare", () => {
+  const lage = (rate) => {
+    const c = compareToBands({ ...base, hourlyRateSek: rate, trades: ["snickare"], vatMode: "inkl" }, REF);
+    return byId(c, "lonekostnad_snickare") ? "under_golv" : byId(c, "tim_snickare").mode;
+  };
+  assert.equal(lage(300), "under_golv");   // under golvet 380
+  assert.equal(lage(500), "under_band");   // över golvet, under bandet 550
+  assert.equal(lage(700), "inom");         // i bandet 550–800
+  assert.equal(lage(900), "over");         // över bandet
+});
+
+test("inga platshållare läcker ut i någon text", () => {
+  const fall = [
+    { ...base, hourlyRateSek: 300, trades: ["snickare"], vatMode: "inkl" },
+    { ...base, hourlyRateSek: 500, trades: ["snickare"], vatMode: "exkl" },
+    { ...base, hourlyRateSek: 700, trades: ["malare", "vvs"], vatMode: "inkl" },
+    { ...base, hourlyRateSek: 2000, trades: ["plattsattare"], vatMode: "inkl" },
+    { ...base, hourlyRateSek: null, trades: ["elektriker"], vatMode: "inkl" },
+    { ...base, jobType: "tak", totalSumSek: 150000, areaM2: 100, vatMode: "inkl" },
+  ];
+  for (const x of fall) {
+    for (const rad of compareToBands(x, REF)) {
+      assert.ok(!/\{[a-zA-Z]+\}/.test(rad.text), `platshållare kvar i "${rad.title}": ${rad.text}`);
+    }
+    for (const rad of runRules(x, REF)) {
+      assert.ok(!/\{[a-zA-Z]+\}/.test(rad.text), `platshållare kvar i "${rad.title}": ${rad.text}`);
+    }
+  }
 });

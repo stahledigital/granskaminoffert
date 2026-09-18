@@ -1,41 +1,184 @@
 {
-  "version": "2026-09",
-  "updated": "2026-09-17",
+  "version": "2026-09-18",
+  "updated": "2026-09-18",
   "_note": "Referensdata för prislagret i granskaminoffert.se. Alla siffror från PRISUNDERLAG_GRANSKAMINOFFERT.md (Moneyman, rev 2 2026-09-17) och KALLREGISTER_PRISER_GRANSKAMINOFFERT.md (58 källor, lästa 2026-09-17). Märkning: V = verifierad i källan, U = uppgiven av källan utan redovisad metod, E = härledning/uppskattning. Inga kopierade tabeller, inga egna siffror, ingen Beijer-data, inga privata kalkyler. Uppdateras årligen (15 jan) med scripts/update_reference.mjs (SCB lön + BKI) och kvartalsvis läsning av marknadskällor.",
   "sources": {
-    "skatteverket_rot": { "name": "Skatteverket, Rot och rut", "url": "https://www.skatteverket.se/foretag/skatterochavdrag/rotochrut.4.2ef18e6a125660db8b080002674.html", "date": "sidan ändrad 2026-03-03", "grade": "V" },
-    "skatteverket_rot_privat": { "name": "Skatteverket, Rot- och rutarbete (privat)", "url": "https://www.skatteverket.se/privat/fastigheterochbostad/rotochrutarbete.4.2e56d4ba1202f95012080002966.html", "date": "2026", "grade": "V" },
-    "skatteverket_rot_2025": { "name": "Skatteverket, pressnyhet 'Rotavdraget höjs till 50 procent'", "url": "https://www.skatteverket.se/omoss/pressochmedia/nyheter/2025/nyheter/rotavdragethojstill50procent.5.6e1dd38d196873bc1e11af.html", "date": "2025", "grade": "V" },
-    "skatteverket_rot_undantag": { "name": "Skatteverket, Ger arbetet rätt till rotavdrag?", "url": "https://www.skatteverket.se/foretag/skatterochavdrag/rotochrut/gerarbetetratttillrotavdrag.4.5c1163881590be297b5173bf.html", "date": "2026", "grade": "V" },
-    "skatteverket_rot_varmepump": { "name": "Skatteverket, arbetskostnad vid värmepumpentreprenader (via SKVP)", "url": "https://skvp.se/om-varmepumpar/villa/rot-avdraget", "date": "2026", "grade": "V" },
-    "skatteverket_arbetsgivaravgift": { "name": "Skatteverket, Arbetsgivaravgifter", "url": "https://www.skatteverket.se/foretag/arbetsgivare/arbetsgivaravgifterochskatteavdrag/arbetsgivaravgifter.4.233f91f71260075abe8800020817.html", "date": "2026", "grade": "V" },
-    "konsumentverket_pris": { "name": "Konsumentverket, Anlita hantverkare", "url": "https://www.konsumentverket.se/varor-och-tjanster/anlita-hantverkare/", "date": "2026", "grade": "V" },
-    "villaagarna_offert": { "name": "Villaägarna, Bedöm hantverkarens offerter", "url": "https://www.villaagarna.se/radgivning-och-tips/bygg/hantverkare/bedom-hantverkarens-offerter2/", "date": "2026", "grade": "V" },
-    "scb_lon": { "name": "SCB lönestrukturstatistik 2025, tabell LoneSpridSektYrk4AN", "url": "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/AM/AM0110/AM0110A/LoneSpridSektYrk4AN", "date": "år 2025, publicerad 2026", "grade": "V" },
-    "scb_bki": { "name": "SCB Byggkostnadsindex FPIBOM2015", "url": "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/PR/PR0502/PR0502A/FPIBOM2015", "date": "2026M08, publicerad 2026-09-15", "grade": "V" },
-    "byggahus_snickare": { "name": "Byggahus.se, timpris snickare 13 städer", "url": "https://www.byggahus.se/timpris-snickare-vad-kostar-en-snickare-2026", "date": "mars 2026", "grade": "V" },
-    "byggahus_el": { "name": "Byggahus.se, timpris elektriker 13 städer", "url": "https://www.byggahus.se/timpris-elektriker-kostnad-anlita-elektriker-stockholm-goteborg-malmo-10-stader", "date": "maj 2026", "grade": "V" },
-    "byggahus_vvs": { "name": "Byggahus.se, timpris rörmokare 13 städer", "url": "https://www.byggahus.se/rormokare-pris-timpris", "date": "jun–aug 2026", "grade": "V" },
-    "byggahus_2024": { "name": "Byggahus.se, priser snickare/målare/el/VVS/platt", "url": "https://byggahus.se/priser-pa-snickare-malare-elektriker-rormokare", "date": "feb 2024", "grade": "V" },
-    "hantverkskollen_malare": { "name": "Hantverkskollen, målare 2026 (147 företag)", "url": "https://www.hantverkskollen.se/artiklar/malare/malare-vad-kostar-en-per-kvm-priser-2026", "date": "2026", "grade": "U" },
-    "hantverkskollen_platt": { "name": "Hantverkskollen, kakelsättning 2026 (48 företag)", "url": "https://www.hantverkskollen.se/artiklar/platt/platt-kakelsattning-pris-per-kvm-vad-kostar-hantverkaren-2026", "date": "2026", "grade": "U" },
-    "hantverkskollen_fonster": { "name": "Hantverkskollen, fönsterbyte 2026 (75 företag)", "url": "https://www.hantverkskollen.se/artiklar/fonster/fonster-vad-kostar-fonsterbyte-komplett-prisguide-2026", "date": "2026", "grade": "U" },
-    "offerta_timpris": { "name": "Offerta, vad kostar en hantverkare i timmen", "url": "https://offerta.se/guider/bygg-och-renovering/vad-kostar-hantverkare-i-timmen", "date": "2026-08-06", "grade": "U" },
-    "offerta_bergvarme": { "name": "Offerta, bergvärmepump pris", "url": "https://offerta.se/guider/bygg-och-renovering/vad-kostar-en-bergvarmepump", "date": "2026-08-25", "grade": "U" },
-    "helphero_badrum": { "name": "HelpHero, badrumsrenovering", "url": "https://helphero.se/kunskapsbank/badrumsrenovering/sank-kostnaden-for-badrumsrenoveringen", "date": "2026", "grade": "U" },
-    "byggstart_badrum": { "name": "Byggstart, renovera badrum", "url": "https://www.byggstart.se/pris/renovera-badrum", "date": "2026", "grade": "U" },
-    "byggstart_tak": { "name": "Byggstart, byta tak", "url": "https://www.byggstart.se/pris/byta-tak", "date": "2026", "grade": "U" },
-    "brabyggare_badrum": { "name": "BraByggare, badrumsrenovering 2026", "url": "https://www.brabyggare.se/info/vad-kostar-en-badrumsrenovering-2026/", "date": "2026-05-27", "grade": "U" },
-    "brabyggare_altan": { "name": "BraByggare, bygga altan 2026", "url": "https://www.brabyggare.se/info/vad-kostar-bygga-altan-2026/", "date": "maj 2026", "grade": "U" },
-    "badrumsexperter": { "name": "Badrumsexperter, badrumsrenovering pris", "url": "https://www.badrumsexperter.se/pris/vad-kostar-en-badrumsrenovering", "date": "2026", "grade": "U" },
-    "elektriker_se": { "name": "Elektriker.se, vad kostar en elektriker", "url": "https://elektriker.se/vad-kostar-en-elektriker", "date": "2026-01-21", "grade": "U" },
-    "dorunner": { "name": "Dorunner, elektriker fastpris", "url": "https://www.dorunner.se/tjanster/elektriker", "date": "2026", "grade": "U" },
-    "hemfixarna": { "name": "Hemfixarna, hantverkare timpris", "url": "https://hemfixarna.se/2025/03/20/vad-kostar-en-hantverkare-i-timmen/", "date": "2025-05-23", "grade": "U" }
+    "skatteverket_rot": {
+      "name": "Skatteverket, Rot och rut",
+      "url": "https://www.skatteverket.se/foretag/skatterochavdrag/rotochrut.4.2ef18e6a125660db8b080002674.html",
+      "date": "sidan ändrad 2026-03-03",
+      "grade": "V"
+    },
+    "skatteverket_rot_privat": {
+      "name": "Skatteverket, Rot- och rutarbete (privat)",
+      "url": "https://www.skatteverket.se/privat/fastigheterochbostad/rotochrutarbete.4.2e56d4ba1202f95012080002966.html",
+      "date": "2026",
+      "grade": "V"
+    },
+    "skatteverket_rot_2025": {
+      "name": "Skatteverket, pressnyhet 'Rotavdraget höjs till 50 procent'",
+      "url": "https://www.skatteverket.se/omoss/pressochmedia/nyheter/2025/nyheter/rotavdragethojstill50procent.5.6e1dd38d196873bc1e11af.html",
+      "date": "2025",
+      "grade": "V"
+    },
+    "skatteverket_rot_undantag": {
+      "name": "Skatteverket, Ger arbetet rätt till rotavdrag?",
+      "url": "https://www.skatteverket.se/foretag/skatterochavdrag/rotochrut/gerarbetetratttillrotavdrag.4.5c1163881590be297b5173bf.html",
+      "date": "2026",
+      "grade": "V"
+    },
+    "skatteverket_rot_varmepump": {
+      "name": "Skatteverket, arbetskostnad vid värmepumpentreprenader (via SKVP)",
+      "url": "https://skvp.se/om-varmepumpar/villa/rot-avdraget",
+      "date": "2026",
+      "grade": "V"
+    },
+    "skatteverket_arbetsgivaravgift": {
+      "name": "Skatteverket, Arbetsgivaravgifter",
+      "url": "https://www.skatteverket.se/foretag/arbetsgivare/arbetsgivaravgifterochskatteavdrag/arbetsgivaravgifter.4.233f91f71260075abe8800020817.html",
+      "date": "2026",
+      "grade": "V"
+    },
+    "konsumentverket_pris": {
+      "name": "Konsumentverket, Anlita hantverkare",
+      "url": "https://www.konsumentverket.se/varor-och-tjanster/anlita-hantverkare/",
+      "date": "2026",
+      "grade": "V"
+    },
+    "villaagarna_offert": {
+      "name": "Villaägarna, Bedöm hantverkarens offerter",
+      "url": "https://www.villaagarna.se/radgivning-och-tips/bygg/hantverkare/bedom-hantverkarens-offerter2/",
+      "date": "2026",
+      "grade": "V"
+    },
+    "scb_lon": {
+      "name": "SCB lönestrukturstatistik 2025, tabell LoneSpridSektYrk4AN",
+      "url": "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/AM/AM0110/AM0110A/LoneSpridSektYrk4AN",
+      "date": "år 2025, publicerad 2026",
+      "grade": "V"
+    },
+    "scb_bki": {
+      "name": "SCB Byggkostnadsindex FPIBOM2015",
+      "url": "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/PR/PR0502/PR0502A/FPIBOM2015",
+      "date": "2026M08, publicerad 2026-09-15",
+      "grade": "V"
+    },
+    "byggahus_snickare": {
+      "name": "Byggahus.se, timpris snickare 13 städer",
+      "url": "https://www.byggahus.se/timpris-snickare-vad-kostar-en-snickare-2026",
+      "date": "mars 2026",
+      "grade": "V"
+    },
+    "byggahus_el": {
+      "name": "Byggahus.se, timpris elektriker 13 städer",
+      "url": "https://www.byggahus.se/timpris-elektriker-kostnad-anlita-elektriker-stockholm-goteborg-malmo-10-stader",
+      "date": "maj 2026",
+      "grade": "V"
+    },
+    "byggahus_vvs": {
+      "name": "Byggahus.se, timpris rörmokare 13 städer",
+      "url": "https://www.byggahus.se/rormokare-pris-timpris",
+      "date": "jun–aug 2026",
+      "grade": "V"
+    },
+    "byggahus_2024": {
+      "name": "Byggahus.se, priser snickare/målare/el/VVS/platt",
+      "url": "https://byggahus.se/priser-pa-snickare-malare-elektriker-rormokare",
+      "date": "feb 2024",
+      "grade": "V"
+    },
+    "hantverkskollen_malare": {
+      "name": "Hantverkskollen, målare 2026 (147 företag)",
+      "url": "https://www.hantverkskollen.se/artiklar/malare/malare-vad-kostar-en-per-kvm-priser-2026",
+      "date": "2026",
+      "grade": "U"
+    },
+    "hantverkskollen_platt": {
+      "name": "Hantverkskollen, kakelsättning 2026 (48 företag)",
+      "url": "https://www.hantverkskollen.se/artiklar/platt/platt-kakelsattning-pris-per-kvm-vad-kostar-hantverkaren-2026",
+      "date": "2026",
+      "grade": "U"
+    },
+    "hantverkskollen_fonster": {
+      "name": "Hantverkskollen, fönsterbyte 2026 (75 företag)",
+      "url": "https://www.hantverkskollen.se/artiklar/fonster/fonster-vad-kostar-fonsterbyte-komplett-prisguide-2026",
+      "date": "2026",
+      "grade": "U"
+    },
+    "offerta_timpris": {
+      "name": "Offerta, vad kostar en hantverkare i timmen",
+      "url": "https://offerta.se/guider/bygg-och-renovering/vad-kostar-hantverkare-i-timmen",
+      "date": "2026-08-06",
+      "grade": "U"
+    },
+    "offerta_bergvarme": {
+      "name": "Offerta, bergvärmepump pris",
+      "url": "https://offerta.se/guider/bygg-och-renovering/vad-kostar-en-bergvarmepump",
+      "date": "2026-08-25",
+      "grade": "U"
+    },
+    "helphero_badrum": {
+      "name": "HelpHero, badrumsrenovering",
+      "url": "https://helphero.se/kunskapsbank/badrumsrenovering/sank-kostnaden-for-badrumsrenoveringen",
+      "date": "2026",
+      "grade": "U"
+    },
+    "byggstart_badrum": {
+      "name": "Byggstart, renovera badrum",
+      "url": "https://www.byggstart.se/pris/renovera-badrum",
+      "date": "2026",
+      "grade": "U"
+    },
+    "byggstart_tak": {
+      "name": "Byggstart, byta tak",
+      "url": "https://www.byggstart.se/pris/byta-tak",
+      "date": "2026",
+      "grade": "U"
+    },
+    "brabyggare_badrum": {
+      "name": "BraByggare, badrumsrenovering 2026",
+      "url": "https://www.brabyggare.se/info/vad-kostar-en-badrumsrenovering-2026/",
+      "date": "2026-05-27",
+      "grade": "U"
+    },
+    "brabyggare_altan": {
+      "name": "BraByggare, bygga altan 2026",
+      "url": "https://www.brabyggare.se/info/vad-kostar-bygga-altan-2026/",
+      "date": "maj 2026",
+      "grade": "U"
+    },
+    "badrumsexperter": {
+      "name": "Badrumsexperter, badrumsrenovering pris",
+      "url": "https://www.badrumsexperter.se/pris/vad-kostar-en-badrumsrenovering",
+      "date": "2026",
+      "grade": "U"
+    },
+    "elektriker_se": {
+      "name": "Elektriker.se, vad kostar en elektriker",
+      "url": "https://elektriker.se/vad-kostar-en-elektriker",
+      "date": "2026-01-21",
+      "grade": "U"
+    },
+    "dorunner": {
+      "name": "Dorunner, elektriker fastpris",
+      "url": "https://www.dorunner.se/tjanster/elektriker",
+      "date": "2026",
+      "grade": "U"
+    },
+    "hemfixarna": {
+      "name": "Hemfixarna, hantverkare timpris",
+      "url": "https://hemfixarna.se/2025/03/20/vad-kostar-en-hantverkare-i-timmen/",
+      "date": "2025-05-23",
+      "grade": "U"
+    }
   },
   "rot": {
-    "rate": 0.30,
-    "oldRate": 0.50,
-    "oldRateWindow": { "from": "2025-05-12", "to": "2025-12-31" },
+    "rate": 0.3,
+    "oldRate": 0.5,
+    "oldRateWindow": {
+      "from": "2025-05-12",
+      "to": "2025-12-31"
+    },
     "maxPerPerson": 50000,
     "maxRotRut": 75000,
     "tolerance": 0.02,
@@ -43,18 +186,90 @@
     "paymentDateGoverns": true,
     "quote": "Skatteverket (sidan ändrad 2026-03-03): rotavdraget är \"30 procent av arbetskostnaden\" och högst \"50 000 kronor per person och år\". 50 procent gällde bara arbete som betalades 12 maj – 31 december 2025.",
     "quoteMaterial": "Skatteverket: \"Material och andra kostnader, som resekostnader, ger däremot inte rätt till avdrag.\"",
-    "heatPumpShare": { "bergvarme": 0.35, "other": 0.30 },
+    "heatPumpShare": {
+      "bergvarme": 0.35,
+      "other": 0.3
+    },
     "heatPumpNote": "Vätska–vatten (berg, jord, sjö, grundvatten): 35 % av totalpriset räknas som arbete. Luft–vatten, luft–luft och frånluft: 30 %. Gäller småhus.",
     "exceptions": [
-      { "label": "Att bygga en helt ny bostad", "quote": "\"Det går dock aldrig att få rotavdrag för att bygga en helt ny bostad.\"", "keywords": ["nybygg", "nyproduktion", "ny bostad", "nytt hus", "bygga hus"] },
-      { "label": "Bostad yngre än fem år (bara återställning ger rot)", "quote": "För en bostad yngre än fem år \"får arbetet endast syfta till att återställa byggnaden till det skick den var i från början\".", "keywords": ["nyproducerad", "yngre än fem år", "nybyggd"] },
-      { "label": "Pool, pooldäck, staket, murar och båtbryggor", "quote": "Skatteverket: inte rot för att \"reparera och underhålla pooldäck, staket, murar och båtbryggor\" eller för fristående utomhuspool.", "keywords": ["pool", "staket", "stödmur", "mur ", "brygga"] },
-      { "label": "Friggebod eller annan ny byggnad", "quote": "Skatteverket: inte rot för friggebod eller nytt hus på tomten.", "keywords": ["friggebod", "attefallshus", "komplementbyggnad"] },
-      { "label": "Skadedjursbekämpning", "quote": "Skatteverket: inte rot för att \"bekämpa skadedjur\".", "keywords": ["skadedjur", "sanering av ", "getingbo", "råttor"] },
-      { "label": "Energideklaration och mätning av fukt, radon, asbest", "quote": "Skatteverket: inte rot för att \"göra energideklarationer eller mäta fukt, radon och asbest\".", "keywords": ["energideklaration", "radonmätning", "fuktmätning", "asbestprov", "asbestanalys"] },
-      { "label": "Gemensamma delar i bostadsrättsförening (tak, fasad, trapphus, entré, ytterdörr, fönster, balkong)", "quote": "Skatteverket: bostadsrättshavare får inte rot för att \"arbeta på gemensamma ytor, exempelvis tak, fasader, trapphus och entréer\" eller \"byta eller reparera ytterdörrar eller lås i ytterdörrar, fönster eller fönsterbleck\".", "keywords": ["trapphus", "gemensamma ytor", "föreningens"] }
+      {
+        "label": "Att bygga en helt ny bostad",
+        "quote": "\"Det går dock aldrig att få rotavdrag för att bygga en helt ny bostad.\"",
+        "keywords": [
+          "nybygg",
+          "nyproduktion",
+          "ny bostad",
+          "nytt hus",
+          "bygga hus"
+        ]
+      },
+      {
+        "label": "Bostad yngre än fem år (bara återställning ger rot)",
+        "quote": "För en bostad yngre än fem år \"får arbetet endast syfta till att återställa byggnaden till det skick den var i från början\".",
+        "keywords": [
+          "nyproducerad",
+          "yngre än fem år",
+          "nybyggd"
+        ]
+      },
+      {
+        "label": "Pool, pooldäck, staket, murar och båtbryggor",
+        "quote": "Skatteverket: inte rot för att \"reparera och underhålla pooldäck, staket, murar och båtbryggor\" eller för fristående utomhuspool.",
+        "keywords": [
+          "pool",
+          "staket",
+          "stödmur",
+          "mur ",
+          "brygga"
+        ]
+      },
+      {
+        "label": "Friggebod eller annan ny byggnad",
+        "quote": "Skatteverket: inte rot för friggebod eller nytt hus på tomten.",
+        "keywords": [
+          "friggebod",
+          "attefallshus",
+          "komplementbyggnad"
+        ]
+      },
+      {
+        "label": "Skadedjursbekämpning",
+        "quote": "Skatteverket: inte rot för att \"bekämpa skadedjur\".",
+        "keywords": [
+          "skadedjur",
+          "sanering av ",
+          "getingbo",
+          "råttor"
+        ]
+      },
+      {
+        "label": "Energideklaration och mätning av fukt, radon, asbest",
+        "quote": "Skatteverket: inte rot för att \"göra energideklarationer eller mäta fukt, radon och asbest\".",
+        "keywords": [
+          "energideklaration",
+          "radonmätning",
+          "fuktmätning",
+          "asbestprov",
+          "asbestanalys"
+        ]
+      },
+      {
+        "label": "Gemensamma delar i bostadsrättsförening (tak, fasad, trapphus, entré, ytterdörr, fönster, balkong)",
+        "quote": "Skatteverket: bostadsrättshavare får inte rot för att \"arbeta på gemensamma ytor, exempelvis tak, fasader, trapphus och entréer\" eller \"byta eller reparera ytterdörrar eller lås i ytterdörrar, fönster eller fönsterbleck\".",
+        "keywords": [
+          "trapphus",
+          "gemensamma ytor",
+          "föreningens"
+        ]
+      }
     ],
-    "sources": ["skatteverket_rot", "skatteverket_rot_privat", "skatteverket_rot_2025", "skatteverket_rot_undantag", "skatteverket_rot_varmepump"]
+    "sources": [
+      "skatteverket_rot",
+      "skatteverket_rot_privat",
+      "skatteverket_rot_2025",
+      "skatteverket_rot_undantag",
+      "skatteverket_rot_varmepump"
+    ]
   },
   "employerContributionPct": 0.3142,
   "consumer": {
@@ -63,16 +278,149 @@
     "vatDefaultQuote": "Villaägarna: \"Om det inte anges att priset är exklusive eller inklusive moms ska du som konsument utgå från att det är inklusive moms.\""
   },
   "addons": {
-    "travel": { "min": 400, "max": 1000, "unit": "kr per besök", "grade": "U", "source": "offerta_timpris", "sourceText": "Offerta aug 2026, Hemfixarna 2025" },
-    "materialMarkup": { "min": 0.10, "max": 0.25, "grade": "U", "source": "offerta_timpris", "sourceText": "Offerta aug 2026, HelpHero 2026, Hantverkskollen 2026" }
+    "travel": {
+      "min": 400,
+      "max": 1000,
+      "unit": "kr per besök",
+      "grade": "U",
+      "source": "offerta_timpris",
+      "sourceText": "Offerta aug 2026, Hemfixarna 2025"
+    },
+    "materialMarkup": {
+      "min": 0.1,
+      "max": 0.25,
+      "grade": "U",
+      "source": "offerta_timpris",
+      "sourceText": "Offerta aug 2026, HelpHero 2026, Hantverkskollen 2026"
+    }
   },
   "hourly": {
     "_method": "Golv = lönehärlett (SCB-lön 2025/174 × 1,03 × 1,55 / 0,8 debiteringsgrad) exkl. moms, E. Marknadsmitt = Byggahus 2026 snitt, V i källan. Normalband = E. Tak = marknadens P75 × 1,15, E. Alla belopp kr/timme, privatperson, före ROT.",
-    "snickare": { "label": "snickare", "ssyk": "7111", "exclVat": { "floor": 455, "normal": [440, 640], "ceiling": 736 }, "inclVat": { "floor": 570, "normal": [550, 800], "ceiling": 920 }, "marketMid": 707, "marketMidSource": "Byggahus.se mars 2026", "source": "Byggahus.se mars 2026, SCB lönestatistik 2025", "grade": "E" },
-    "elektriker": { "label": "elektriker", "ssyk": "7411", "exclVat": { "floor": 453, "normal": [520, 760], "ceiling": 880 }, "inclVat": { "floor": 565, "normal": [650, 950], "ceiling": 1100 }, "marketMid": 835, "marketMidSource": "Byggahus.se maj 2026", "source": "Byggahus.se maj 2026, SCB lönestatistik 2025", "grade": "E" },
-    "vvs": { "label": "VVS-montör", "ssyk": "7125", "exclVat": { "floor": 484, "normal": [560, 840], "ceiling": 960 }, "inclVat": { "floor": 605, "normal": [700, 1050], "ceiling": 1200 }, "marketMid": 851, "marketMidSource": "Byggahus.se jun–aug 2026", "source": "Byggahus.se jun–aug 2026, SCB lönestatistik 2025", "grade": "E" },
-    "malare": { "label": "målare", "ssyk": "7131", "exclVat": { "floor": 423, "normal": [384, 600], "ceiling": 696 }, "inclVat": { "floor": 530, "normal": [480, 750], "ceiling": 870 }, "marketMid": 600, "marketMidSource": "Hantverkskollen 2026 median, Byggahus.se feb 2024", "source": "Hantverkskollen 2026, Byggahus.se feb 2024, SCB lönestatistik 2025", "grade": "E" },
-    "plattsattare": { "label": "plattsättare", "ssyk": "7122 (proxy)", "exclVat": { "floor": 502, "normal": [464, 720], "ceiling": 800 }, "inclVat": { "floor": 630, "normal": [580, 900], "ceiling": 1000 }, "marketMid": 690, "marketMidSource": "Hantverkskollen 2026 median, Byggahus.se feb 2024", "source": "Hantverkskollen 2026, Byggahus.se feb 2024, SCB lönestatistik 2024/2025", "grade": "E" }
+    "snickare": {
+      "label": "snickare",
+      "ssyk": "7111",
+      "exclVat": {
+        "floor": 304,
+        "normal": [
+          440,
+          640
+        ],
+        "ceiling": 736
+      },
+      "inclVat": {
+        "floor": 380,
+        "normal": [
+          550,
+          800
+        ],
+        "ceiling": 920
+      },
+      "marketMid": 707,
+      "marketMidSource": "Byggahus.se mars 2026",
+      "source": "Byggahus.se mars 2026, SCB lönestatistik 2025",
+      "grade": "E",
+      "floorSource": "SCB lönestrukturstatistik 2025, 10:e percentilen, /174 h × 1,03 (lönerevision 2026) × 1,55 (arbetsgivaravgift 31,42 %, semesterlön, avtalsförsäkring); Skatteverket 2026; E; 2026-09-18"
+    },
+    "elektriker": {
+      "label": "elektriker",
+      "ssyk": "7411",
+      "exclVat": {
+        "floor": 248,
+        "normal": [
+          520,
+          760
+        ],
+        "ceiling": 880
+      },
+      "inclVat": {
+        "floor": 310,
+        "normal": [
+          650,
+          950
+        ],
+        "ceiling": 1100
+      },
+      "marketMid": 835,
+      "marketMidSource": "Byggahus.se maj 2026",
+      "source": "Byggahus.se maj 2026, SCB lönestatistik 2025",
+      "grade": "E",
+      "floorSource": "SCB lönestrukturstatistik 2025, 10:e percentilen, /174 h × 1,03 (lönerevision 2026) × 1,55 (arbetsgivaravgift 31,42 %, semesterlön, avtalsförsäkring); Skatteverket 2026; E; 2026-09-18"
+    },
+    "vvs": {
+      "label": "VVS-montör",
+      "ssyk": "7125",
+      "exclVat": {
+        "floor": 304,
+        "normal": [
+          560,
+          840
+        ],
+        "ceiling": 960
+      },
+      "inclVat": {
+        "floor": 380,
+        "normal": [
+          700,
+          1050
+        ],
+        "ceiling": 1200
+      },
+      "marketMid": 851,
+      "marketMidSource": "Byggahus.se jun–aug 2026",
+      "source": "Byggahus.se jun–aug 2026, SCB lönestatistik 2025",
+      "grade": "E",
+      "floorSource": "SCB lönestrukturstatistik 2025, 10:e percentilen, /174 h × 1,03 (lönerevision 2026) × 1,55 (arbetsgivaravgift 31,42 %, semesterlön, avtalsförsäkring); Skatteverket 2026; E; 2026-09-18"
+    },
+    "malare": {
+      "label": "målare",
+      "ssyk": "7131",
+      "exclVat": {
+        "floor": 288,
+        "normal": [
+          384,
+          600
+        ],
+        "ceiling": 696
+      },
+      "inclVat": {
+        "floor": 360,
+        "normal": [
+          480,
+          750
+        ],
+        "ceiling": 870
+      },
+      "marketMid": 600,
+      "marketMidSource": "Hantverkskollen 2026 median, Byggahus.se feb 2024",
+      "source": "Hantverkskollen 2026, Byggahus.se feb 2024, SCB lönestatistik 2025",
+      "grade": "E",
+      "floorSource": "SCB lönestrukturstatistik 2025, 10:e percentilen, /174 h × 1,03 (lönerevision 2026) × 1,55 (arbetsgivaravgift 31,42 %, semesterlön, avtalsförsäkring); Skatteverket 2026; E; 2026-09-18"
+    },
+    "plattsattare": {
+      "label": "plattsättare",
+      "ssyk": "7122 (proxy)",
+      "exclVat": {
+        "floor": 360,
+        "normal": [
+          464,
+          720
+        ],
+        "ceiling": 800
+      },
+      "inclVat": {
+        "floor": 450,
+        "normal": [
+          580,
+          900
+        ],
+        "ceiling": 1000
+      },
+      "marketMid": 690,
+      "marketMidSource": "Hantverkskollen 2026 median, Byggahus.se feb 2024",
+      "source": "Hantverkskollen 2026, Byggahus.se feb 2024, SCB lönestatistik 2024/2025",
+      "grade": "E",
+      "floorSource": "SCB lönestrukturstatistik 2024 (2025 sekretessbelagd), 10:e percentilen, uppräknad 2025 och 2026, /174 h × 1,55 (arbetsgivaravgift 31,42 %, semesterlön, avtalsförsäkring); Skatteverket 2026; E; 2026-09-18. Svagaste raden: brett konfidensintervall, korskontrollerad mot murare"
+    }
   },
   "region": {
     "note": "Kronoberg: räkna med rikets nivå, eventuellt 0–10 % lägre timpris. SCB visar att Småland med öarna ligger 0 till −3,4 % mot Stockholm i lön; Byggahus.se visar ingen storstadspremie. v1 använder riksband.",
@@ -80,21 +428,137 @@
   },
   "projects": {
     "_method": "Band från publika prisguider (U), inkl. moms, före ROT. per = vad bandet avser: total, m2 eller st. basis = vilken summa som jämförs: total eller arbete. Guiderna redovisar inte metod.",
-    "badrum": { "label": "badrumsrenovering", "per": "total", "basis": "total", "normal": [185000, 225000], "scope": "totalrenovering 4–6 m²", "perM2": [35000, 40000], "laborShare": [0.55, 0.70], "source": "HelpHero, Byggstart, BraByggare, Badrumsexperter 2026", "grade": "U" },
-    "altan": { "label": "altan", "per": "m2", "basis": "total", "normal": [2500, 6000], "scope": "inkl. material; tryckimpregnerat 2 200–3 800, komposit 3 800–6 200 kr/m²", "laborShare": [0.40, 0.55], "source": "BraByggare maj 2026", "grade": "U" },
-    "fonster": { "label": "fönsterbyte", "per": "st", "basis": "total", "normal": [5000, 18000], "scope": "per fönster inkl. montering; montering 2 000–7 000 kr/st", "source": "Hantverkskollen 2026, 75 företag", "grade": "U" },
-    "tak": { "label": "takomläggning", "per": "m2", "basis": "total", "normal": [1200, 3000], "scope": "typiskt ~1 500 kr/m²", "source": "Byggstart 2026", "grade": "U" },
-    "malning": { "label": "invändig målning", "per": "m2", "basis": "arbete", "normal": [390, 780], "scope": "arbete: väggar 390–520, med spackling 520–720, tak 450–780 kr/m²", "source": "Hantverkskollen 2026, 147 företag", "grade": "U" },
-    "fasad": { "label": "fasadmålning", "per": "m2", "basis": "arbete", "normal": [350, 900], "scope": "arbete: trä 400–900, puts 350–750 kr/m²", "source": "Hantverkskollen 2026", "grade": "U" },
-    "kakel": { "label": "kakel och klinker", "per": "m2", "basis": "arbete", "normal": [400, 1200], "scope": "arbete; inkl. material 800–3 500 kr/m²", "source": "Hantverkskollen 2026, 48 företag", "grade": "U" },
-    "bergvarme": { "label": "bergvärme", "per": "total", "basis": "total", "normal": [100000, 250000], "scope": "pump, borrning och installation", "source": "Offerta aug 2026", "grade": "U" },
-    "elcentral": { "label": "byte av elcentral", "per": "total", "basis": "total", "normal": [6000, 15000], "scope": "", "source": "Elektriker.se jan 2026, Dorunner 2026", "grade": "U" },
-    "kok": { "label": "köksrenovering", "noReference": true, "source": "", "grade": "-" }
+    "badrum": {
+      "label": "badrumsrenovering",
+      "per": "total",
+      "basis": "total",
+      "normal": [
+        185000,
+        225000
+      ],
+      "scope": "totalrenovering 4–6 m²",
+      "perM2": [
+        35000,
+        40000
+      ],
+      "laborShare": [
+        0.55,
+        0.7
+      ],
+      "source": "HelpHero, Byggstart, BraByggare, Badrumsexperter 2026",
+      "grade": "U"
+    },
+    "altan": {
+      "label": "altan",
+      "per": "m2",
+      "basis": "total",
+      "normal": [
+        2500,
+        6000
+      ],
+      "scope": "inkl. material; tryckimpregnerat 2 200–3 800, komposit 3 800–6 200 kr/m²",
+      "laborShare": [
+        0.4,
+        0.55
+      ],
+      "source": "BraByggare maj 2026",
+      "grade": "U"
+    },
+    "fonster": {
+      "label": "fönsterbyte",
+      "per": "st",
+      "basis": "total",
+      "normal": [
+        5000,
+        18000
+      ],
+      "scope": "per fönster inkl. montering; montering 2 000–7 000 kr/st",
+      "source": "Hantverkskollen 2026, 75 företag",
+      "grade": "U"
+    },
+    "tak": {
+      "label": "takomläggning",
+      "per": "m2",
+      "basis": "total",
+      "normal": [
+        1200,
+        3000
+      ],
+      "scope": "typiskt ~1 500 kr/m²",
+      "source": "Byggstart 2026",
+      "grade": "U"
+    },
+    "malning": {
+      "label": "invändig målning",
+      "per": "m2",
+      "basis": "arbete",
+      "normal": [
+        390,
+        780
+      ],
+      "scope": "arbete: väggar 390–520, med spackling 520–720, tak 450–780 kr/m²",
+      "source": "Hantverkskollen 2026, 147 företag",
+      "grade": "U"
+    },
+    "fasad": {
+      "label": "fasadmålning",
+      "per": "m2",
+      "basis": "arbete",
+      "normal": [
+        350,
+        900
+      ],
+      "scope": "arbete: trä 400–900, puts 350–750 kr/m²",
+      "source": "Hantverkskollen 2026",
+      "grade": "U"
+    },
+    "kakel": {
+      "label": "kakel och klinker",
+      "per": "m2",
+      "basis": "arbete",
+      "normal": [
+        400,
+        1200
+      ],
+      "scope": "arbete; inkl. material 800–3 500 kr/m²",
+      "source": "Hantverkskollen 2026, 48 företag",
+      "grade": "U"
+    },
+    "bergvarme": {
+      "label": "bergvärme",
+      "per": "total",
+      "basis": "total",
+      "normal": [
+        100000,
+        250000
+      ],
+      "scope": "pump, borrning och installation",
+      "source": "Offerta aug 2026",
+      "grade": "U"
+    },
+    "elcentral": {
+      "label": "byte av elcentral",
+      "per": "total",
+      "basis": "total",
+      "normal": [
+        6000,
+        15000
+      ],
+      "scope": "",
+      "source": "Elektriker.se jan 2026, Dorunner 2026",
+      "grade": "U"
+    },
+    "kok": {
+      "label": "köksrenovering",
+      "noReference": true,
+      "source": "",
+      "grade": "-"
+    }
   },
   "wording": {
-    "_note": "LÅST ordval enligt PRISUNDERLAG avsnittet 'Ordval — låst'. Ändras inte utan Moneyman/Anders.",
-    "belowFloor": "Timpriset {rate} ligger under vad en anställd {trade} normalt kostar arbetsgivaren (referensgolv ~{floor} per timme {unit}, härlett från SCB:s lönestatistik 2025). Fråga vad som ingår, om företaget har F-skatt och försäkring.",
-    "belowNormal": "Timpriset {rate} ligger under det intervall vi ser för {trade} 2026 ({range}; {source}), men över referensgolvet. Fråga vad som ingår i timpriset.",
+    "_note": "LÅST ordval enligt PRISUNDERLAG avsnittet 'Ordval — låst' (rev 3, 2026-09-18). Ändras inte utan Moneyman/Anders.",
+    "belowFloor": "Timpriset {rate} ligger under vad en anställd {trade} kostar arbetsgivaren per arbetad timme, även med en lön bland de lägsta tio procenten i yrket (referensgolv ~{floor} per timme {unit}, härlett från SCB:s lönestatistik 2025 och Skatteverkets arbetsgivaravgift). Det ligger också under det intervall vi ser för {trade} 2026 ({range}). Fråga vad som ingår, om företaget har F-skatt och försäkring.",
+    "belowNormal": "Timpriset {rate} ligger under det intervall vi ser för {trade} 2026 ({range}; {source}). Lågt pris kan bero på en liten firma med låga omkostnader eller på att vissa kostnader debiteras separat. Fråga vad som ingår – till exempel framkörning, material och bortforsling.",
     "withinNormal": "Timpriset {rate} ligger inom det intervall vi ser för {trade} 2026 ({range}; {source}).",
     "aboveNormal": "Timpriset {rate} ligger över det intervall vi ser för {trade} 2026 ({range}; {source}). Be om motivering – specialkompetens, kort uppdrag eller resor kan förklara det.",
     "noRate": "Inget timpris anges, så det går inte att jämföra mot referensintervallet. {q}",

@@ -5,9 +5,15 @@
 //
 // Körs manuellt:   node scripts/update_reference.mjs            (visar förslag, skriver inget)
 //                  node scripts/update_reference.mjs --write    (skriver src/reference.json)
-// Golvformel (PRISUNDERLAG, E): timlön = månadslön / 174 × 1,03 (löneökning
-// nästa år); kostnad = timlön × 1,55 (avgift 31,42 % + semester ~13 % +
-// avtalsförsäkring ~6 %); per debiterbar timme / 0,8. Exkl. moms; × 1,25 inkl.
+// Golvformel (PRISUNDERLAG rev 3, 2026-09-18, E): timlön = månadslön för
+// 10:e PERCENTILEN / 174 × 1,03 (löneökning nästa år); kostnad = timlön × 1,55
+// (avgift 31,42 % + semester ~13 % + avtalsförsäkring ~6 %). Inkl. moms rundas
+// NEDÅT till jämna 10 kr, exkl. = inkl. / 1,25.
+// Ändrat i rev 3: medellön → 10:e percentilen, och delningen med debiterings-
+// graden 0,8 är borttagen. Medellön är ingen golvnivå (hälften tjänar mindre),
+// och 0,8 är ett antagande om hur firman drivs, inte om vad en anställd kostar.
+// Golvet är kostnad per ARBETAD timme och jämförs mot en DEBITERAD timme –
+// försiktigt åt hantverkarens håll, vilket är avsikten.
 // Banden (normal/tak) indexeras med BKI arbetslön senaste 12 mån och avrundas
 // till närmaste 10 kr. Marknadsmitt rörs inte här – den läses om kvartalsvis.
 // Ingen automatisk deploy: skriptet ändrar bara filen, resten är commit + deploy.
@@ -28,7 +34,7 @@ const SCB_BKI = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/PR/PR0502/PR050
 // proxy golvläggare 7122 (PRISUNDERLAG). Saknas årets värde ("..") används
 // senaste tillgängliga år, och det noteras.
 const SSYK = { snickare: "7111", elektriker: "7411", vvs: "7125", malare: "7131", plattsattare: "7122" };
-const HOURS_PER_MONTH = 174, WAGE_GROWTH = 1.03, COST_FACTOR = 1.55, BILLABLE = 0.8, VAT = 1.25;
+const HOURS_PER_MONTH = 174, WAGE_GROWTH = 1.03, COST_FACTOR = 1.55, VAT = 1.25;
 
 async function px(url, query) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, response: { format: "json" } }) });
@@ -43,7 +49,8 @@ async function fetchWages() {
     { code: "Sektor", selection: { filter: "item", values: ["0"] } },
     { code: "Yrke2012", selection: { filter: "item", values: Object.values(SSYK) } },
     { code: "Kon", selection: { filter: "item", values: ["1+2"] } },
-    { code: "ContentsCode", selection: { filter: "item", values: ["000007CD"] } },
+    // 000007CF = 10:e percentilen (rev 3). 000007CD var medellön.
+    { code: "ContentsCode", selection: { filter: "item", values: ["000007CF"] } },
     { code: "Tid", selection: { filter: "item", values: years.slice(-2) } },
   ]);
   const out = {};
@@ -89,12 +96,21 @@ const before = { version: ref.version, updated: ref.updated };
   console.log(`BKI ${bki.period}: arbetslön ${((bki.labor - 1) * 100).toFixed(1)} %, material ${((bki.material - 1) * 100).toFixed(1)} %`);
 
   const notes = [];
+
+  let bad = false;
+
+  const senasteAr = Math.max(...Object.values(wages).map((w) => Number(w.year)));
   for (const [trade, code] of Object.entries(SSYK)) {
     const h = ref.hourly[trade];
     const w = wages[code];
     if (!w) { notes.push(`${trade}: inget SCB-värde för ${code} – golvet oförändrat`); continue; }
-    const floorExcl = r10((w.monthly / HOURS_PER_MONTH) * WAGE_GROWTH * COST_FACTOR / BILLABLE);
-    const floorIncl = r10(floorExcl * VAT);
+    // Saknas årets värde (SCB sekretessprickar små yrkesgrupper) används senaste
+    // tillgängliga år och lönen räknas upp ett steg per år som fattas – samma
+    // metod som PRISUNDERLAG rev 3 använde för plattsättare (2024-värde).
+    const arBakom = Math.max(0, senasteAr - Number(w.year));
+    const uppräkning = WAGE_GROWTH ** (1 + arBakom);
+    const floorIncl = Math.floor(((w.monthly / HOURS_PER_MONTH) * uppräkning * COST_FACTOR * VAT) / 10) * 10;
+    const floorExcl = Math.round(floorIncl / VAT);
     const before = `${h.inclVat.floor}`;
     h.exclVat.floor = floorExcl; h.inclVat.floor = floorIncl;
     h.inclVat.normal = h.inclVat.normal.map((v) => r10(v * bki.labor));
@@ -102,13 +118,22 @@ const before = { version: ref.version, updated: ref.updated };
     h.exclVat.normal = h.inclVat.normal.map((v) => r10(v / VAT));
     h.exclVat.ceiling = r10(h.inclVat.ceiling / VAT);
     h.source = h.source.replace(/SCB lönestatistik \d{4}(\/\d{4})?/, `SCB lönestatistik ${w.year}`);
-    notes.push(`${trade}: SCB ${w.year} månadslön ${w.monthly} → golv ${floorIncl} kr/h inkl. (var ${before}); band ${h.inclVat.normal.join("–")}, tak ${h.inclVat.ceiling}`);
+    notes.push(`${trade}: SCB ${w.year} P10 månadslön ${w.monthly}${arBakom ? ` (uppräknad ${arBakom} år)` : ""} → golv ${floorIncl} kr/h inkl. (var ${before}); band ${h.inclVat.normal.join("–")}, tak ${h.inclVat.ceiling}`);
+    if (!(h.inclVat.floor < h.inclVat.normal[0] && h.exclVat.floor < h.exclVat.normal[0])) {
+      notes.push(`  STOPP ${trade}: golvet hamnade PÅ eller ÖVER bandets undre gräns. Kapa aldrig golvet – kontrollera underlaget med Moneyman.`);
+      bad = true;
+    }
   }
   for (const [k, p] of Object.entries(ref.projects)) {
     if (k.startsWith("_") || p.noReference || !p.normal) continue;
     const f = p.basis === "arbete" ? bki.labor : (bki.labor + bki.material) / 2;
     p.normal = p.normal.map((v) => rBand(v * f));
     notes.push(`${k}: band ${p.normal.join("–")} (indexerat ${((f - 1) * 100).toFixed(1)} %)`);
+  }
+  if (bad) {
+    console.error(notes.join("\n"));
+    console.error("\nAvbryter: invarianten golv < bandets undre gräns håller inte. Inget skrivet.");
+    process.exit(1);
   }
   const today = new Date().toISOString().slice(0, 10);
   ref.version = today.slice(0, 7);
