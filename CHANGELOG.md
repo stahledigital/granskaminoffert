@@ -2,6 +2,7 @@
 
 ## gmo-v13 – 2026-09-23 (WebKit-ronden)
 - Textrutan "Klistra in offerttexten" har 16 px text i stället för 15 px. iPhone zoomade in sidan när man tryckte i rutan, eftersom Safari zoomar på fält med mindre text än 16 px.
+- Alla knappar (Prova med en exempeloffert, Klistra in text, Välj fil, Ta foto, Granska, Kopiera, Skicka) är minst 44 px höga, var 42 px. Lättare att träffa med tummen.
 
 ## gmo-v12 – 2026-09-19
 - Favicon och hemskärmsikon: Ståhle Digitals ikon v2 (orange ring, inget grönt). RG-014.
