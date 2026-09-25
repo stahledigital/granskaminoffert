@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v13">
+<meta name="app-version" content="gmo-v14">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
 <meta name="description" content="AI-stödd granskning av hantverkarofferter i PDF, foto eller text. För dig som fått en offert eller ska skicka en. Hitta oklarheter. Gratis att prova utan konto.">
@@ -168,6 +168,8 @@ const $=id=>document.getElementById(id);
 
 // Befintlig produktionsendpoint; offertinnehåll skickas enbart i POST-body.
 const API_BASE = "https://granskaminoffert-api.anders-316.workers.dev";
+/* Testkörningar: ?sd-test=1 i adressen märker granskningen som test i tratten (header X-SD-Test: 1). 2026-09-25 */
+const SD_TEST=/[?&]sd-test=1(&|$)/.test(location.search);
 
 const demoText=`OFFERT nr 2026-118
 Byggfirma Exempel AB, Org.nr 556XXX-XXXX, Innehar F-skattsedel
@@ -411,7 +413,7 @@ async function runReview(){
   const tidsgrans=setTimeout(()=>avbryt.abort(),120000); // hellre ett ärligt fel än evig väntan
   try{
     const resp=await fetch(API_BASE.replace(/\/$/,'')+'/review',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:avbryt.signal
+      method:'POST',headers:SD_TEST?{'Content-Type':'application/json','X-SD-Test':'1'}:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:avbryt.signal
     });
     const data=await resp.json();
     if(!resp.ok){showError(data.error||'Något gick fel. Försök igen.');return;}

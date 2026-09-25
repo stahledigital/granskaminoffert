@@ -283,7 +283,7 @@ function corsHeaders(origin, allowedOrigins) {
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-SD-Test",
     "Vary": "Origin",
     "X-Robots-Tag": "noindex, nofollow, nosnippet",
     "X-Content-Type-Options": "nosniff",
@@ -295,7 +295,7 @@ function corsHeaders(origin, allowedOrigins) {
 // Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
 // Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
 // aldrig underlag för fakturering.
-const WORKER_VERSION = "gmo-api-v8";
+const WORKER_VERSION = "gmo-api-v9";
 
 function dayKey(d = new Date()) {
   return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
@@ -756,6 +756,22 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   );
 }
 
+// ---- Tratten i Analytics Engine (Moneyman MATNING-VERKSTADEN-2026-09-25, lagkontroll GRÖNT) ----
+// Bara händelsens namn, orsaksgrupp och test/skarp. Ingen IP, inget filnamn, ingen text, inget id.
+// Läses: SELECT index1 AS lage, blob1 AS handelse, blob2 AS detalj, count() AS n FROM granska_handelser
+//        WHERE timestamp > NOW() - INTERVAL '7' DAY GROUP BY lage, handelse, detalj
+// Testkörningar skickar headern X-SD-Test: 1 och hamnar under lage = test.
+// Granskningen själv (handleReview) är orörd: händelserna läses av på svarets statuskod.
+export function felOrsak(status) {
+  return { 400: "indata", 403: "ursprung", 429: "grans", 502: "granskning", 503: "stangd" }[status] || "annat";
+}
+export function tratt(env, request, handelse, detalj) {
+  try {
+    const lage = request.headers.get("X-SD-Test") === "1" ? "test" : "skarp";
+    env.GRANSKA_H?.writeDataPoint({ blobs: detalj ? [handelse, detalj] : [handelse], indexes: [lage] });
+  } catch (e) { /* räknaren får aldrig störa granskningen */ }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -779,7 +795,13 @@ export default {
     }
 
     if (url.pathname === "/review" && request.method === "POST") {
-      return handleReview(request, env, ctx, allowedOrigins);
+      if (allowedOrigins.includes(origin)) tratt(env, request, "uppladdning_start");
+      const svar = await handleReview(request, env, ctx, allowedOrigins);
+      if (allowedOrigins.includes(origin)) {
+        if (svar.status === 200) tratt(env, request, "granskning_klar");
+        else tratt(env, request, "granskning_fel", felOrsak(svar.status));
+      }
+      return svar;
     }
 
     // Delningsklick. Tar bara emot från vår egen sida (Origin-kontroll), och

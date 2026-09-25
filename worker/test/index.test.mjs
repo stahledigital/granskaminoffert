@@ -45,7 +45,7 @@ test("/health utan granskningar", async () => {
   const j = await r.json();
   assert.equal(j.ok, true); assert.equal(j.hasApiKey, true);
   assert.equal(j.reviewsToday, 0); assert.equal(j.reviewsTotal, 0);
-  assert.equal(j.version, "gmo-api-v8");
+  assert.equal(j.version, "gmo-api-v9");
   assert.equal(j.dailyLimit, 300);
   assert.deepEqual(j.shares.email, { total: 0, today: 0 });
   assert.deepEqual(j.byPath.hantverkare, { total: 0, today: 0 });
@@ -235,4 +235,51 @@ test("KV som kastar släcker inte tjänsten", async () => {
   assert.equal(r.status, 200);
   const j = await r.json();
   assert.equal(j.ok, true);
+});
+
+// ---- Tratten (MATNING-VERKSTADEN-2026-09-25) ----
+function fakeAE() { const p = []; return { p, writeDataPoint: (x) => p.push(x) }; }
+function reviewReq(body, extra = {}) {
+  return new Request("https://api.test/review", {
+    method: "POST",
+    headers: { "content-type": "application/json", Origin: ORIGIN, "CF-Connecting-IP": "203.0.113.5", ...extra },
+    body: JSON.stringify(body),
+  });
+}
+
+test("tratt: uppladdning_start + granskning_fel med orsak, test märks separat, inga personfält", async () => {
+  const ae = fakeAE();
+  const e = env({ GRANSKA_H: ae });
+  const r1 = await worker.fetch(reviewReq({ kind: "text", text: "" }), e, ctx());
+  assert.equal(r1.status, 400);
+  const r2 = await worker.fetch(reviewReq({ kind: "zip", dataBase64: "AAAA" }, { "X-SD-Test": "1" }), e, ctx());
+  assert.equal(r2.status, 400);
+  assert.deepEqual(ae.p, [
+    { blobs: ["uppladdning_start"], indexes: ["skarp"] },
+    { blobs: ["granskning_fel", "indata"], indexes: ["skarp"] },
+    { blobs: ["uppladdning_start"], indexes: ["test"] },
+    { blobs: ["granskning_fel", "indata"], indexes: ["test"] },
+  ]);
+  assert.equal(JSON.stringify(ae.p).includes("203.0.113.5"), false);
+});
+
+test("tratt: granskning_klar vid 200, och inget räknas från främmande origin", async () => {
+  const ae = fakeAE();
+  const orig = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 },
+    content: [{ type: "tool_use", name: "submit_review", input: fakeReview }],
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const r = await worker.fetch(reviewReq({ kind: "text", text: "Offert: takbyte 42 820 kr" }), env({ GRANSKA_H: ae }), ctx());
+    assert.equal(r.status, 200);
+    const fr = await worker.fetch(new Request("https://api.test/review", { method: "POST", headers: { Origin: "https://ond.example" }, body: "{}" }), env({ GRANSKA_H: ae }), ctx());
+    assert.equal(fr.status, 403);
+  } finally { globalThis.fetch = orig; }
+  assert.deepEqual(ae.p.map((x) => x.blobs[0]), ["uppladdning_start", "granskning_klar"]);
+});
+
+test("tratt: CORS släpper igenom X-SD-Test", async () => {
+  const r = await worker.fetch(new Request("https://api.test/review", { method: "OPTIONS", headers: { Origin: ORIGIN } }), env(), ctx());
+  assert.match(r.headers.get("Access-Control-Allow-Headers"), /X-SD-Test/);
 });

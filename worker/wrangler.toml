@@ -17,6 +17,11 @@ name = "REVIEW_RL"
 namespace_id = "1002"
 simple = { limit = 4, period = 60 }
 
+# Tratten: uppladdning_start, granskning_fel, granskning_klar (2026-09-25). Inga personuppgifter.
+[[analytics_engine_datasets]]
+binding = "GRANSKA_H"
+dataset = "granska_handelser"
+
 [vars]
 # Kommaseparerad lista om fler origins behövs (t.ex. under test).
 ALLOWED_ORIGIN = "https://granskaminoffert.se"
