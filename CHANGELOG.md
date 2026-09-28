@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## gmo-v15 – 2026-09-28 (företagsuppgifter, SD-260928-04)
+- "Org.nr 810930-2714" borttaget ur sidfoten på startsidan och metodsidan. Enskild firma har inget org.nr, och numret var Anders personnummer (Moneymans bedömning, e-handelslagen 8 §).
+- Ny sida `/foretagsuppgifter/` (noindex, inte i sitemap) med namn, adress, e-post och momsregistreringsnummer. Det är enda stället numret står (Anders beslut A 28/9). Sidfoten länkar dit med "Företagsuppgifter".
+
 ## gmo-v14 – 2026-09-25 (tratten)
 - Workern `gmo-api-v9` räknar tratten i Analytics Engine `granska_handelser`: `uppladdning_start`, `granskning_fel` (orsak: indata, ursprung, grans, granskning, stangd) och `granskning_klar`. Inga personuppgifter: bara händelse, orsaksgrupp och test/skarp. Granskningen själv är orörd, händelserna läses av på svarets statuskod. Moneyman, MATNING-VERKSTADEN-2026-09-25.
 - Testkörningar: lägg `?sd-test=1` på adressen, så skickas headern `X-SD-Test: 1` och körningen räknas som test (index1 = test). Workern släpper igenom headern i CORS.
