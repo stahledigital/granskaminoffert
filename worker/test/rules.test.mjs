@@ -84,16 +84,54 @@ test("fast pris utan uppdelning: går inte att kontrollera, be om uppdelning", (
   assert.ok(!byId(r, "rot_belopp"));
   const rep = buildPriceReport(FIXTURES.fastUtanUppdelning);
   assert.ok(rep.cannotAssess.some((c) => /uppdelning/.test(c.text)));
+  // ANPASSAD D03 (GMO-REVISION-20261009-01): fixturen har en OETIKETTERAD total
+  // (84 000) och ett ROT-belopp. Totalen kan då vara före eller efter ROT-avdraget
+  // (84 000 respektive 93 000 före ROT) och inga rader finns att stämma av mot.
+  // Tidigare lade koden tyst tillbaka ROT och sa "inom"; nu avstår jämförelsen
+  // och redovisar båda tolkningarna. Det ursprungliga "inom" finns kvar nedan,
+  // men bara när offerten uttryckligen anger summan att betala / före ROT.
   const c = compareToBands(FIXTURES.fastUtanUppdelning, REF);
-  assert.equal(byId(c, "projekt").mode, "inom"); // 84 000 / 8 = 10 500 kr per fönster
+  assert.equal(byId(c, "projekt").mode, "ej_bedombar");
+  assert.match(byId(c, "projekt").text, /summan före ROT-avdrag/);
+  assert.match(byId(c, "projekt").text, /summan att betala efter ROT-avdrag/);
+  const betala = compareToBands({ ...FIXTURES.fastUtanUppdelning, totalSumSek: null, amountToPaySek: 84000, totalVatBasis: "inkl" }, REF);
+  assert.equal(byId(betala, "projekt").mode, "inom"); // 84 000 + 9 000 = 93 000 före ROT / 8 = 11 625 kr per fönster
+  const fore = compareToBands({ ...FIXTURES.fastUtanUppdelning, totalSumSek: null, totalBeforeRotSek: 84000, totalVatBasis: "inkl" }, REF);
+  assert.equal(byId(fore, "projekt").mode, "inom"); // 84 000 / 8 = 10 500 kr per fönster
 });
 
-test("timpris 350: under referensgolvet med låst ordval, moms antas inkl.", () => {
+// ANPASSAD D03: fixturen timpris350 har vatMode "ej_angivet". Det tidigare testet
+// förutsatte att momsen "antas inkl." och gav ROT-beloppet ok och en lönekostnadsrad
+// med golv inkl. moms. Antagandet är borttaget (ej_angivet blir aldrig ett faktum):
+// ROT-beloppet stämmer bara om priset är inklusive moms och blir därför en fråga,
+// och 350 kr/h ligger över golvet om priset är exklusive moms (golv 304) så ingen
+// lönekostnadsrad kan sägas. De ursprungliga påståendena om golvtexten kvarstår
+// nedan för samma fixtur med uttryckligt vatMode "inkl".
+test("timpris 350 utan momsuppgift: fråga på ROT, ingen lönekostnadsrad, marknadsbedömning bara när den är densamma", () => {
   const r = runRules(FIXTURES.timpris350, REF);
   assert.equal(byId(r, "moms").status, "flagga");
-  assert.equal(byId(r, "rot_belopp").status, "ok");
+  assert.equal(byId(r, "rot_belopp").status, "fraga");
+  assert.match(byId(r, "rot_belopp").text, /exklusive moms/);
   assert.equal(byId(r, "pristyp").status, "flagga");
   const c = compareToBands(FIXTURES.timpris350, REF);
+  assert.equal(byId(c, "tim_snickare").mode, "under_band"); // 350 < 440 (exkl) och < 550 (inkl)
+  assert.match(byId(c, "tim_snickare").text, /inklusive eller exklusive moms/);
+  assert.equal(byId(c, "lonekostnad_snickare"), undefined); // 350 > golv exkl 304
+  const lag = compareToBands({ ...FIXTURES.timpris350, hourlyRateSek: 290 }, REF);
+  assert.ok(byId(lag, "lonekostnad_snickare"), "under golvet i båda momsbaser ska ge lönekostnadsrad");
+  const mellan = compareToBands({ ...FIXTURES.timpris350, hourlyRateSek: 500 }, REF); // inom inkl-bandet 550–800? nej: under; inom exkl 440–640
+  assert.equal(byId(mellan, "tim_snickare").mode, "ej_bedombar");
+  assert.match(byId(mellan, "tim_snickare").text, /550–800/);
+  assert.match(byId(mellan, "tim_snickare").text, /440–640/);
+});
+
+test("timpris 350 med uttryckligt inkl. moms: under referensgolvet med låst ordval", () => {
+  const fx = { ...FIXTURES.timpris350, vatMode: "inkl", totalIncludesVat: true };
+  const r = runRules(fx, REF);
+  assert.equal(byId(r, "moms").status, "ok");
+  assert.equal(byId(r, "rot_belopp").status, "ok");
+  assert.equal(byId(r, "pristyp").status, "flagga");
+  const c = compareToBands(fx, REF);
   // Rev 3: två rader. Marknad alltid, lönekostnad bara när priset ligger under golvet.
   const marknad = byId(c, "tim_snickare");
   assert.equal(marknad.mode, "under_band");
@@ -127,9 +165,12 @@ test("över intervallet, mellan golv och band, kök utan referens, värmepumpssc
   const exkl = compareToBands({ ...base, trades: ["vvs"], hourlyRateSek: 700, vatMode: "exkl" }, REF);
   assert.equal(byId(exkl, "tim_vvs").mode, "inom");
   assert.match(byId(exkl, "tim_vvs").text, /exkl\. moms/);
-  const hp = runRules({ ...base, jobType: "bergvarme", totalSumSek: 200000, rotAmountSek: 21000, vatMode: "inkl", quoteDate: "2026-09-01" }, REF);
+  // ANPASSAD D03: schablonen kräver fast pris, småhus och en BELAGD summa före ROT
+  // med känd momsbas. Fixturen hade bara en oetiketterad total; nu anges allt.
+  const hpBase = { ...base, jobType: "bergvarme", priceType: "fast", propertyType: "smahus", totalBeforeRotSek: 200000, totalVatBasis: "inkl", vatMode: "inkl", quoteDate: "2026-09-01" };
+  const hp = runRules({ ...hpBase, rotAmountSek: 21000 }, REF);
   assert.equal(byId(hp, "rot_schablon").status, "ok"); // 200 000 × 0,35 × 0,30 = 21 000
-  const hpBad = runRules({ ...base, jobType: "bergvarme", totalSumSek: 200000, rotAmountSek: 60000, vatMode: "inkl", quoteDate: "2026-09-01" }, REF);
+  const hpBad = runRules({ ...hpBase, rotAmountSek: 60000 }, REF);
   assert.equal(byId(hpBad, "rot_schablon").status, "fel");
   const und = runRules({ ...base, rotAmountSek: 5000, laborSumSek: 16667, vatMode: "inkl", workDescription: "Bygga pool och pooldäck", quoteDate: "2026-06-01" }, REF);
   assert.equal(byId(und, "rot_undantag").status, "flagga");

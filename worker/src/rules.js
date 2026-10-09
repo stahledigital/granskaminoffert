@@ -9,6 +9,8 @@
 
 export const FORBIDDEN_WORDS = ["för dyrt", "överpris", "svart", "oseriöst", "oseriös", "fusk"];
 
+import { vatFactor, resolveTotals, rowsSumStated, rowsSumIncl, totalCandidates, laborCandidates, VAT_RATE } from "./amounts.js";
+
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const pct = (v) => (num(v) === null ? null : v > 1 ? v / 100 : v);
 const kr = (n) => `${Math.round(n).toLocaleString("sv-SE")} kr`;
@@ -43,40 +45,46 @@ export function runRules(x, ref) {
   const labor = num(x.laborSumSek);
   const material = num(x.materialSumSek);
   const travel = num(x.travelSumSek);
-  const other = num(x.otherSumSek) || 0;
   const rotAmt = num(x.rotAmountSek);
   const rotRate = pct(x.rotRatePct);
   const persons = num(x.rotPersons);
-  const total = num(x.totalSumSek);
   const rate = num(x.hourlyRateSek);
   const hours = num(x.hours);
-  const vat = x.vatMode || "ej_angivet";
+  // Saknat eller ogiltigt momsläge är "okant_moms", aldrig ett antagande.
+  const vat = x.vatMode || "okant_moms";
+  const f = vatFactor(vat); // null = okänd moms (ej_angivet, blandat, okant_moms)
+  const vatUnknown = f === null;
   const consumer = x.customerType !== "foretag";
   const payDate = paymentDate(x);
   const isHeatPump = x.jobType === "bergvarme" || x.jobType === "luftvarmepump" || x.jobType === "varmepump";
 
-  // --- f) Moms: konsekvent, konsument utan angivelse = inkl. moms ---
+  // --- f) Moms ---
+  // Känd moms (inkl/exkl) normaliseras till inklusive moms med känd sats oavsett
+  // kundtyp. Okänd moms görs aldrig om till ett faktum: de kontroller som
+  // beror på moms visar då fråga i stället för ok/fel.
   if (vat === "ej_angivet") {
     add("moms", consumer ? "flagga" : "fraga", "Moms",
       consumer
-        ? "Offerten anger inte om priserna är inklusive eller exklusive moms. Mot privatperson räknas ett pris utan angivelse som inklusive moms, och kontrollerna nedan utgår från det."
-        : "Offerten anger inte om priserna är inklusive eller exklusive moms. Det behöver framgå.",
+        ? "Offerten anger inte om priserna är inklusive eller exklusive moms. Mot privatperson är utgångspunkten att ett pris utan angivelse är inklusive moms, men eftersom offerten inte säger det går belopp som beror på moms inte att kontrollera med säkerhet och visas som frågor."
+        : "Offerten anger inte om priserna är inklusive eller exklusive moms. Det behöver framgå, och belopp som beror på moms går inte att kontrollera med säkerhet.",
       src(ref, "konsumentverket_pris"));
   } else if (vat === "blandat") {
     add("moms", "fel", "Moms", "Offerten blandar priser inklusive och exklusive moms. Alla belopp behöver anges på samma sätt.", "");
+  } else if (vat === "okant_moms") {
+    add("moms", "fraga", "Moms", "Momsläget i offerten gick inte att läsa ut på ett tillförlitligt sätt. Belopp som beror på moms går därför inte att kontrollera och visas som frågor.", "");
   } else {
     add("moms", "ok", "Moms", `Priserna anges ${vat === "inkl" ? "inklusive" : "exklusive"} moms, konsekvent.`, "");
   }
 
-  // Räkna om arbetskostnad till inkl. moms för ROT-kontrollen.
-  const laborInclVat = labor === null ? null : vat === "exkl" ? labor * 1.25 : labor;
-  // Är momsläget okänt vet vi inte om arbetssumman är inkl. eller exkl. moms.
-  // Skillnaden är 25 %, alltså större än ROT-toleransen – då får utfallet inte
-  // bli "fel", utan en fråga. (Kodgranskning 2026-09-18.)
-  const vatUnknown = vat === "ej_angivet" || vat === "blandat";
+  // Arbetskostnad inklusive moms (null om momsläget är okänt).
+  const laborInclVat = labor === null || f === null ? null : labor * f;
 
   // --- i) Fast pris utan uppdelning ---
-  if (x.priceType === "fast" && labor === null && rotAmt !== null) {
+  // Värmepump: schablonen (rot_schablon) ersätter uppdelningskravet, så den raden
+  // visas inte; annars stod "går inte att kontrollera" bredvid en genomförd kontroll.
+  if (x.priceType === "fast" && labor === null && rotAmt !== null && isHeatPump) {
+    // ingen uppdelningsrad
+  } else if (x.priceType === "fast" && labor === null && rotAmt !== null) {
     add("uppdelning", "ej_bedombar", "Arbete och material",
       "Fast pris utan uppdelning i arbete och material. ROT-avdraget går då inte att kontrollera – be om uppdelningen, eftersom avdraget bara får räknas på arbetskostnaden.",
       src(ref, "skatteverket_rot"));
@@ -86,49 +94,58 @@ export function runRules(x, ref) {
       "");
   }
 
+  // Ett datum för ROT-satsen: 50 % gällde bara betalning inom fönstret.
+  const oldRateText = (usedRate, expectedAmt) => {
+    const hasPay = Boolean(x.plannedPaymentDate);
+    const pay2025 = hasPay && inRange(x.plannedPaymentDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
+    const quote2025 = !hasPay && x.quoteDate && inRange(x.quoteDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
+    const status = pay2025 ? (vatUnknown ? "fraga" : "ok") : quote2025 ? "fraga" : "fel";
+    const text = pay2025
+      ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %, vilket gällde för betalningar ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}. Betalningsdatumet i offerten ligger i det fönstret.${vatUnknown ? " Momsläget anges inte, så beloppet går inte att räkna efter." : ""}`
+      : quote2025
+      ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. Det gällde bara arbete som betalades ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}, och offerten anger inte när betalningen sker. Betalas arbetet 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${kr(expectedAmt)} i stället för ${kr(rotAmt)}.`
+      : `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. ${rot.quote} För betalning 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${kr(expectedAmt)} i stället för ${kr(rotAmt)}.`;
+    return { status, text };
+  };
+
   // --- a) ROT = 30 % av arbetskostnaden inkl. moms (tolerans 2 %) ---
   if (rotAmt !== null) {
     if (isHeatPump) {
-      // h) Värmepumpsschablon: arbete = andel av totalpriset.
-      const share = x.jobType === "bergvarme" ? rot.heatPumpShare.bergvarme : rot.heatPumpShare.other;
-      const base = total !== null ? total : null;
-      if (base !== null) {
-        const expected = base * share * rot.rate;
-        const ok = withinTol(rotAmt, expected, rot.tolerance);
-        add("rot_schablon", ok ? "ok" : "fel", "ROT vid värmepump",
-          ok
-            ? `ROT-avdraget ${kr(rotAmt)} stämmer med schablonen: ${Math.round(share * 100)} % av totalpriset räknas som arbete, och avdraget är ${Math.round(rot.rate * 100)} % av det.`
-            : `Vid ${x.jobType === "bergvarme" ? "bergvärme" : "värmepump"} räknas ${Math.round(share * 100)} % av totalpriset som arbetskostnad. ${Math.round(rot.rate * 100)} % av det blir ${kr(expected)}, offerten anger ${kr(rotAmt)}.`,
-          src(ref, "skatteverket_rot_varmepump"));
-      } else {
-        add("rot_schablon", "ej_bedombar", "ROT vid värmepump", "Totalpris saknas, så schablonen för värmepump går inte att räkna.", src(ref, "skatteverket_rot_varmepump"));
-      }
-    } else if (laborInclVat !== null) {
+      heatPumpRule();
+    } else if (labor !== null && f !== null) {
       const expected = laborInclVat * rot.rate;
       const ok = withinTol(rotAmt, expected, rot.tolerance);
       const usedRate = rotRate !== null ? rotRate : rotAmt / laborInclVat;
       if (ok) {
         add("rot_belopp", "ok", "ROT-belopp", `ROT-avdraget ${kr(rotAmt)} är ${Math.round(rot.rate * 100)} % av arbetskostnaden ${kr(laborInclVat)} inklusive moms.`, src(ref, "skatteverket_rot"));
-      } else if (vatUnknown && withinTol(rotAmt, labor * 1.25 * rot.rate, rot.tolerance)) {
-        add("rot_belopp", "fraga", "ROT-belopp",
-          `ROT-avdraget ${kr(rotAmt)} stämmer om arbetskostnaden ${kr(labor)} är angiven exklusive moms, men inte om den är inklusive moms. Offerten anger inte vilket – fråga efter det, så går beloppet att kontrollera.`,
-          src(ref, "skatteverket_rot"));
       } else if (Math.abs(usedRate - rot.oldRate) < 0.02) {
-        // c) 50 % gällde bara betalning 2025-05-12 – 2025-12-31. Betalningsdatumet
-        // styr; finns bara offertdatum i fönstret vet vi inte när betalningen sker.
-        const hasPay = Boolean(x.plannedPaymentDate);
-        const pay2025 = hasPay && inRange(x.plannedPaymentDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
-        const quote2025 = !hasPay && x.quoteDate && inRange(x.quoteDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
-        add("rot_belopp", pay2025 ? "ok" : quote2025 ? "fraga" : "fel", "ROT-sats",
-          pay2025
-            ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %, vilket gällde för betalningar ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}. Betalningsdatumet i offerten ligger i det fönstret.`
-            : quote2025
-            ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. Det gällde bara arbete som betalades ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}, och offerten anger inte när betalningen sker. Betalas arbetet 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${kr(expected)} i stället för ${kr(rotAmt)}.`
-            : `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. ${rot.quote} För betalning 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${kr(expected)} i stället för ${kr(rotAmt)}.`,
-          src(ref, "skatteverket_rot"));
+        const r = oldRateText(usedRate, expected);
+        add("rot_belopp", r.status, "ROT-sats", r.text, src(ref, "skatteverket_rot"));
       } else {
         add("rot_belopp", "fel", "ROT-belopp",
           `${Math.round(rot.rate * 100)} % av arbetskostnaden ${kr(laborInclVat)} inklusive moms är ${kr(expected)}. Offerten anger ${kr(rotAmt)}${rotRate !== null ? ` (${Math.round(rotRate * 100)} %)` : ""}.`,
+          src(ref, "skatteverket_rot"));
+      }
+    } else if (labor !== null) {
+      // Okänd moms: beloppet kan stämma under den ena tolkningen. Det är en
+      // fråga, aldrig ett ok. Stämmer det under ingen tolkning är det ett fel.
+      const inclHit = withinTol(rotAmt, labor * rot.rate, rot.tolerance);
+      const exklHit = withinTol(rotAmt, labor * (1 + VAT_RATE) * rot.rate, rot.tolerance);
+      const usedRate = rotRate !== null ? rotRate : rotAmt / labor;
+      if (exklHit && !inclHit) {
+        add("rot_belopp", "fraga", "ROT-belopp",
+          `ROT-avdraget ${kr(rotAmt)} stämmer om arbetskostnaden ${kr(labor)} är angiven exklusive moms, men inte om den är inklusive moms. Offerten anger inte vilket – fråga efter det, så går beloppet att kontrollera.`,
+          src(ref, "skatteverket_rot"));
+      } else if (inclHit && !exklHit) {
+        add("rot_belopp", "fraga", "ROT-belopp",
+          `ROT-avdraget ${kr(rotAmt)} stämmer om arbetskostnaden ${kr(labor)} är angiven inklusive moms, men inte om den är exklusive moms. Offerten anger inte vilket – fråga efter det, så går beloppet att kontrollera.`,
+          src(ref, "skatteverket_rot"));
+      } else if (Math.abs(usedRate - rot.oldRate) < 0.02) {
+        const r = oldRateText(usedRate, labor * rot.rate);
+        add("rot_belopp", r.status, "ROT-sats", r.text, src(ref, "skatteverket_rot"));
+      } else {
+        add("rot_belopp", "fel", "ROT-belopp",
+          `${Math.round(rot.rate * 100)} % av arbetskostnaden ${kr(labor)} blir ${kr(labor * rot.rate)} om beloppet är inklusive moms och ${kr(labor * (1 + VAT_RATE) * rot.rate)} om det är exklusive moms. Offerten anger ${kr(rotAmt)}, vilket inte stämmer med någon av tolkningarna.`,
           src(ref, "skatteverket_rot"));
       }
     } else if (x.priceType !== "fast") {
@@ -138,8 +155,8 @@ export function runRules(x, ref) {
     // b) ROT på material eller resor
     if (x.rotOnMaterialOrTravel === true) {
       add("rot_material", "fel", "ROT på material eller resor", "ROT-avdrag får bara göras på arbetskostnaden, inte på material, resor eller servicebil. Offerten räknar avdrag på annat än arbete.", src(ref, "skatteverket_rot"));
-    } else if (labor !== null && material !== null && !isHeatPump) {
-      const onAll = withinTol(rotAmt, (laborInclVat + (vat === "exkl" ? material * 1.25 : material) + (travel === null ? 0 : vat === "exkl" ? travel * 1.25 : travel)) * rot.rate, rot.tolerance);
+    } else if (labor !== null && material !== null && !isHeatPump && f !== null) {
+      const onAll = withinTol(rotAmt, (laborInclVat + material * f + (travel === null ? 0 : travel * f)) * rot.rate, rot.tolerance);
       const onLabor = withinTol(rotAmt, laborInclVat * rot.rate, rot.tolerance);
       if (onAll && !onLabor) {
         add("rot_material", "fel", "ROT på material eller resor", "ROT-beloppet motsvarar avdrag på hela summan, inklusive material. Avdraget får bara räknas på arbetskostnaden.", src(ref, "skatteverket_rot"));
@@ -168,24 +185,106 @@ export function runRules(x, ref) {
     }
   }
 
+  // --- h) Värmepumpsschablon ---
+  // Skatteverket (sidan "Ger arbetet rätt till rotavdrag", avsnittet om
+  // värmesystem): andel av TOTALPRISET räknas som arbete (35 % vätska–vatten,
+  // 30 % luftvärmepumpar) och schablonen gäller totalentreprenad till fast
+  // pris i småhus. Sidan anger inte uttryckligen om totalpriset är inklusive
+  // moms; vi bedömer därför bara när totalen uttryckligen är inklusive moms
+  // (INFERRED: arbetskostnad för ROT räknas inklusive moms) och visar annars
+  // båda utfallen som fråga. Saknas fast pris eller bostadstyp blir resultatet
+  // en fråga, aldrig ok. Regeln använder summan FÖRE ROT, aldrig summan att
+  // betala.
+  function heatPumpRule() {
+    const title = "ROT vid värmepump";
+    const source = src(ref, "skatteverket_rot_varmepump");
+    const share = x.jobType === "bergvarme" ? rot.heatPumpShare.bergvarme : rot.heatPumpShare.other;
+    const sharePct = Math.round(share * 100), ratePct = Math.round(rot.rate * 100);
+    const priceTypeTxt = { fast: "fast pris", ungefarligt: "ungefärligt pris", lopande: "löpande räkning" }[x.priceType];
+    if (x.priceType !== "fast") {
+      add("rot_schablon", "fraga", title,
+        `Schablonen för värmepump gäller när företaget utför totalentreprenad till fast pris. ${priceTypeTxt ? `Offerten anger ${priceTypeTxt}.` : "Offerten anger inte pristyp."} ROT-beloppet går därför inte att kontrollera mot schablonen. Fråga om priset är fast.`, source);
+      return;
+    }
+    const t = resolveTotals(x);
+    if (t.status === "saknas") {
+      add("rot_schablon", "ej_bedombar", title, "Totalpris saknas, så schablonen för värmepump går inte att räkna.", source);
+      return;
+    }
+    const calc = (beforeRotIncl) => beforeRotIncl * share * rot.rate;
+    if (t.status === "oklar") {
+      const alts = t.alternatives.map((a) => `om ${a.label} är schablonen ${kr(calc(a.beforeRotIncl))}`).join("; ");
+      add("rot_schablon", "fraga", title,
+        `Schablonen räknas på totalpriset före ROT-avdrag (${sharePct} % av det räknas som arbete, och avdraget är ${ratePct} % av det). Offerten anger inte tydligt vilken summa som är före ROT-avdrag och vilket momsläge den har: ${alts}. Offerten anger ${kr(rotAmt)}. Be om summa före ROT-avdrag, summa att betala och momsläge.`, source);
+      return;
+    }
+    // Belagd bas.
+    if (t.basis === "exkl") {
+      const inclExpected = calc(t.beforeRotIncl);
+      const exklExpected = calc(t.beforeRotIncl / (1 + VAT_RATE));
+      add("rot_schablon", "fraga", title,
+        `Totalpriset anges exklusive moms. Skatteverkets sida anger inte om schablonen räknas på pris inklusive eller exklusive moms: inklusive moms blir avdraget ${kr(inclExpected)}, exklusive moms ${kr(exklExpected)}. Offerten anger ${kr(rotAmt)}. Fråga hur avdraget är räknat.`, source);
+      return;
+    }
+    const expected = calc(t.beforeRotIncl);
+    const ok = withinTol(rotAmt, expected, rot.tolerance);
+    if (x.propertyType === "smahus") {
+      add("rot_schablon", ok ? "ok" : "fel", title,
+        ok
+          ? `ROT-avdraget ${kr(rotAmt)} stämmer med schablonen: ${sharePct} % av totalpriset ${kr(t.beforeRotIncl)} före ROT räknas som arbete, och avdraget är ${ratePct} % av det.`
+          : `Vid ${x.jobType === "bergvarme" ? "bergvärme" : "värmepump"} räknas ${sharePct} % av totalpriset före ROT (${kr(t.beforeRotIncl)}) som arbetskostnad. ${ratePct} % av det blir ${kr(expected)}, offerten anger ${kr(rotAmt)}.`,
+        source);
+    } else {
+      const cond = x.propertyType
+        ? "Offerten gäller en annan bostadstyp än småhus, och schablonen kan inte användas för bostadsrätt."
+        : "Offerten anger inte bostadstyp, och schablonen gäller småhus (inte bostadsrätt).";
+      add("rot_schablon", "fraga", title,
+        `Om bostaden är ett småhus och priset är fast ${ok ? `stämmer ROT-avdraget ${kr(rotAmt)} med schablonen` : `ger schablonen ${kr(expected)} medan offerten anger ${kr(rotAmt)}`} (${sharePct} % av totalpriset ${kr(t.beforeRotIncl)} före ROT räknas som arbete, avdraget är ${ratePct} %). ${cond}`, source);
+    }
+  }
+
   // --- g) Timmar × timpris = arbetssumma; rader = total ---
   if (rate !== null && hours !== null && labor !== null) {
     const ok = withinTol(rate * hours, labor, 0.02);
     add("arbetssumma", ok ? "ok" : "fel", "Timmar × timpris",
       ok ? `${hours} timmar × ${kr(rate)} = ${kr(rate * hours)}, vilket stämmer med arbetssumman.` : `${hours} timmar × ${kr(rate)} = ${kr(rate * hours)}, men arbetssumman anges till ${kr(labor)}.`, "");
   }
-  if (total !== null && labor !== null && material !== null) {
-    const rows = labor + material + (travel || 0) + other;
-    const rowsWithVat = vat === "exkl" && x.totalIncludesVat ? rows * 1.25 : rows;
-    // Är raderna exkl. moms och totalens momsläge oklart kan totalen vara
-    // inkl. moms – godkänn båda tolkningarna i stället för att flagga fel.
-    const vatOpen = vat === "exkl" && x.totalIncludesVat === null && rowsWithVat === rows;
-    const okBefore = withinTol(rowsWithVat, total, 0.02) || (vatOpen && withinTol(rows * 1.25, total, 0.02));
-    const okAfter = rotAmt !== null && (withinTol(rowsWithVat - rotAmt, total, 0.02) || (vatOpen && withinTol(rows * 1.25 - rotAmt, total, 0.02)));
-    add("summa", okBefore || okAfter ? "ok" : "fel", "Summering",
-      okBefore ? `Raderna (arbete ${kr(labor)} + material ${kr(material)}${travel ? ` + resor ${kr(travel)}` : ""}${other ? ` + övrigt ${kr(other)}` : ""}) summerar till totalen ${kr(total)}.`
-        : okAfter ? `Raderna summerar till ${kr(rowsWithVat)}, och efter ROT-avdrag ${kr(rotAmt)} blir det ${kr(total)} att betala – det stämmer.`
-        : `Raderna summerar till ${kr(rowsWithVat)}${rotAmt !== null ? ` (${kr(rowsWithVat - rotAmt)} efter ROT)` : ""}, men totalen anges till ${kr(total)}.`, "");
+  if (labor !== null && material !== null) summaRule();
+
+  // Summering: raderna mot totalen. OK kräver belagd bas (explicit före ROT /
+  // att betala / momsbas, eller att raderna stämmer av mot exakt en tolkning).
+  function summaRule() {
+    const t = resolveTotals(x);
+    if (t.status === "saknas") return;
+    const rowsStated = rowsSumStated(x);
+    const rowsIncl = rowsSumIncl(x);
+    const rowsTxt = `arbete ${kr(labor)} + material ${kr(material)}${travel ? ` + resor ${kr(travel)}` : ""}${num(x.otherSumSek) ? ` + övrigt ${kr(num(x.otherSumSek))}` : ""}`;
+    const hasRot = rotAmt !== null && rotAmt > 0;
+    if (t.status === "belagd" && rowsIncl !== null) {
+      const ok = withinTol(rowsIncl, t.beforeRotIncl, 0.02);
+      const after = hasRot && (t.source === "rader" || t.source === "explicit_att_betala") && withinTol(rowsIncl - rotAmt, t.toPayIncl, 0.02);
+      if (ok) {
+        add("summa", "ok", "Summering",
+          after
+            ? `Raderna summerar till ${kr(rowsIncl)}, och efter ROT-avdrag ${kr(rotAmt)} blir det ${kr(t.toPayIncl)} att betala – det stämmer.`
+            : `Raderna (${rowsTxt}) summerar till totalen ${kr(t.beforeRotIncl)}${f !== 1 ? " inklusive moms" : ""}.`, "");
+      } else {
+        add("summa", "fel", "Summering",
+          `Raderna summerar till ${kr(rowsIncl)}${hasRot ? ` (${kr(rowsIncl - rotAmt)} efter ROT)` : ""}, men totalen anges till ${kr(t.beforeRotIncl)} före ROT-avdrag.`, "");
+      }
+      return;
+    }
+    // Obelagd bas (radernas eller totalens moms, eller före/efter ROT, oklart).
+    const rowCands = rowsIncl !== null ? [rowsIncl] : [rowsStated, rowsStated * (1 + VAT_RATE)];
+    const alts = t.status === "belagd" ? [{ label: "", beforeRotIncl: t.beforeRotIncl }] : t.alternatives;
+    const matched = alts.filter((a) => rowCands.some((r) => withinTol(r, a.beforeRotIncl, 0.02)));
+    if (!matched.length) {
+      add("summa", "fel", "Summering",
+        `Raderna (${rowsTxt}) summerar till ${kr(rowCands[0])}${rowCands.length > 1 ? ` (${kr(rowCands[1])} om raderna är exklusive moms)` : ""}, vilket inte stämmer med totalen under någon tolkning av om den är före eller efter ROT-avdrag eller vilket momsläge den har.`, "");
+    } else {
+      add("summa", "fraga", "Summering",
+        `Raderna (${rowsTxt}) stämmer med totalen om ${matched.map((m) => m.label || "momsläget är det som antagits").join(" respektive om ")}. Offerten anger inte tydligt vilket, så summeringen kan inte bekräftas – be om summa före ROT-avdrag, summa att betala och momsläge.`, "");
+    }
   }
 
   // --- h2) Pristyp saknas ---
@@ -233,107 +332,106 @@ export function checkNormalAddons(x, ref) {
 // ---- Prisjämförelse mot band (lager 2). Ordval LÅST enligt PRISUNDERLAG
 // "Ordval — låst"; texterna hämtas ur reference.json (wording) så att koden
 // aldrig formulerar egna omdömen. Lägen: under (golv), under_band, inom, over.
-// Banden gäller före ROT. totalSumSek är summan att betala (efter ROT om
-// ROT dragits av). Är raderna kända och summerar till totalen är totalen
-// redan före ROT; annars läggs ROT tillbaka.
-export function totalBeforeRot(x) {
-  const total = num(x.totalSumSek);
-  const rotAmt = num(x.rotAmountSek);
-  if (total === null) return null;
-  if (rotAmt === null || rotAmt <= 0) return total;
-  const labor = num(x.laborSumSek), material = num(x.materialSumSek), travel = num(x.travelSumSek) || 0, other = num(x.otherSumSek) || 0;
-  if (labor !== null && material !== null && withinTol(labor + material + travel + other, total, 0.02)) return total;
-  return total + rotAmt;
-}
+// Banden gäller inklusive moms och före ROT. Vilken summa offerten anger och i
+// vilken momsbas avgörs på ETT ställe (amounts.js). Är beloppsbasen oklar
+// jämförs inte ett "troligt" värde: priset redovisas som ej bedömbart med
+// varje tolkning utskriven. Referenser med `scopeArea` (badrum 4–6 m²) jämförs
+// bara när offertens yta ligger inom omfånget.
+const own = (o, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(o, k);
 
 export function compareToBands(x, ref) {
   const out = [];
   const W = ref.wording;
-  const vat = x.vatMode || "ej_angivet";
   const rate = num(x.hourlyRateSek);
-  const useIncl = vat !== "exkl";
-  const unit = useIncl ? "inkl. moms" : "exkl. moms";
+  const vatKnown = x.vatMode === "inkl" || x.vatMode === "exkl";
   const trades = Array.isArray(x.trades) ? x.trades : [];
+  const put = (s, key, value) => s.split(key).join(value);
 
   for (const t of trades) {
+    if (!own(ref.hourly, t) || t.startsWith("_")) continue;
     const band = ref.hourly[t];
-    if (!band || t.startsWith("_")) continue;
     if (rate === null) {
       out.push({ id: `tim_${t}`, mode: "ej_bedombar", title: `Timpris ${band.label}`,
         text: W.noRate.replace("{q}", W.questions.askRate), source: band.source });
       continue;
     }
-    // Golvet ska ligga under bandets undre gräns. Kapningen som fanns här
-    // 2026-09-18 är borttagen sedan PRISUNDERLAG rev 3 rättade golvet (SCB
-    // 10:e percentilen i stället för medellön genom debiteringsgrad). Ett kapat
-    // golv fick meningen att citera SCB för ett tal som kom från bandet.
-    // Invarianten bevakas i stället av ett test som stoppar bygget.
-    const b = useIncl ? band.inclVat : band.exclVat;
-    const range = `${krRange(b.normal[0], b.normal[1])} per timme ${unit}`;
-    // Global ersättning: nya under-golv-texten (rev 3) innehåller {trade} två
-    // gånger, och String.replace med en sträng byter bara ut den första.
-    const put = (s, key, value) => s.split(key).join(value);
-    const fill = (s) => [["{rate}", kr(rate) + " per timme " + unit], ["{range}", range], ["{floor}", kr(b.floor)],
-      ["{unit}", unit], ["{trade}", band.label], ["{source}", band.source]]
-      .reduce((acc, [k, v]) => put(acc, k, v), s);
-    // Två frågor, samma timpris (PRISUNDERLAG rev 3):
-    //   Marknad     – vad tar marknaden betalt?   (alltid med)
-    //   Lönekostnad – täcker priset ens lönen?    (bara när priset ligger under golvet)
-    let mode, text;
-    if (rate > b.normal[1]) { mode = "over"; text = fill(W.aboveNormal); }
-    else if (rate < b.normal[0]) { mode = "under_band"; text = fill(W.belowNormal); }
-    else { mode = "inom"; text = fill(W.withinNormal); }
-    out.push({ id: `tim_${t}`, mode, title: `Marknad – timpris ${band.label}`, text, source: band.source });
-    if (rate < b.floor) {
-      out.push({
-        id: `lonekostnad_${t}`, mode: "under", title: `Lönekostnad – timpris ${band.label}`,
-        text: fill(W.belowFloor), source: band.floorSource || band.source,
-      });
+    const classify = (b) => (rate > b.normal[1] ? "over" : rate < b.normal[0] ? "under_band" : "inom");
+    const fillFor = (b, unit) => (s) => [["{rate}", kr(rate) + " per timme " + unit], ["{range}", `${krRange(b.normal[0], b.normal[1])} per timme ${unit}`],
+      ["{floor}", kr(b.floor)], ["{unit}", unit], ["{trade}", band.label], ["{source}", band.source]].reduce((acc, [k, v]) => put(acc, k, v), s);
+    const textFor = (mode, fill) => fill(mode === "over" ? W.aboveNormal : mode === "under_band" ? W.belowNormal : W.withinNormal);
+
+    if (vatKnown) {
+      const b = x.vatMode === "inkl" ? band.inclVat : band.exclVat;
+      const unit = x.vatMode === "inkl" ? "inkl. moms" : "exkl. moms";
+      const fill = fillFor(b, unit);
+      const mode = classify(b);
+      out.push({ id: `tim_${t}`, mode, title: `Marknad – timpris ${band.label}`, text: textFor(mode, fill), source: band.source });
+      if (rate < b.floor) out.push({ id: `lonekostnad_${t}`, mode: "under", title: `Lönekostnad – timpris ${band.label}`, text: fill(W.belowFloor), source: band.floorSource || band.source });
+      continue;
+    }
+
+    // Okänd momsbas: priset kan vara inklusive eller exklusive moms. Båda
+    // jämförs; bara om de ger samma bedömning redovisas den, annars avstår vi.
+    const mi = classify(band.inclVat), me = classify(band.exclVat);
+    if (mi === me) {
+      const fill = fillFor(band.inclVat, "inkl. moms");
+      const text = textFor(mi, fill) + " " + W.hourlyVatUnknownSame;
+      out.push({ id: `tim_${t}`, mode: mi, title: `Marknad – timpris ${band.label}`, text, source: band.source });
+    } else {
+      const text = put(put(put(put(W.hourlyVatUnknownDiffer, "{rate}", kr(rate) + " per timme"), "{trade}", band.label),
+        "{rangeIncl}", krRange(band.inclVat.normal[0], band.inclVat.normal[1])), "{rangeExcl}", krRange(band.exclVat.normal[0], band.exclVat.normal[1]));
+      out.push({ id: `tim_${t}`, mode: "ej_bedombar", title: `Marknad – timpris ${band.label}`, text: put(text, "{source}", band.source), source: band.source });
+    }
+    // Under golvet i båda momsbaser (golvet exkl moms är det lägre).
+    if (rate < band.exclVat.floor) {
+      const fill = fillFor(band.exclVat, "exkl. moms");
+      out.push({ id: `lonekostnad_${t}`, mode: "under", title: `Lönekostnad – timpris ${band.label}`, text: fill(W.belowFloor), source: band.floorSource || band.source });
     }
   }
 
-  const p = x.jobType && ref.projects[x.jobType];
-  if (p && !String(x.jobType).startsWith("_")) {
-    const title = `${p.basis === "arbete" ? "Arbetskostnad" : "Totalpris"} ${p.label}`;
-    if (p.noReference) {
-      out.push({ id: "projekt", mode: "ej_bedombar", title, text: W.noProjectReference.replace("{Job}", p.label.charAt(0).toUpperCase() + p.label.slice(1)).replace("{job}", p.label), source: "" });
-      return out;
-    }
-    const labor = num(x.laborSumSek);
-    const total = totalBeforeRot(x);
-    const base = p.basis === "arbete" ? labor : total;
-    if (p.basis === "arbete" && labor === null) {
-      out.push({ id: "projekt", mode: "ej_bedombar", title, text: W.noLabor.replace("{job}", p.label), source: p.source });
-      return out;
-    }
-    if (base === null) {
-      out.push({ id: "projekt", mode: "ej_bedombar", title, text: W.noTotal, source: "" });
-      return out;
-    }
-    let value = base, perTxt = "";
-    if (p.per === "m2" || p.per === "st") {
-      const q = p.per === "m2" ? num(x.areaM2) : num(x.unitCount);
-      if (q === null || q <= 0) {
-        out.push({ id: "projekt", mode: "ej_bedombar", title,
-          text: W.noQuantity.replace("{job}", p.label).replace("{perUnit}", p.per === "m2" ? "per m²" : "per styck").replace("{quantity}", p.per === "m2" ? "yta i m²" : "mängd i antal"),
-          source: p.source });
-        return out;
-      }
-      value = base / q;
-      perTxt = p.per === "m2" ? " per m²" : " per styck";
-    }
-    const range = `${krRange(p.normal[0], p.normal[1])}${perTxt}${p.scope ? ", " + p.scope : ""}`;
-    const putP = (s, key, value) => s.split(key).join(value);
-    const fill = (s) => [["{total}", kr(value) + perTxt], ["{range}", range], ["{job}", p.label], ["{source}", p.source]]
-      .reduce((acc, [k, v]) => putP(acc, k, v), s);
-    const lab = p.basis === "arbete";
-    let mode, text;
-    if (value < p.normal[0]) { mode = "under"; text = fill(lab ? W.projectLaborBelow : W.projectBelow); }
-    else if (value > p.normal[1]) { mode = "over"; text = fill(lab ? W.projectLaborAbove : W.projectAbove); }
-    else { mode = "inom"; text = fill(lab ? W.projectLaborWithin : W.projectWithin); }
-    out.push({ id: "projekt", mode, title, text, source: p.source });
+  if (!own(ref.projects, x.jobType) || String(x.jobType).startsWith("_")) return out;
+  const p = ref.projects[x.jobType];
+  const lab = p.basis === "arbete";
+  const title = `${lab ? "Arbetskostnad" : "Totalpris"} ${p.label}`;
+  const abstain = (text, source = p.source) => { out.push({ id: "projekt", mode: "ej_bedombar", title, text, source }); return out; };
+  if (p.noReference) return abstain(W.noProjectReference.replace("{Job}", p.label.charAt(0).toUpperCase() + p.label.slice(1)).replace("{job}", p.label), "");
+
+  // Omfång: en referens som gäller en viss yta jämförs bara mot den ytan.
+  if (Array.isArray(p.scopeArea)) {
+    const a = num(x.areaM2);
+    const [lo, hi] = p.scopeArea;
+    if (a === null || a <= 0) return abstain(put(put(put(W.scopeAreaMissing, "{job}", p.label), "{scopeArea}", `${lo}–${hi} m²`), "{source}", p.source));
+    if (a < lo || a > hi) return abstain(put(put(put(put(W.scopeAreaMismatch, "{job}", p.label), "{scopeArea}", `${lo}–${hi} m²`), "{area}", `${Math.round(a * 10) / 10} m²`), "{source}", p.source));
   }
-  return out;
+
+  const cands = lab ? laborCandidates(x) : totalCandidates(x);
+  if (cands.length === 0) return abstain(lab ? W.noLabor.replace("{job}", p.label) : W.noTotal, lab ? p.source : "");
+
+  let q = null, perTxt = "";
+  if (p.per === "m2" || p.per === "st") {
+    q = p.per === "m2" ? num(x.areaM2) : num(x.unitCount);
+    if (q === null || q <= 0) {
+      return abstain(W.noQuantity.replace("{job}", p.label).replace("{perUnit}", p.per === "m2" ? "per m²" : "per styck").replace("{quantity}", p.per === "m2" ? "yta i m²" : "mängd i antal"));
+    }
+    perTxt = p.per === "m2" ? " per m²" : " per styck";
+  }
+  const range = `${krRange(p.normal[0], p.normal[1])}${perTxt}${p.scope ? ", " + p.scope : ""}`;
+  const valueOf = (c) => (q === null ? c.value : c.value / q);
+  const modeOf = (v) => (v < p.normal[0] ? "under" : v > p.normal[1] ? "over" : "inom");
+  const fillP = (v) => (s) => [["{total}", kr(v) + perTxt], ["{range}", range], ["{job}", p.label], ["{source}", p.source]].reduce((acc, [k, val]) => put(acc, k, val), s);
+  const wordingFor = (mode) => (lab ? (mode === "under" ? W.projectLaborBelow : mode === "over" ? W.projectLaborAbove : W.projectLaborWithin)
+    : (mode === "under" ? W.projectBelow : mode === "over" ? W.projectAbove : W.projectWithin));
+
+  if (cands.length === 1) {
+    const v = valueOf(cands[0]);
+    const mode = modeOf(v);
+    out.push({ id: "projekt", mode, title, text: fillP(v)(wordingFor(mode)), source: p.source });
+    return out;
+  }
+  // Flera tolkningar av beloppet: ingen bedömning, tolkningarna redovisas.
+  const listed = cands.slice(0, 4).map((c) => `${c.label}: ${kr(valueOf(c))}${perTxt}`).join("; ");
+  const text = put(put(put(put(put(W.projectBasisUnclear, "{alts}", listed), "{job}", p.label), "{range}", range), "{source}", p.source), "{what}", lab ? "arbetskostnaden" : "totalpriset");
+  return abstain(text);
 }
 
 // ---- Hård strängkontroll: förbjudna ord får inte förekomma någonstans ----

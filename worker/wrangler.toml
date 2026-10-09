@@ -25,7 +25,16 @@ dataset = "granska_handelser"
 [vars]
 # Kommaseparerad lista om fler origins behövs (t.ex. under test).
 ALLOWED_ORIGIN = "https://granskaminoffert.se"
-ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
+# Modell. claude-sonnet-4-5-20250929 är "Deprecated" sedan 2026-09-30 med preliminärt
+# avvecklingsdatum 2026-11-30 (platform.claude.com/docs/en/about-claude/model-deprecations,
+# läst 2026-10-09); rekommenderad ersättare är claude-sonnet-5-5. Anropsformen väljs per modell
+# i src/models.js. Träffsäkerheten på riktiga offerter med 5.5 är EJ TESTAT (F2). Byt tillbaka
+# till den gamla raden nedan om F2 visar sämre resultat, så länge 4.5 finns kvar:
+#   ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
+ANTHROPIC_MODEL = "claude-sonnet-5-5"
+# Teknisk spärr före betalt anrop (inte ett budgetbeslut): max antal indatatokens för fil-anrop,
+# mätt med Anthropics gratis tokenräknare. Över gränsen startas ingen granskning.
+INPUT_TOKEN_LIMIT = "60000"
 MAX_UPLOAD_BYTES = "8000000"
 RATE_LIMIT_PER_HOUR = "8"
 # Globalt tak per dygn (UTC) för alla användare tillsammans. Kampanjbeslut 2026-09-17: 300.
@@ -33,3 +42,24 @@ GLOBAL_DAILY_LIMIT = "300"
 
 # Secret (ALDRIG i denna fil, aldrig i repo):
 #   npx wrangler secret put ANTHROPIC_API_KEY
+
+# ---- Valfritt, INTE aktiverat (kräver separat beslut/kontroll av Cloudflare-planen) ----
+# Atomärt dagstak: en Durable Object-instans räknar och är enda skrivare. Utan detta är
+# dagstaket "kv_best_effort" (se src/quota.js) och /health visar quotaHardCap=false.
+# Planens tillgänglighet för Durable Objects är UNKNOWN (ej kontrollerad). Aktivering:
+#   [[durable_objects.bindings]]
+#   name = "QUOTA"
+#   class_name = "QuotaCounter"
+#
+#   [[migrations]]
+#   tag = "v1"
+#   new_sqlite_classes = ["QuotaCounter"]
+#
+# Begränsning av klienthändelser (/event), samma slags bindning som REVIEW_RL:
+#   [[ratelimits]]
+#   name = "EVENT_RL"
+#   namespace_id = "1003"
+#   simple = { limit = 30, period = 60 }
+#
+# BUILD_ID sätts vid publicering av DEPLOY_GRANSKAMINOFFERT_WORKER.command (--var BUILD_ID:...)
+# och visas i /health, så att live-versionen går att jämföra mot en exakt commit.

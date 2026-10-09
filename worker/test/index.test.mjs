@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 // Kör: node --test worker/test/  (Node 20+). Ingen nätverksåtkomst, ingen nyckel.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -45,7 +46,7 @@ test("/health utan granskningar", async () => {
   const j = await r.json();
   assert.equal(j.ok, true); assert.equal(j.hasApiKey, true);
   assert.equal(j.reviewsToday, 0); assert.equal(j.reviewsTotal, 0);
-  assert.equal(j.version, "gmo-api-v9");
+  assert.equal(j.version, "gmo-api-v10");
   assert.equal(j.dailyLimit, 300);
   assert.deepEqual(j.shares.email, { total: 0, today: 0 });
   assert.deepEqual(j.byPath.hantverkare, { total: 0, today: 0 });
@@ -148,7 +149,7 @@ test("prislager i svaret, förbjudna ord tvättas, prisstatistik bara vid opt-in
     const e1 = env(); const c1 = ctx();
     const j = await call(e1, c1, false);
     await Promise.all(c1.jobs);
-    assert.equal(j.priceReport.referenceVersion, "2026-09-18");
+    assert.equal(j.priceReport.referenceVersion, JSON.parse(readFileSync(new URL("../src/reference.json", import.meta.url), "utf8")).version); // D03: version följer referensfilen (2026-10-09)
     assert.ok(j.priceReport.checked.some((c) => c.id === "rot_belopp" && c.status === "ok"));
     assert.ok(j.priceReport.compared.some((c) => c.id === "tim_snickare" && c.mode === "inom"));
     assert.ok(j.priceReport.checked.some((c) => c.id === "summa" && c.status === "ok"));
@@ -276,7 +277,8 @@ test("tratt: granskning_klar vid 200, och inget räknas från främmande origin"
     const fr = await worker.fetch(new Request("https://api.test/review", { method: "POST", headers: { Origin: "https://ond.example" }, body: "{}" }), env({ GRANSKA_H: ae }), ctx());
     assert.equal(fr.status, 403);
   } finally { globalThis.fetch = orig; }
-  assert.deepEqual(ae.p.map((x) => x.blobs[0]), ["uppladdning_start", "granskning_klar"]);
+  // D03: ett lyckat anrop loggar även modellkostnaden (anrop_kostnad) före granskning_klar.
+  assert.deepEqual(ae.p.map((x) => x.blobs[0]), ["uppladdning_start", "anrop_kostnad", "granskning_klar"]);
 });
 
 test("tratt: CORS släpper igenom X-SD-Test", async () => {

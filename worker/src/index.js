@@ -10,16 +10,20 @@
 
 import REFERENCE from "./reference.json" with { type: "json" };
 import { runRules, checkNormalAddons, compareToBands, findForbidden, scrubForbidden } from "./rules.js";
+import { sanitizeExtracted, sanitizeReview, FIELD_LABELS } from "./sanitize.js";
+import { DEFAULT_MODEL, modelInfo, buildAnthropicRequest, computeCost } from "./models.js";
+import { reserve, quotaMode, QuotaCounter } from "./quota.js";
+import { sniffFile, countInputTokens, DEFAULT_INPUT_TOKEN_LIMIT } from "./limits.js";
+
+// Durable Object-klassen måste exporteras härifrån för att kunna bindas (wrangler.toml, avsnittet QUOTA).
+export { QuotaCounter };
 
 const ANTHROPIC_VERSION = "2023-06-01";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
-// USD-priser per miljon tokens. Källa: Anthropic prislista, uppdatera vid
-// modellbyte. SEK-omräkning är en grov, deklarerad uppskattning — kostnaden
-// i USD är den exakta, mätta siffran.
-const MODEL_PRICING_USD_PER_MTOK = {
-  "claude-sonnet-4-5-20250929": { input: 3.0, output: 15.0 },
-};
+// USD-priser per miljon tokens finns i models.js (en tabell, med källa). SEK-omräkning
+// är en grov, deklarerad uppskattning – kostnaden i USD är den mätta siffran, och för
+// en modell som saknas i tabellen är kostnaden uttryckligen OKÄND (null), inte noll.
 const USD_TO_SEK_APPROX = 10.5; // grov uppskattning, inte en live-kurs
 
 // REFERENCE_HOURLY_RATES_SEK borttagen 2026-09-14 (Tydlighet v1): tabellen
@@ -57,6 +61,7 @@ const EXTRACTED_SCHEMA = {
     "jobType", "trades", "hourlyRateSek", "hours", "laborSumSek", "materialSumSek",
     "travelSumSek", "materialMarkupPct", "rotAmountSek", "rotRatePct", "rotPersons",
     "rotOnMaterialOrTravel", "priceType", "vatMode", "totalSumSek", "totalIncludesVat",
+    "totalBeforeRotSek", "amountToPaySek", "totalVatBasis", "propertyType",
     "quoteDate", "plannedPaymentDate", "customerType", "workDescription", "county", "areaM2", "unitCount", "otherSumSek",
   ],
   properties: {
@@ -75,9 +80,13 @@ const EXTRACTED_SCHEMA = {
     rotPersons: { ...NUM_OR_NULL, description: "Antal personer som ROT-avdraget delas på, om det anges. null annars." },
     rotOnMaterialOrTravel: { type: ["boolean", "null"], description: "true bara om offerten uttryckligen räknar ROT på material, resor eller servicebil. null om det inte går att avgöra." },
     priceType: { type: ["string", "null"], enum: ["fast", "ungefarligt", "lopande", null], description: "Pristyp som offerten anger. null om det inte framgår." },
-    vatMode: { type: "string", enum: ["inkl", "exkl", "blandat", "ej_angivet"], description: "Hur moms anges för beloppen." },
-    totalSumSek: { ...NUM_OR_NULL, description: "Summan att betala enligt offerten (efter ROT om ROT dragits av i totalen). null om ingen total anges." },
+    vatMode: { type: "string", enum: ["inkl", "exkl", "blandat", "ej_angivet"], description: "Hur moms anges för beloppen: 'inkl' eller 'exkl' bara om offerten uttryckligen säger det för beloppen, 'blandat' om båda förekommer, 'ej_angivet' om offerten inte säger något." },
+    totalSumSek: { ...NUM_OR_NULL, description: "ENDAST en total som offerten inte tydligt märker som 'före ROT-avdrag' eller 'att betala'. null om totalen är tydligt märkt (använd då totalBeforeRotSek eller amountToPaySek) eller om ingen total anges. Gissa aldrig om den är före eller efter ROT." },
+    totalBeforeRotSek: { ...NUM_OR_NULL, description: "Total som offerten uttryckligen anger före ROT-avdrag (t.ex. 'totalt', 'summa före avdrag'). null om offerten inte anger det." },
+    amountToPaySek: { ...NUM_OR_NULL, description: "Summa som offerten uttryckligen anger att kunden ska betala efter eventuellt ROT-avdrag (t.ex. 'att betala', 'efter ROT'). null om offerten inte anger det." },
+    totalVatBasis: { type: ["string", "null"], enum: ["inkl", "exkl", null], description: "Momsbasen för totalsummorna, bara om offerten uttryckligen anger den för just totalen ('inkl. moms' eller 'exkl. moms'). null om det inte står." },
     totalIncludesVat: { type: ["boolean", "null"], description: "true om totalen uttryckligen är inkl. moms, false om uttryckligen exkl., null om oklart." },
+    propertyType: { type: ["string", "null"], enum: ["smahus", "bostadsratt", "flerbostadshus", "annat", null], description: "Bostadstyp om offerten eller beskrivningen anger den (villa/småhus, bostadsrätt, flerbostadshus). null om det inte framgår." },
     quoteDate: { type: ["string", "null"], description: "Offertens datum som ÅÅÅÅ-MM-DD. null om inget datum." },
     plannedPaymentDate: { type: ["string", "null"], description: "När betalning eller fakturering planeras, som ÅÅÅÅ-MM-DD. Anges bara månad eller \"vid slutfört arbete i februari 2026\": använd månadens första dag (2026-02-01). Anges bara år: ÅÅÅÅ-01-01. null om inget alls framgår." },
     customerType: { type: ["string", "null"], enum: ["privatperson", "foretag", null], description: "Om kunden är privatperson eller företag, när det framgår." },
@@ -251,7 +260,12 @@ angivna, aldrig om priset är rimligt.
 EXTRAKTION (extracted-fältet): fyll i exakt de siffror och uppgifter som står
 i offerten. Fält som inte står där är null — räkna aldrig fram, gissa aldrig,
 anta aldrig. Timpris skrivs som det står (inkl. eller exkl. moms styrs av
-vatMode). totalSumSek är summan att betala. Datum som ÅÅÅÅ-MM-DD.
+vatMode). Skilj på tre sorters totaler: totalBeforeRotSek (uttryckligen före
+ROT-avdrag), amountToPaySek (uttryckligen att betala efter ROT) och, bara om
+offerten inte märker sin total, totalSumSek. Gissa aldrig om en omärkt total
+är före eller efter ROT, och gissa aldrig momsbasen: totalVatBasis är null
+om offerten inte uttryckligen anger den. propertyType fylls bara i om
+bostadstypen står. Datum som ÅÅÅÅ-MM-DD.
 workDescription är högst 15 ord utan namn, adress eller företagsnamn.
 
 ORDVAL: orden "för dyrt", "överpris", "svart", "oseriöst" och "fusk" får inte
@@ -295,7 +309,7 @@ function corsHeaders(origin, allowedOrigins) {
 // Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
 // Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
 // aldrig underlag för fakturering.
-const WORKER_VERSION = "gmo-api-v9";
+const WORKER_VERSION = "gmo-api-v10";
 
 function dayKey(d = new Date()) {
   return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
@@ -322,22 +336,60 @@ export function rateBand(rate) {
   return ">=1000";
 }
 
-// Prisrapport: tre delar (PRISUNDERLAG punkt 5).
-export function buildPriceReport(x) {
-  const checked = [...runRules(x, REFERENCE), ...checkNormalAddons(x, REFERENCE)];
-  const cmp = compareToBands(x, REFERENCE);
+// Prisrapport: tre delar (PRISUNDERLAG punkt 5) plus en redovisning av luckor.
+// Indata är modellens avläsning RÅ eller redan sanerad; den saneras alltid här så att
+// ingen regel ser ogiltiga typer, okända enum-värden eller prototypnycklar.
+// Faller ett steg kastas inget fel: rapporten markerar luckan (`partial`) och övriga
+// steg redovisas, så att besökaren får en läsbar delgranskning i stället för ett fel.
+const stepName = { rules: "prisreglerna", addons: "kontrollen av normala tillägg", compare: "jämförelsen mot referensintervall" };
+
+export function buildPriceReport(raw, knownIssues, impl = { runRules, checkNormalAddons, compareToBands }) {
+  const { x, issues } = sanitizeExtracted(raw);
+  const allIssues = [...new Set([...(knownIssues || []), ...issues])];
+  const failed = [];
+  const step = (key, fn) => {
+    try { return fn(); } catch (e) {
+      console.log(JSON.stringify({ route: "review", warn: "price_step_failed", step: key, error: String(e && e.message || e) }));
+      failed.push(key);
+      return [];
+    }
+  };
+  const rules = step("rules", () => impl.runRules(x, REFERENCE));
+  const addons = step("addons", () => impl.checkNormalAddons(x, REFERENCE));
+  const cmp = step("compare", () => impl.compareToBands(x, REFERENCE));
+  const checked = [...rules, ...addons];
   const compared = cmp.filter((c) => c.mode !== "ej_bedombar");
   const cannot = [
     ...checked.filter((c) => c.status === "ej_bedombar").map((c) => ({ title: c.title, text: c.text, source: c.source })),
     ...cmp.filter((c) => c.mode === "ej_bedombar").map((c) => ({ title: c.title, text: c.text, source: c.source })),
   ];
+  const labels = allIssues.map((k) => (Object.prototype.hasOwnProperty.call(FIELD_LABELS, k) ? FIELD_LABELS[k] : "ett fält"));
+  if (labels.length) {
+    cannot.push({ title: "Avläsningen", text: `Följande uppgifter kunde inte läsas säkert och har inte använts: ${[...new Set(labels)].join(", ")}. Kontroller som hänger på dem har inte kunnat göras.`, source: "" });
+  }
+  for (const f of failed) {
+    cannot.push({ title: "Prisgranskningen", text: `Delen "${stepName[f]}" kunde inte köras den här gången, så prisgranskningen är ofullständig. Övriga delar som redovisas är genomförda.`, source: "" });
+  }
   return {
     referenceVersion: REFERENCE.version,
     checked: checked.filter((c) => c.status !== "ej_bedombar"),
     compared,
     cannotAssess: cannot,
+    partial: failed.length > 0,
+    readIssues: [...new Set(labels)],
+    performed: { rules: rules.length, addons: addons.length, comparisons: compared.length },
     disclaimer: REFERENCE.wording.disclaimer,
     methodUrl: "https://granskaminoffert.se/sa-granskar-vi-priser",
+  };
+}
+
+// Används när hela prissteget faller: inget kastas till besökaren.
+export function degradedPriceReport() {
+  return {
+    referenceVersion: REFERENCE.version, checked: [], compared: [],
+    cannotAssess: [{ title: "Prisgranskningen", text: "Prisgranskningen kunde inte köras den här gången. Resten av granskningen nedan är genomförd.", source: "" }],
+    partial: true, readIssues: [], performed: { rules: 0, addons: 0, comparisons: 0 },
+    disclaimer: REFERENCE.wording.disclaimer, methodUrl: "https://granskaminoffert.se/sa-granskar-vi-priser",
   };
 }
 
@@ -396,7 +448,7 @@ async function recordStats(env, review, path, optIn) {
       ts: ts.toISOString().slice(0, 10),
       jobType: x.jobType || "okand",
       county: normalizeCounty(x.county),
-      sumBand: sumBand(x.totalSumSek),
+      sumBand: sumBand(x.totalBeforeRotSek ?? x.amountToPaySek ?? x.totalSumSek),
       rateBand: rateBand(x.hourlyRateSek),
       laborSharePct: share,
       rot: Number.isFinite(Number(x.rotAmountSek)) && Number(x.rotAmountSek) > 0,
@@ -423,6 +475,39 @@ async function recordStats(env, review, path, optIn) {
 const SHARE_CHANNELS = ["email", "sms", "copy"];
 export function normalizeChannel(c) {
   return SHARE_CHANNELS.includes(c) ? c : null;
+}
+
+// Klienthändelser för mätning (paket "säker mätning"). Bara tre namn, en kort
+// valfri detalj ur en fast lista och rollen. Aldrig text, belopp, filnamn eller id.
+// Namnen börjar med "klient_" så att de aldrig kan förväxlas med de serverbekräftade
+// händelserna (granskning_klar skrivs bara av servern efter ett lyckat anrop).
+const CLIENT_EVENTS = {
+  rapport_klar: [],
+  export: ["email", "sms", "copy"],
+  kontakt_cta: ["donatello", "stahledigital"],
+};
+export function normalizeClientEvent(body) {
+  if (!body || typeof body !== "object" || body.type !== "client") return null;
+  const ev = typeof body.event === "string" && Object.prototype.hasOwnProperty.call(CLIENT_EVENTS, body.event) ? body.event : null;
+  if (!ev) return null;
+  const allowed = CLIENT_EVENTS[ev];
+  const detail = typeof body.detail === "string" && allowed.includes(body.detail) ? body.detail : "";
+  if (allowed.length && !detail) return null;
+  return { event: ev, detail, role: normalizePath(body.role), test: body.test === true };
+}
+
+async function recordClientEvent(env, request, c) {
+  // Valfri egen begränsning (bindning EVENT_RL): hindrar att datasetet översvämmas.
+  if (env.EVENT_RL) {
+    try {
+      const { success } = await env.EVENT_RL.limit({ key: request.headers.get("CF-Connecting-IP") || "unknown" });
+      if (!success) return;
+    } catch (e) { return; }
+  }
+  try {
+    const lage = c.test || request.headers.get("X-SD-Test") === "1" ? "test" : "skarp";
+    env.GRANSKA_H?.writeDataPoint({ blobs: ["klient_" + c.event, c.detail, c.role], indexes: [lage] });
+  } catch (e) { /* mätningen får aldrig störa sidan */ }
 }
 
 async function recordShare(env, channel) {
@@ -475,29 +560,22 @@ function jsonResponse(body, status, headers) {
   });
 }
 
+// Kvoter går via quota.js: fail-closed (ett räknarfel nekar anropet) och, där en
+// Durable Object-bindning finns, atomär. Se quota.js för vad som INTE är garanterat.
 async function rateLimit(env, ip) {
   const limit = parseInt(env.RATE_LIMIT_PER_HOUR || "8", 10);
   const bucket = Math.floor(Date.now() / 3600000); // timme-bucket
-  const key = `rl:${ip}:${bucket}`;
-  const current = parseInt((await kvGet(env, key)) || "0", 10);
-  if (current >= limit) return false;
-  await kvPut(env, key, String(current + 1), { expirationTtl: 3600 });
-  return true;
+  return reserve(env, { scope: "rl", key: `rl:${ip}:${bucket}`, limit, ttl: 3600 });
 }
 
-// Andra kostnadsspärr, oberoende av per-IP: per-IP-gränsen går att kringgå
-// helt genom att byta IP (VPN, mobildata etc). Detta är ett globalt tak för
-// ALLA användare tillsammans per dygn (UTC), som håller värsta möjliga
-// dagskostnad förutsägbar oavsett hur ratelimit-gränsen kringgås.
-// Standard 300/dygn * ~0.03 USD/anrop ≈ max 9 USD/dygn i värsta fall (kampanjbeslut 2026-09-17).
+// Andra kostnadsspärr, oberoende av per-IP: ett globalt tak för ALLA användare
+// per dygn (UTC). Utan Durable Object är det ett best-effort-tak (kv_best_effort):
+// samtidiga anrop i olika isolat kan överskrida det något. Det är inte ett garanterat
+// hårt kostnadstak; ingen siffra här är ett löfte om maxkostnad.
 async function globalDailyLimitOk(env) {
   const limit = parseInt(env.GLOBAL_DAILY_LIMIT || "300", 10);
   const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
-  const key = `global:${day}`;
-  const current = parseInt((await kvGet(env, key)) || "0", 10);
-  if (current >= limit) return false;
-  await kvPut(env, key, String(current + 1), { expirationTtl: 172800 });
-  return true;
+  return reserve(env, { scope: "global", key: `global:${day}`, limit, ttl: 172800, useDurableObject: true });
 }
 
 // Offertfiler heter ofta "Offert Anna Andersson Storgatan.pdf". Filändelsen
@@ -514,18 +592,6 @@ function extractReview(anthropicJson) {
   );
   if (!toolUse) throw new Error("Modellen returnerade inget submit_review-anrop");
   return toolUse.input;
-}
-
-function computeCostUsd(model, usage) {
-  const pricing = MODEL_PRICING_USD_PER_MTOK[model];
-  if (!pricing || !usage) return null;
-  const inputUsd = (usage.input_tokens / 1e6) * pricing.input;
-  const outputUsd = (usage.output_tokens / 1e6) * pricing.output;
-  return {
-    inputTokens: usage.input_tokens,
-    outputTokens: usage.output_tokens,
-    usd: Number((inputUsd + outputUsd).toFixed(6)),
-  };
 }
 
 async function handleReview(request, env, ctx, allowedOrigins) {
@@ -587,30 +653,24 @@ async function handleReview(request, env, ctx, allowedOrigins) {
     }
   }
 
-  const allowed = await rateLimit(env, ip);
-  if (!allowed) {
-    return jsonResponse(
-      { error: "För många granskningar just nu. Försök igen om en stund." },
-      429,
-      headers
-    );
-  }
-
-  const globalOk = await globalDailyLimitOk(env);
-  if (!globalOk) {
-    return jsonResponse(
-      { error: "Tjänsten har nått sitt dagliga tak för granskningar. Försök igen imorgon." },
-      429,
-      headers
-    );
-  }
-
   if (!env.ANTHROPIC_API_KEY) {
-    return jsonResponse(
-      { error: "Tjänsten är inte klar än (saknar API-nyckel). Försök igen senare." },
-      503,
-      headers
-    );
+    return jsonResponse({ error: "Tjänsten är inte klar än (saknar API-nyckel). Försök igen senare." }, 503, headers);
+  }
+
+  // Filens första byte ska stämma med filtypen. Stoppas här, före kvoter och betalt anrop.
+  if (kind !== "text") {
+    const sniff = sniffFile(kind, mediaType, dataBase64);
+    if (!sniff.ok) {
+      return jsonResponse({ error: kind === "pdf" ? "Filen ser inte ut som en PDF. Välj en PDF-fil, eller klistra in texten." : "Filen ser inte ut som en bild som går att läsa. Spara den som JPEG eller PNG, eller klistra in texten." }, 400, headers);
+    }
+  }
+
+  const unavailable = () => jsonResponse({ error: "Tjänsten kan just nu inte kontrollera sina gränser och är därför tillfälligt stängd. Försök igen senare." }, 503, headers);
+
+  const rl = await rateLimit(env, ip);
+  if (!rl.ok) {
+    if (rl.reason === "fel") return unavailable();
+    return jsonResponse({ error: "För många granskningar just nu. Försök igen om en stund." }, 429, headers);
   }
 
   const userContent = [];
@@ -638,17 +698,30 @@ async function handleReview(request, env, ctx, allowedOrigins) {
     });
   }
 
-  const model = env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
-  const anthropicBody = {
-    model,
-    max_tokens: 4000, // 2000 räckte inte för långa offerter: svaret kapades mitt i extracted
-    temperature: 0, // konsekvens: samma offert ska ge samma bedömning. VERIFIED
-    // utan denna gav samma testoffert 62/62/58 vid tre körningar i rad.
-    system: systemPrompt(),
-    messages: [{ role: "user", content: userContent }],
-    tools: [SUBMIT_REVIEW_TOOL],
-    tool_choice: { type: "tool", name: "submit_review" },
-  };
+  const model = env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+  const anthropicBody = buildAnthropicRequest({ model, system: systemPrompt(), userContent, tool: SUBMIT_REVIEW_TOOL });
+
+  // Indatagräns före betalt anrop: mät med Anthropics (kostnadsfria) tokenräknare.
+  // Fil-anrop som inte går att mäta nekas; text är redan begränsad till 20 000 tecken.
+  let inputTokens = null;
+  if (kind !== "text") {
+    const tokenLimit = parseInt(env.INPUT_TOKEN_LIMIT || String(DEFAULT_INPUT_TOKEN_LIMIT), 10);
+    try {
+      inputTokens = await countInputTokens(env, anthropicBody);
+    } catch (e) {
+      console.log(JSON.stringify({ route: "review", warn: "count_tokens_failed", error: String(e && e.message || e) }));
+      return jsonResponse({ error: "Det gick inte att kontrollera filens storlek just nu, så granskningen startades inte. Försök igen om en stund, eller klistra in texten.", debugId }, 503, headers);
+    }
+    if (inputTokens > tokenLimit) {
+      return jsonResponse({ error: "Dokumentet är för omfattande för en säker granskning här. Dela upp det, ta bara sidorna med priser och villkor, eller klistra in texten.", inputTokens, tokenLimit }, 400, headers);
+    }
+  }
+
+  const globalRes = await globalDailyLimitOk(env);
+  if (!globalRes.ok) {
+    if (globalRes.reason === "fel") return unavailable();
+    return jsonResponse({ error: "Tjänsten har nått sitt dagliga tak för granskningar. Försök igen imorgon." }, 429, headers);
+  }
 
   let review, usage, rawStatus, errorDetail;
   try {
@@ -673,8 +746,8 @@ async function handleReview(request, env, ctx, allowedOrigins) {
       // vidare på dem som om de vore avlästa ur offerten. Hellre inget svar.
       throw new Error("Modellsvaret kapades (max_tokens) – offerten är för lång för en säker avläsning");
     }
-    review = extractReview(respJson);
     usage = respJson.usage;
+    review = sanitizeReview(extractReview(respJson));
   } catch (e) {
     ctx.waitUntil(
       kvPut(
@@ -700,10 +773,18 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   }
 
   const latencyMs = Date.now() - startedAt;
-  const cost = computeCostUsd(model, usage);
+  const cost = computeCost(model, usage);
 
-  // Prislager (PRISUNDERLAG): deterministiska regler + jämförelse mot band.
-  review.priceReport = buildPriceReport(review.extracted || {});
+  // Prislager (PRISUNDERLAG): saneras och körs steg för steg; ett fel i prissteget ger
+  // en läsbar delgranskning med markerad lucka, aldrig ett 5xx till besökaren.
+  const { x: cleanX, issues: extractIssues } = sanitizeExtracted(review.extracted);
+  review.extracted = cleanX;
+  try {
+    review.priceReport = buildPriceReport(cleanX, extractIssues);
+  } catch (e) {
+    console.log(JSON.stringify({ route: "review", warn: "price_report_failed", error: String(e && e.message || e) }));
+    review.priceReport = degradedPriceReport();
+  }
   // Hård spärr: förbjudna ord får inte lämna workern.
   const hits = findForbidden(review);
   if (hits.length) {
@@ -720,7 +801,8 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   }
 
   ctx.waitUntil(recordStats(env, review, path, body.stats === true).catch((e) => console.log(JSON.stringify({ route: "review", warn: "stats", error: String(e) }))));
-  console.log(JSON.stringify({ route: "review", status: 200, ms: latencyMs, kind, costUsd: cost ? cost.usd : null }));
+  logUsage(env, request, { model, kind, cost, inputTokens });
+  console.log(JSON.stringify({ route: "review", status: 200, ms: latencyMs, kind, model, costStatus: cost.status, costUsd: cost.usd }));
 
   ctx.waitUntil(
     kvPut(
@@ -734,7 +816,8 @@ async function handleReview(request, env, ctx, allowedOrigins) {
         model,
         latencyMs,
         usage,
-        costUsd: cost ? cost.usd : null,
+        costUsd: cost.usd,
+        costStatus: cost.status,
         review,
       }),
       { expirationTtl: 86400 }
@@ -747,8 +830,9 @@ async function handleReview(request, env, ctx, allowedOrigins) {
       meta: {
         model,
         latencyMs,
-        costUsd: cost ? cost.usd : null,
-        costSekApprox: cost ? Number((cost.usd * USD_TO_SEK_APPROX).toFixed(2)) : null,
+        costUsd: cost.usd,
+        costStatus: cost.status, // "känd" eller "okand" (modell saknas i prislistan)
+        costSekApprox: cost.usd === null ? null : Number((cost.usd * USD_TO_SEK_APPROX).toFixed(2)),
       },
     },
     200,
@@ -765,11 +849,23 @@ async function handleReview(request, env, ctx, allowedOrigins) {
 export function felOrsak(status) {
   return { 400: "indata", 403: "ursprung", 429: "grans", 502: "granskning", 503: "stangd" }[status] || "annat";
 }
-export function tratt(env, request, handelse, detalj) {
+export function tratt(env, request, handelse, detalj, tal) {
   try {
     const lage = request.headers.get("X-SD-Test") === "1" ? "test" : "skarp";
-    env.GRANSKA_H?.writeDataPoint({ blobs: detalj ? [handelse, detalj] : [handelse], indexes: [lage] });
+    const dp = { blobs: detalj ? [handelse, ...[].concat(detalj)] : [handelse], indexes: [lage] };
+    if (Array.isArray(tal)) dp.doubles = tal;
+    env.GRANSKA_H?.writeDataPoint(dp);
   } catch (e) { /* räknaren får aldrig störa granskningen */ }
+}
+
+// Användning och modellkostnad per lyckat anrop (Analytics Engine, samma dataset).
+// blob1 = "anrop_kostnad", blob2 = modell, blob3 = "känd"|"okand", blob4 = text|image|pdf;
+// double1 = indatatokens, double2 = utdatatokens, double3 = USD (0 när kostnaden är okänd),
+// double4 = tokenräknarens förhandsmätning (0 för text). Testkörningar (X-SD-Test) hamnar
+// under lage = test och ska uteslutas ur all kostnadsuppföljning.
+export function logUsage(env, request, { model, kind, cost, inputTokens }) {
+  tratt(env, request, "anrop_kostnad", [model, cost.status, kind],
+    [cost.inputTokens ?? 0, cost.outputTokens ?? 0, cost.usd ?? 0, inputTokens ?? 0]);
 }
 
 export default {
@@ -787,8 +883,17 @@ export default {
     if (url.pathname === "/health") {
       let counters = { reviewsToday: null, reviewsTotal: null };
       try { counters = await readCounters(env); } catch (e) { /* KV nere: svara ändå */ }
+      const model = env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+      const info = modelInfo(model);
       return jsonResponse(
-        { ok: true, hasApiKey: Boolean(env.ANTHROPIC_API_KEY), ...counters, version: WORKER_VERSION },
+        {
+          ok: true, hasApiKey: Boolean(env.ANTHROPIC_API_KEY), ...counters, version: WORKER_VERSION,
+          // Identitet för release- och rollbackkontroll (F0/F1): vad som faktiskt körs.
+          build: typeof env.BUILD_ID === "string" && env.BUILD_ID ? env.BUILD_ID.slice(0, 40) : "okand",
+          model, modelInTable: info !== null, modelLifecycle: info ? info.lifecycle : "okand",
+          referenceVersion: REFERENCE.version,
+          quotaMode: quotaMode(env), quotaHardCap: quotaMode(env) === "durable_object",
+        },
         200,
         corsHeaders(origin, allowedOrigins)
       );
@@ -809,12 +914,17 @@ export default {
     if (url.pathname === "/event" && request.method === "POST") {
       const headers = corsHeaders(origin, allowedOrigins);
       if (!allowedOrigins.includes(origin)) return new Response(null, { status: 403, headers });
-      let channel = null;
+      let channel = null, client = null;
       try {
-        const body = await request.json();
-        channel = normalizeChannel(body && body.type === "share" ? body.channel : null);
+        const raw = await request.text();
+        if (raw.length <= 1024) {
+          const body = JSON.parse(raw);
+          channel = normalizeChannel(body && body.type === "share" ? body.channel : null);
+          client = normalizeClientEvent(body);
+        }
       } catch (e) { /* ogiltig kropp: ignorera */ }
       if (channel) ctx.waitUntil(recordShare(env, channel).catch(() => {}));
+      if (client) await recordClientEvent(env, request, client);
       return new Response(null, { status: 204, headers });
     }
 

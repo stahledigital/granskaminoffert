@@ -21,11 +21,20 @@ print(c[0]["id"] if c else "")')
   sed -i '' "s/REPLACE_AFTER_WRANGLER_KV_NAMESPACE_CREATE/$KVID/" "$TOML"
   echo "KV-id inlagt: $KVID"
 fi
-npx -y wrangler deploy || { echo; echo "Publiceringen misslyckades – ta en skärmbild av texten ovan och skicka i chatten."; read -r -p "Tryck Enter för att stänga."; exit 1; }
+# Bygg-id (commit) skickas med som variabel och visas i /health: då går live-versionen att
+# jämföra mot en exakt commit, och en rollback till en känd commit går att bekräfta.
+BUILD_ID=$(git -C .. rev-parse --short=12 HEAD 2>/dev/null || echo "okand")
+if ! git -C .. diff --quiet 2>/dev/null; then BUILD_ID="${BUILD_ID}-osparat"; fi
+echo "Bygg-id: $BUILD_ID"
+npx -y wrangler deploy --var "BUILD_ID:$BUILD_ID" || { echo; echo "Publiceringen misslyckades – ta en skärmbild av texten ovan och skicka i chatten."; read -r -p "Tryck Enter för att stänga."; exit 1; }
 echo
 echo "Kontrollerar /health:"
 sleep 3
-curl -s https://granskaminoffert-api.anders-316.workers.dev/health; echo
+HEALTH=$(curl -s https://granskaminoffert-api.anders-316.workers.dev/health); echo "$HEALTH"
 echo
-echo "Klart. Versionen ovan ska vara samma som i worker/src/index.js (WORKER_VERSION)."
+WANT=$(grep -o 'WORKER_VERSION = "[^"]*"' src/index.js | cut -d'"' -f2)
+echo "$HEALTH" | grep -q "\"version\":\"$WANT\"" && echo "OK: version $WANT" || echo "AVVIKELSE: /health visar inte version $WANT"
+echo "$HEALTH" | grep -q "\"build\":\"$BUILD_ID\"" && echo "OK: bygg $BUILD_ID" || echo "AVVIKELSE: /health visar inte bygg $BUILD_ID"
+echo
+echo "Klart. Spara raden ovan (version, build, model, referenceVersion) som rollbackunderlag."
 read -r -p "Tryck Enter för att stänga."
