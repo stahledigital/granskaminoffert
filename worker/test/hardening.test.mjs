@@ -452,3 +452,17 @@ test("F8c: readReview avvisar max_tokens, refusal och saknat verktyg även med k
   assert.throws(() => readReview({ stop_reason: "end_turn", content: [{ type: "text", text: "x" }] }), /submit_review/);
   assert.throws(() => readReview(null));
 });
+
+test("F8d: Opus 5.5 och Fable 5.1 – dokumenterade priser, auto tool_choice, ingen temperature/thinking", async () => {
+  const { computeCost, worstCaseUsd, buildAnthropicRequest } = await import("../src/models.js");
+  assert.equal(computeCost("claude-opus-5-5", { input_tokens: 1000000, output_tokens: 1000000 }).usd, 24);
+  assert.equal(computeCost("claude-fable-5-1", { input_tokens: 1000000, output_tokens: 1000000 }).usd, 60);
+  assert.ok(Math.abs(worstCaseUsd("claude-fable-5-1", 3000) - (0.03 + 0.6)) < 1e-9);
+  for (const model of ["claude-opus-5-5", "claude-fable-5-1"]) {
+    const b = buildAnthropicRequest({ model, system: "s", userContent: [{ type: "text", text: "x" }], tool: { name: "submit_review" } });
+    assert.deepEqual(b.tool_choice, { type: "auto" });
+    assert.equal("temperature" in b, false);
+    assert.equal("thinking" in b, false);
+    assert.equal(b.max_tokens, 12000);
+  }
+});

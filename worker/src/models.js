@@ -60,6 +60,31 @@ export const MODELS = {
     maxTokens: 6000,
     lifecycle: "current (released 2026-10-07)",
   },
+  // Källa: platform.claude.com/docs/en/models/opus-5-5/overview, läst 2026-10-09: $4 in / $20 ut per MTok,
+  // ingen storleksnivå angiven, max utdata 128K. Forcerat tool_choice ger fel (=> auto). Adaptivt tänkande är
+  // alltid på och kan inte stängas av, så ingen thinking-parameter skickas. Tänkandet räknas som utdata, därför
+  // högre max_tokens än 5.5. temperature: ej dokumenterat => utelämnas. Träffsäkerhet och kostnad EJ TESTAT (F2).
+  "claude-opus-5-5": {
+    inputUsdPerMTok: 4.0,
+    outputUsdPerMTok: 20.0,
+    forcedTool: false,
+    sampling: false,
+    thinking: null,
+    maxTokens: 12000,
+    lifecycle: "current",
+  },
+  // Källa: platform.claude.com/docs/en/models/fable-5-1/overview, läst 2026-10-09: $10 in / $50 ut per MTok (platt),
+  // max utdata 128K, kontext 1M. Forcerat tool_choice ger fel (=> auto). Adaptivt tänkande alltid på (standard
+  // effort high), ingen thinking-parameter. temperature ej dokumenterat => utelämnas. EJ TESTAT (F2).
+  "claude-fable-5-1": {
+    inputUsdPerMTok: 10.0,
+    outputUsdPerMTok: 50.0,
+    forcedTool: false,
+    sampling: false,
+    thinking: null,
+    maxTokens: 12000,
+    lifecycle: "current (released 2026-09-01)",
+  },
 };
 
 const own = (o, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(o, k);
