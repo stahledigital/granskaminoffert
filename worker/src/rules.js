@@ -185,6 +185,15 @@ export function runRules(x, ref) {
     }
   }
 
+  // --- Totalsummor som motsäger varandra ---
+  {
+    const t0 = resolveTotals(x);
+    if (t0.conflict) {
+      add("total_konflikt", "fel", "Summa före ROT och summa att betala",
+        `Offerten anger både summa före ROT-avdrag (${kr(t0.before)}) och summa att betala (${kr(t0.toPay)}). ${rotAmt ? `Efter ROT-avdraget ${kr(rotAmt)} borde summan att betala vara ${kr(t0.expectedPay)}` : `Utan ROT-avdrag borde summan att betala vara ${kr(t0.expectedPay)}`}. Uppgifterna stämmer inte med varandra – be om en rättad offert.`, "");
+    }
+  }
+
   // --- h) Värmepumpsschablon ---
   // Skatteverket (sidan "Ger arbetet rätt till rotavdrag", avsnittet om
   // värmesystem): andel av TOTALPRISET räknas som arbete (35 % vätska–vatten,
@@ -215,32 +224,31 @@ export function runRules(x, ref) {
     if (t.status === "oklar") {
       const alts = t.alternatives.map((a) => `om ${a.label} är schablonen ${kr(calc(a.beforeRotIncl))}`).join("; ");
       add("rot_schablon", "fraga", title,
-        `Schablonen räknas på totalpriset före ROT-avdrag (${sharePct} % av det räknas som arbete, och avdraget är ${ratePct} % av det). Offerten anger inte tydligt vilken summa som är före ROT-avdrag och vilket momsläge den har: ${alts}. Offerten anger ${kr(rotAmt)}. Be om summa före ROT-avdrag, summa att betala och momsläge.`, source);
+        `Schablonen räknas på totalpriset före ROT-avdrag (${sharePct} % av det räknas som arbete, och avdraget är ${ratePct} % av det). Offerten anger inte tydligt vilken summa som är före ROT-avdrag och vilket momsläge den har${t.conflict ? " (uppgifterna om summa före ROT och summa att betala stämmer inte med varandra)" : ""}: ${alts}. Offerten anger ${kr(rotAmt)}. Be om summa före ROT-avdrag, summa att betala och momsläge.`, source);
       return;
     }
-    // Belagd bas.
-    if (t.basis === "exkl") {
-      const inclExpected = calc(t.beforeRotIncl);
-      const exklExpected = calc(t.beforeRotIncl / (1 + VAT_RATE));
-      add("rot_schablon", "fraga", title,
-        `Totalpriset anges exklusive moms. Skatteverkets sida anger inte om schablonen räknas på pris inklusive eller exklusive moms: inklusive moms blir avdraget ${kr(inclExpected)}, exklusive moms ${kr(exklExpected)}. Offerten anger ${kr(rotAmt)}. Fråga hur avdraget är räknat.`, source);
+    // Belagd summa före ROT. Skatteverkets sida anger inte om totalpriset är
+    // inklusive eller exklusive moms (UNKNOWN), och fast pris + småhus bevisar
+    // inte totalentreprenad. Regeln visar därför ett villkorat räkneexempel och
+    // en fråga, aldrig "regeln stämmer" – och "fel" bara när alla villkor är
+    // uttryckligen angivna och ingen momsbas ger det angivna avdraget.
+    const inclExpected = calc(t.beforeRotIncl);
+    const exklExpected = calc(t.beforeRotIncl / (1 + VAT_RATE));
+    const matchIncl = withinTol(rotAmt, inclExpected, rot.tolerance);
+    const matchExkl = withinTol(rotAmt, exklExpected, rot.tolerance);
+    const missing = [];
+    if (x.propertyType !== "smahus") {
+      missing.push(x.propertyType ? "offerten gäller en annan bostadstyp än småhus, och schablonen kan inte användas för bostadsrätt" : "offerten anger inte bostadstyp (schablonen gäller småhus, inte bostadsrätt)");
+    }
+    if (x.totalContract !== "ja") {
+      missing.push(x.totalContract === "nej" ? "offerten anger att arbetet inte är en totalentreprenad" : "offerten anger inte att företaget utför totalentreprenad (värmepump och installation i ett fast pris)");
+    }
+    const example = `Av totalpriset ${kr(t.beforeRotIncl)} före ROT (${t.basis === "exkl" ? "angivet exklusive moms, omräknat med 25 % moms" : "inklusive moms"}) räknas ${sharePct} % som arbete och avdraget är ${ratePct} % av det: ${kr(inclExpected)} om schablonen räknas på pris inklusive moms, ${kr(exklExpected)} om den räknas exklusive moms. Offerten anger ${kr(rotAmt)}${matchIncl ? ", vilket stämmer med räkningen inklusive moms" : matchExkl ? ", vilket stämmer med räkningen exklusive moms" : ", vilket inte stämmer med någon av räkningarna"}. Skatteverkets sida anger inte vilken momsbas schablonen använder, så beloppet går inte att bekräfta – fråga hur avdraget är räknat.`;
+    if (!missing.length && !matchIncl && !matchExkl) {
+      add("rot_schablon", "fel", title, example, source);
       return;
     }
-    const expected = calc(t.beforeRotIncl);
-    const ok = withinTol(rotAmt, expected, rot.tolerance);
-    if (x.propertyType === "smahus") {
-      add("rot_schablon", ok ? "ok" : "fel", title,
-        ok
-          ? `ROT-avdraget ${kr(rotAmt)} stämmer med schablonen: ${sharePct} % av totalpriset ${kr(t.beforeRotIncl)} före ROT räknas som arbete, och avdraget är ${ratePct} % av det.`
-          : `Vid ${x.jobType === "bergvarme" ? "bergvärme" : "värmepump"} räknas ${sharePct} % av totalpriset före ROT (${kr(t.beforeRotIncl)}) som arbetskostnad. ${ratePct} % av det blir ${kr(expected)}, offerten anger ${kr(rotAmt)}.`,
-        source);
-    } else {
-      const cond = x.propertyType
-        ? "Offerten gäller en annan bostadstyp än småhus, och schablonen kan inte användas för bostadsrätt."
-        : "Offerten anger inte bostadstyp, och schablonen gäller småhus (inte bostadsrätt).";
-      add("rot_schablon", "fraga", title,
-        `Om bostaden är ett småhus och priset är fast ${ok ? `stämmer ROT-avdraget ${kr(rotAmt)} med schablonen` : `ger schablonen ${kr(expected)} medan offerten anger ${kr(rotAmt)}`} (${sharePct} % av totalpriset ${kr(t.beforeRotIncl)} före ROT räknas som arbete, avdraget är ${ratePct} %). ${cond}`, source);
-    }
+    add("rot_schablon", "fraga", title, `${missing.length ? `Villkor som inte är belagda: ${missing.join("; ")}. ` : ""}${example}`, source);
   }
 
   // --- g) Timmar × timpris = arbetssumma; rader = total ---
@@ -256,6 +264,7 @@ export function runRules(x, ref) {
   function summaRule() {
     const t = resolveTotals(x);
     if (t.status === "saknas") return;
+    if (t.conflict) return; // redovisas av total_konflikt
     const rowsStated = rowsSumStated(x);
     const rowsIncl = rowsSumIncl(x);
     const rowsTxt = `arbete ${kr(labor)} + material ${kr(material)}${travel ? ` + resor ${kr(travel)}` : ""}${num(x.otherSumSek) ? ` + övrigt ${kr(num(x.otherSumSek))}` : ""}`;
@@ -313,11 +322,25 @@ export function checkNormalAddons(x, ref) {
   const markup = pct(x.materialMarkupPct);
   const a = ref.addons;
   if (travel !== null) {
-    const inside = travel >= a.travel.min && travel <= a.travel.max;
-    out.push({ id: "framkorning", status: inside ? "ok" : "flagga", title: "Framkörning / servicebil",
-      text: inside ? `Framkörning ${kr(travel)} ligger inom det vanliga spannet ${krRange(a.travel.min, a.travel.max)}.`
-        : `Framkörning ${kr(travel)}. Vanligt spann är ${krRange(a.travel.min, a.travel.max)} – en fråga att ställa om vad som ingår.`,
-      source: src(ref, a.travel.source) });
+    // Spannet gäller kr PER BESÖK; offerten anger oftast en summa för alla besök
+    // (T07/T08). Utan antal besök går summan inte att jämföra mot ett per-besöksspann.
+    const visits = num(x.travelVisits);
+    const perVisit = visits !== null && visits >= 1 ? travel / visits : null;
+    const range = krRange(a.travel.min, a.travel.max);
+    if (perVisit !== null) {
+      const inside = perVisit >= a.travel.min && perVisit <= a.travel.max;
+      const calcTxt = visits === 1 ? kr(travel) : `${kr(travel)} för ${visits} besök, ${kr(perVisit)} per besök`;
+      out.push({ id: "framkorning", status: inside ? "ok" : "flagga", title: "Framkörning / servicebil",
+        text: inside ? `Framkörning ${calcTxt} ligger inom det vanliga spannet ${range} per besök.`
+          : `Framkörning ${calcTxt}. Vanligt spann är ${range} per besök – en fråga att ställa om vad som ingår.`,
+        source: src(ref, a.travel.source) });
+    } else {
+      const inside = travel >= a.travel.min && travel <= a.travel.max;
+      out.push({ id: "framkorning", status: inside ? "ok" : "fraga", title: "Framkörning / servicebil",
+        text: inside ? `Framkörning ${kr(travel)} ligger inom det vanliga spannet ${range} per besök om den gäller ett besök. Offerten anger inte antal besök.`
+          : `Framkörning ${kr(travel)} totalt. Vanligt spann är ${range} per besök och offerten anger inte antal besök, så summan går inte att jämföra. Fråga hur många besök den gäller och vad som ingår.`,
+        source: src(ref, a.travel.source) });
+    }
   }
   if (markup !== null) {
     const inside = markup >= a.materialMarkup.min && markup <= a.materialMarkup.max;

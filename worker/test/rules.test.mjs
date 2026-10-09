@@ -169,9 +169,14 @@ test("över intervallet, mellan golv och band, kök utan referens, värmepumpssc
   // med känd momsbas. Fixturen hade bara en oetiketterad total; nu anges allt.
   const hpBase = { ...base, jobType: "bergvarme", priceType: "fast", propertyType: "smahus", totalBeforeRotSek: 200000, totalVatBasis: "inkl", vatMode: "inkl", quoteDate: "2026-09-01" };
   const hp = runRules({ ...hpBase, rotAmountSek: 21000 }, REF);
-  assert.equal(byId(hp, "rot_schablon").status, "ok"); // 200 000 × 0,35 × 0,30 = 21 000
+  // F8/P01: fast pris + småhus bevisar varken totalentreprenad eller Skatteverkets momsbas
+  // → villkorat räkneexempel (200 000 × 0,35 × 0,30 = 21 000), aldrig "ok".
+  assert.equal(byId(hp, "rot_schablon").status, "fraga");
+  assert.match(byId(hp, "rot_schablon").text, /21\s000 kr/);
   const hpBad = runRules({ ...hpBase, rotAmountSek: 60000 }, REF);
-  assert.equal(byId(hpBad, "rot_schablon").status, "fel");
+  assert.equal(byId(hpBad, "rot_schablon").status, "fraga");
+  const hpBadAll = runRules({ ...hpBase, rotAmountSek: 60000, totalContract: "ja" }, REF);
+  assert.equal(byId(hpBadAll, "rot_schablon").status, "fel");
   const und = runRules({ ...base, rotAmountSek: 5000, laborSumSek: 16667, vatMode: "inkl", workDescription: "Bygga pool och pooldäck", quoteDate: "2026-06-01" }, REF);
   assert.equal(byId(und, "rot_undantag").status, "flagga");
   const tak = runRules({ ...base, rotAmountSek: 90000, laborSumSek: 300000, rotPersons: 1, vatMode: "inkl", quoteDate: "2026-06-01" }, REF);

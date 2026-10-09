@@ -23,6 +23,7 @@ export const CUSTOMER_TYPES = new Set(["privatperson", "foretag"]);
 export const VAT_MODES = new Set(["inkl", "exkl", "blandat", "ej_angivet"]);
 export const VAT_BASIS = new Set(["inkl", "exkl"]);
 export const PROPERTY_TYPES = new Set(["smahus", "bostadsratt", "flerbostadshus", "annat"]);
+export const TOTAL_CONTRACT = new Set(["ja", "nej"]);
 export const REVIEW_TRADES = new Set(["bygg", "tak", "vvs", "el", "malning", "mark", "okand"]);
 
 // Rimlighetsgränser. Värden utanför är inte "fel offert" utan "kan inte vara
@@ -61,7 +62,9 @@ export const FIELD_LABELS = {
   quoteDate: "offertdatum",
   plannedPaymentDate: "betalningsdatum",
   customerType: "kundtyp",
+  travelVisits: "antal besök för framkörning",
   propertyType: "bostadstyp",
+  totalContract: "totalentreprenad",
   areaM2: "yta",
   unitCount: "antal enheter",
   otherSumSek: "övriga rader",
@@ -148,6 +151,7 @@ export function sanitizeExtracted(raw) {
     laborSumSek: numField("laborSumSek", LIMITS.sek),
     materialSumSek: numField("materialSumSek", LIMITS.sek),
     travelSumSek: numField("travelSumSek", LIMITS.sek),
+    travelVisits: numField("travelVisits", LIMITS.count, { integer: true }),
     materialMarkupPct: numField("materialMarkupPct", LIMITS.pct),
     rotAmountSek: numField("rotAmountSek", LIMITS.sek),
     rotRatePct: numField("rotRatePct", 100),
@@ -164,6 +168,7 @@ export function sanitizeExtracted(raw) {
     plannedPaymentDate: dateField("plannedPaymentDate"),
     customerType: enumField("customerType", CUSTOMER_TYPES),
     propertyType: enumField("propertyType", PROPERTY_TYPES),
+    totalContract: enumField("totalContract", TOTAL_CONTRACT),
     workDescription: textField("workDescription", 300),
     county: textField("county", 60),
     areaM2: numField("areaM2", LIMITS.area),

@@ -17,15 +17,24 @@ const by = (arr, id) => arr.find((c) => c.id === id);
 // ---- T01: värmepumpsschablon ----
 const HP = { jobType: "bergvarme", priceType: "fast", propertyType: "smahus", vatMode: "inkl", quoteDate: "2026-09-01", rotAmountSek: 21000 };
 
-test("T01: schablon OK bara med belagd summa före ROT, fast pris, småhus och känd momsbas", () => {
-  assert.equal(by(rules({ ...HP, totalBeforeRotSek: 200000, totalVatBasis: "inkl" }), "rot_schablon").status, "ok");
-  // nettofallet: offerten anger summa att betala efter ROT (179 000) – före ROT blir 200 000
-  assert.equal(by(rules({ ...HP, amountToPaySek: 179000, totalVatBasis: "inkl" }), "rot_schablon").status, "ok");
-  // fel avdrag med belagd bas = fel
-  assert.equal(by(rules({ ...HP, rotAmountSek: 60000, totalBeforeRotSek: 200000, totalVatBasis: "inkl" }), "rot_schablon").status, "fel");
+test("T01/F8-P01: schablonen blir aldrig ok – villkorat räkneexempel; fel bara när alla villkor är uttryckliga", () => {
+  const c1 = by(rules({ ...HP, totalBeforeRotSek: 200000, totalVatBasis: "inkl" }), "rot_schablon");
+  assert.equal(c1.status, "fraga");
+  assert.match(c1.text, /totalentreprenad/);
+  assert.match(c1.text, /21\s000 kr/);
+  // även med uttrycklig totalentreprenad är momsbasen hos Skatteverket inte belagd
+  const c2 = by(rules({ ...HP, totalBeforeRotSek: 200000, totalVatBasis: "inkl", totalContract: "ja" }), "rot_schablon");
+  assert.equal(c2.status, "fraga");
+  assert.match(c2.text, /inte vilken momsbas/);
+  // nettofallet: summa att betala efter ROT (179 000) → före ROT 200 000
+  assert.match(by(rules({ ...HP, amountToPaySek: 179000, totalVatBasis: "inkl", totalContract: "ja" }), "rot_schablon").text, /200\s000 kr/);
+  // fel avdrag med alla villkor uttryckliga = fel; annars fråga
+  assert.equal(by(rules({ ...HP, rotAmountSek: 60000, totalBeforeRotSek: 200000, totalVatBasis: "inkl", totalContract: "ja" }), "rot_schablon").status, "fel");
+  assert.equal(by(rules({ ...HP, rotAmountSek: 60000, totalBeforeRotSek: 200000, totalVatBasis: "inkl" }), "rot_schablon").status, "fraga");
+  assert.equal(by(rules({ ...HP, totalContract: "nej", totalBeforeRotSek: 200000, totalVatBasis: "inkl" }), "rot_schablon").status, "fraga");
   // luftvärmepump: 30 % × 30 %
   const lv = rules({ ...HP, jobType: "luftvarmepump", rotAmountSek: 9000, totalBeforeRotSek: 100000, totalVatBasis: "inkl" });
-  assert.equal(by(lv, "rot_schablon").status, "ok");
+  assert.equal(by(lv, "rot_schablon").status, "fraga");
   assert.doesNotMatch(by(lv, "rot_schablon").text, /35 %/);
 });
 
@@ -166,4 +175,55 @@ test("timpris: oklar momsbas jämförs i båda baserna – samma bedömning redo
   assert.equal(by(diff, "tim_snickare").mode, "ej_bedombar");
   const hi = cmp({ trades: ["snickare"], vatMode: "okant_moms", hourlyRateSek: 1200 });
   assert.equal(by(hi, "tim_snickare").mode, "over");
+});
+
+// ---- F8: P01–P03 och T07/T08 ----
+import { checkNormalAddons } from "../src/rules.js";
+
+test("F8/P02: båda tolkningarna ryms i toleransen → oklar, aldrig belagd", () => {
+  const x = prep({ vatMode: "inkl", laborSumSek: 10000, materialSumSek: 91000, totalSumSek: 100000, rotAmountSek: 2000 });
+  const t = resolveTotals(x);
+  assert.equal(t.status, "oklar");
+  assert.equal(t.alternatives.length, 2);
+  const s = by(rules({ vatMode: "inkl", laborSumSek: 10000, materialSumSek: 91000, totalSumSek: 100000, rotAmountSek: 2000 }), "summa");
+  assert.equal(s.status, "fraga");
+  // entydigt avgörande rader förblir belagda (N15 och F2-04)
+  assert.equal(resolveTotals(prep({ vatMode: "exkl", laborSumSek: 10000, materialSumSek: 2000, totalSumSek: 15000, rotAmountSek: 3750, totalVatBasis: "inkl" })).status, "belagd");
+});
+
+test("F8/P03: uttrycklig betalningskonflikt göms inte bakom före-ROT-fältet", () => {
+  const o = { vatMode: "inkl", laborSumSek: 10000, materialSumSek: 2000, totalBeforeRotSek: 12000, amountToPaySek: 50000, totalVatBasis: "inkl", rotAmountSek: 3000 };
+  const t = resolveTotals(prep(o));
+  assert.equal(t.status, "oklar");
+  assert.equal(t.conflict, true);
+  const c = by(rules(o), "total_konflikt");
+  assert.equal(c.status, "fel");
+  assert.match(c.text, /12\s000 kr/);
+  assert.match(c.text, /50\s000 kr/);
+  assert.match(c.text, /9\s000 kr/); // 12 000 − 3 000
+  // konsekventa uppgifter ger ingen konflikt
+  const ok = { ...o, amountToPaySek: 9000 };
+  assert.equal(resolveTotals(prep(ok)).status, "belagd");
+  assert.equal(by(rules(ok), "total_konflikt"), undefined);
+  // utan ROT: före och att betala ska vara lika
+  assert.equal(resolveTotals(prep({ vatMode: "inkl", totalBeforeRotSek: 12000, amountToPaySek: 20000, totalVatBasis: "inkl" })).conflict, true);
+});
+
+test("F8/T07-T08: framkörningssumma för flera besök jämförs per besök, aldrig som en enda resa", () => {
+  const REFX = REF;
+  // reproducerat fel före rättning: 8 besök × 450 kr = 3 600 kr gav "flagga"
+  const withVisits = checkNormalAddons(prep({ travelSumSek: 3600, travelVisits: 8 }), REFX);
+  assert.equal(withVisits[0].status, "ok");
+  assert.match(withVisits[0].text, /8 besök/);
+  assert.match(withVisits[0].text, /450 kr per besök/);
+  // antal besök okänt och summan över per-besöksspannet: fråga, inget prisfynd
+  const unknown = checkNormalAddons(prep({ travelSumSek: 3600 }), REFX);
+  assert.equal(unknown[0].status, "fraga");
+  assert.match(unknown[0].text, /antal besök/);
+  // verkligt avvikande per besök flaggas fortfarande
+  assert.equal(checkNormalAddons(prep({ travelSumSek: 12000, travelVisits: 8 }), REFX)[0].status, "flagga");
+  // ett besök
+  assert.equal(checkNormalAddons(prep({ travelSumSek: 450, travelVisits: 1 }), REFX)[0].status, "ok");
+  // ogiltigt antal besök avvisas av saneringen
+  assert.equal(prep({ travelSumSek: 3600, travelVisits: 0.5 }).travelVisits, null);
 });

@@ -11,14 +11,14 @@
       "expectExtracted": { "totalSumSek": 84000, "totalBeforeRotSek": null, "amountToPaySek": null, "rotAmountSek": 9000 },
       "expectRules": { "summa": "saknas" } },
     { "id": "F2-04-exkl-moms", "text": "Snickeriarbete 50 h à 640 kr/h exkl. moms = 32 000 kr. Material 16 000 kr exkl. moms. ROT-avdrag 12 000 kr. Summa 48 000 kr exkl. moms.",
-      "expectExtracted": { "vatMode": "exkl", "hourlyRateSek": 640, "totalBeforeRotSek": 48000, "totalVatBasis": "exkl" },
+      "expectExtracted": { "vatMode": "exkl", "hourlyRateSek": 640, "totalSumSek": 48000, "totalBeforeRotSek": null, "totalVatBasis": "exkl" },
       "expectRules": { "moms": "ok", "rot_belopp": "ok", "summa": "ok" } },
     { "id": "F2-05-moms-saknas", "text": "Målning av vardagsrum, 60 m². Arbete 24 000 kr, material 4 000 kr. Timpris 600 kr. ROT 7 200 kr. Totalt 28 000 kr.",
       "expectExtracted": { "vatMode": "ej_angivet", "totalVatBasis": null },
       "expectRules": { "moms": "flagga", "rot_belopp": "fraga" } },
     { "id": "F2-06-bergvarme-smahus", "text": "Installation bergvärme i villa. Fast pris 200 000 kr inkl. moms före ROT-avdrag. ROT-avdrag 21 000 kr.",
-      "expectExtracted": { "jobType": "bergvarme", "propertyType": "smahus", "priceType": "fast", "totalBeforeRotSek": 200000, "totalVatBasis": "inkl" },
-      "expectRules": { "rot_schablon": "ok" } },
+      "expectExtracted": { "jobType": "bergvarme", "propertyType": "smahus", "priceType": "fast", "totalBeforeRotSek": 200000, "totalVatBasis": "inkl", "totalContract": null },
+      "expectRules": { "rot_schablon": "fraga" } },
     { "id": "F2-07-bergvarme-bostadsratt", "text": "Installation bergvärme, bostadsrätt. Fast pris 200 000 kr inkl. moms före ROT. ROT 21 000 kr.",
       "expectExtracted": { "propertyType": "bostadsratt" },
       "expectRules": { "rot_schablon": "fraga" } },
@@ -30,6 +30,9 @@
       "expectRules": {} },
     { "id": "F2-10-rot-pa-material", "text": "Badrum 5 m². Arbete 120 000 kr, material 60 000 kr. ROT-avdrag 54 000 kr (på hela beloppet). Inkl. moms.",
       "expectExtracted": { "rotOnMaterialOrTravel": true },
-      "expectRules": { "rot_material": "fel" } }
+      "expectRules": { "rot_material": "fel" } },
+    { "id": "F2-11-bergvarme-totalentreprenad", "text": "Totalentreprenad: bergvärmepump levererad och installerad i villa. Fast pris 200 000 kr inkl. moms före ROT-avdrag. ROT-avdrag 21 000 kr.",
+      "expectExtracted": { "jobType": "bergvarme", "propertyType": "smahus", "priceType": "fast", "totalBeforeRotSek": 200000, "totalVatBasis": "inkl", "totalContract": "ja" },
+      "expectRules": { "rot_schablon": "fraga" } }
   ]
 }

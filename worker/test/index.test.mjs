@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker, { sumBand, normalizePath } from "../src/index.js";
 import { findForbidden } from "../src/rules.js";
+import { fakeQuotaNamespace } from "./helpers/quota_do.mjs";
 
 // Minimal KV-attrapp med samma yta som Cloudflares (get/put).
 function fakeKV() {
@@ -16,7 +17,7 @@ function fakeKV() {
 }
 const ORIGIN = "https://granskaminoffert.se";
 function env(over = {}) {
-  return { REVIEWS_KV: fakeKV(), ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_API_KEY: "test", ...over };
+  return { REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_API_KEY: "test", ...over };
 }
 function ctx() { const jobs = []; return { jobs, waitUntil: (p) => jobs.push(p) }; }
 const fakeReview = {

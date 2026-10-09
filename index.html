@@ -345,6 +345,7 @@ function exportModel(result){
   return {
     calc:(result.contradictions||[]).map(i=>({title:i.key,text:i.text})),
     calcChecked:result.calcCoverage==='checked',
+    calcNote:result.calcCoverage==='insufficient_data'?'':String(result.calcNote||'').trim(),
     priceBad:checked.filter(c=>c.status==='fel').map(t),
     priceAsk:[...checked.filter(c=>c.status==='fraga'||c.status==='flagga'),...cmp.filter(c=>c.mode!=='inom')].map(t),
     unsure,
@@ -362,8 +363,10 @@ function exportBody(result,path){
     sec.push('Hej! Jag har några frågor om offerten innan jag skriver på:'+(m.questions.length?'\n'+m.questions.map(q=>`– ${q}`).join('\n'):'\n– (Inga frågor genererades.)'));
     if(m.clarify.length)sec.push('Det som är otydligt i offerten:\n'+lines(m.clarify));
   }
-  if(m.calc.length)sec.push('Räknefel och motsägelser:\n'+lines(m.calc));
-  else if(m.calcChecked)sec.push('Räknekontroll: inga räknefel hittades i AI-kontrollen.');
+  // Samma räkneanteckning som visas på skärmen följer med i exporten (F8/N19).
+  if(m.calc.length)sec.push('Räknefel och motsägelser:\n'+lines(m.calc)+(m.calcNote?'\nRäknekontrollens anteckning: '+m.calcNote:''));
+  else if(m.calcChecked)sec.push('Räknekontroll: inga räknefel hittades i AI-kontrollen.'+(m.calcNote?' '+m.calcNote:''));
+  else if(m.calcNote)sec.push('Räknekontrollens anteckning: '+m.calcNote);
   if(m.priceBad.length)sec.push('Prisregler som inte stämmer:\n'+lines(m.priceBad));
   if(m.priceAsk.length)sec.push('Prisfrågor:\n'+lines(m.priceAsk));
   if(m.unsure.length)sec.push('Går inte att bedöma:\n'+lines(m.unsure));

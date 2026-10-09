@@ -8,6 +8,7 @@ import { sanitizeExtracted, sanitizeReview } from "../src/sanitize.js";
 import { buildAnthropicRequest, computeCost, modelInfo, DEFAULT_MODEL } from "../src/models.js";
 import { reserve, quotaMode, QuotaCounter } from "../src/quota.js";
 import { sniffFile } from "../src/limits.js";
+import { fakeQuotaNamespace } from "./helpers/quota_do.mjs";
 
 const ORIGIN = "https://granskaminoffert.se";
 function fakeKV({ delay = 0, failGet = false, failPut = false } = {}) {
@@ -19,7 +20,7 @@ function fakeKV({ delay = 0, failGet = false, failPut = false } = {}) {
     async put(k, v) { await wait(); if (failPut) throw new Error("kv put nere"); m.set(k, v); },
   };
 }
-const env = (over = {}) => ({ REVIEWS_KV: fakeKV(), ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_API_KEY: "test", ...over });
+const env = (over = {}) => ({ REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_API_KEY: "test", ...over });
 const ctx = () => { const jobs = []; return { jobs, waitUntil: (p) => jobs.push(p) }; };
 const fakeAE = () => { const p = []; return { p, writeDataPoint: (x) => p.push(x) }; };
 const req = (body, extra = {}) => new Request("https://api.test/review", {
@@ -182,7 +183,7 @@ test("F1: Worker använder rätt anropsform och loggar modell + kostnadsstatus; 
 });
 
 test("F1: /health visar modell, referensversion, bygge och kvotläge", async () => {
-  const r = await worker.fetch(new Request("https://x/health"), env({ BUILD_ID: "abc1234", ANTHROPIC_MODEL: "claude-sonnet-5-5" }), ctx());
+  const r = await worker.fetch(new Request("https://x/health"), env({ BUILD_ID: "abc1234", ANTHROPIC_MODEL: "claude-sonnet-5-5", QUOTA: undefined }), ctx());
   const j = await r.json();
   assert.equal(j.build, "abc1234");
   assert.equal(j.model, "claude-sonnet-5-5");
@@ -190,8 +191,10 @@ test("F1: /health visar modell, referensversion, bygge och kvotläge", async () 
   assert.equal(j.referenceVersion, "2026-10-09");
   assert.equal(j.quotaMode, "kv_best_effort");
   assert.equal(j.quotaHardCap, false);
-  const j2 = await (await worker.fetch(new Request("https://x/health"), env({ QUOTA: { idFromName: () => 1 } }), ctx())).json();
+  assert.equal(j.paidTrafficAllowed, false); // utan atomär bindning: inget betalt anrop
+  const j2 = await (await worker.fetch(new Request("https://x/health"), env({ QUOTA: { idFromName: () => 1, get: () => ({}) } }), ctx())).json();
   assert.equal(j2.quotaMode, "durable_object");
+  assert.equal(j2.paidTrafficAllowed, true);
   assert.equal((await (await worker.fetch(new Request("https://x/health"), env(), ctx())).json()).build, "okand");
 });
 
@@ -215,11 +218,10 @@ test("E: globalt dagstak stoppar med 429, och ett fel i taksräknaren stoppar me
     for (let i = 0; i < 3; i++) codes.push((await worker.fetch(req({ kind: "text", text: "Offert" }), e, ctx())).status);
     assert.deepEqual(codes, [200, 200, 429]);
     assert.equal(m.calls.messages, 2);
-    // taksräknaren (global:*) går sönder men IP-räknaren fungerar
-    const kv = fakeKV(); const realPut = kv.put.bind(kv);
-    kv.put = async (k, v, o) => { if (k.startsWith("global:")) throw new Error("kv"); return realPut(k, v, o); };
+    // taksräknaren (Durable Object) går sönder men IP-räknaren fungerar
     const before = m.calls.messages;
-    const r = await worker.fetch(req({ kind: "text", text: "Offert" }, { "CF-Connecting-IP": "198.51.100.200" }), env({ REVIEWS_KV: kv }), ctx());
+    const brokenDO = { idFromName: (n) => n, get: () => ({ fetch: async () => { throw new Error("do nere"); } }) };
+    const r = await worker.fetch(req({ kind: "text", text: "Offert" }, { "CF-Connecting-IP": "198.51.100.200" }), env({ QUOTA: brokenDO }), ctx());
     assert.equal(r.status, 503);
     assert.equal(m.calls.messages, before);
   } finally { m.restore(); }
@@ -356,4 +358,67 @@ test("mätning: tratt skriver inga personfält och kan bära tal", () => {
   const ae = fakeAE();
   tratt({ GRANSKA_H: ae }, new Request("https://x", { headers: { "X-SD-Test": "1" } }), "anrop_kostnad", ["m", "känd", "text"], [1, 2, 3, 4]);
   assert.deepEqual(ae.p[0], { blobs: ["anrop_kostnad", "m", "känd", "text"], indexes: ["test"], doubles: [1, 2, 3, 4] });
+});
+
+// ---------------- F8/N22: global atomär reservation eller safe-stop ----------------
+test("F8/N22: ingen atomär bindning → 503 och inget betalt anrop, även vid ledig kvot", async () => {
+  const m = mockAnthropic();
+  try {
+    const r = await worker.fetch(req({ kind: "text", text: "Offert" }), env({ QUOTA: undefined }), ctx());
+    assert.equal(r.status, 503);
+    assert.equal(m.calls.messages, 0);
+    const e = env({ QUOTA: undefined });
+    const res = await reserve(e, { scope: "global", key: "global:x", limit: 3, ttl: 60, requireAtomic: true });
+    assert.deepEqual(res, { ok: false, reason: "ingen_atomar_kvot", mode: "kv_best_effort" });
+    assert.equal(e.REVIEWS_KV.m.size, 0, "ingen KV-reservation görs när atomär kvot krävs");
+  } finally { m.restore(); }
+});
+
+test("F8/N22: 12 samtidiga anrop från olika IP mot globalt tak 3 → exakt 3 betalda anrop", async () => {
+  const m = mockAnthropic();
+  try {
+    const e = env({ GLOBAL_DAILY_LIMIT: "3", RATE_LIMIT_PER_HOUR: "50" });
+    const rs = await Promise.all(Array.from({ length: 12 }, (_, i) => worker.fetch(req({ kind: "text", text: "Offert" }, { "CF-Connecting-IP": `198.51.100.${i + 1}` }), e, ctx())));
+    assert.equal(rs.filter((r) => r.status === 200).length, 3);
+    assert.equal(rs.filter((r) => r.status === 429).length, 9);
+    assert.equal(m.calls.messages, 3);
+  } finally { m.restore(); }
+});
+
+test("F8/N22: trasig räknare och ogiltig konfiguration nekar (räknas aldrig som 0)", async () => {
+  const kvWith = (v) => ({ async get() { return v; }, async put() { throw new Error("ska inte skriva"); } });
+  for (const bad of ["broken", "-1", "1.5", "NaN", "", " 3", "1e3", "007", "99999999999999999999"]) {
+    const res = await reserve({ REVIEWS_KV: kvWith(bad) }, { scope: "rl", key: "rl:a", limit: 3, ttl: 60 });
+    assert.deepEqual([res.ok, res.reason], [false, "fel"], `värde ${JSON.stringify(bad)}`);
+  }
+  assert.equal((await reserve({ REVIEWS_KV: { async get() { return null; }, async put() {} } }, { scope: "rl", key: "rl:b", limit: 3, ttl: 60 })).ok, true); // saknad nyckel = 0
+  for (const lim of [NaN, -1, 1.5, Infinity, undefined]) {
+    assert.equal((await reserve(env(), { scope: "global", key: "global:l", limit: lim, ttl: 60, requireAtomic: true })).reason, "fel");
+  }
+  const { parseLimit } = await import("../src/quota.js");
+  assert.equal(parseLimit("300", "8"), 300);
+  assert.equal(parseLimit(undefined, "8"), 8);
+  for (const bad of ["abc", "-3", "2.5", "1e2", "0x10", " 5"]) assert.ok(Number.isNaN(parseLimit(bad, "8")), bad);
+  // ogiltig konfiguration → 503 utan betalt anrop
+  const m = mockAnthropic();
+  try {
+    for (const over of [{ GLOBAL_DAILY_LIMIT: "abc" }, { RATE_LIMIT_PER_HOUR: "-2" }]) {
+      const r = await worker.fetch(req({ kind: "text", text: "Offert" }), env(over), ctx());
+      assert.equal(r.status, 503);
+    }
+    assert.equal(m.calls.messages, 0);
+  } finally { m.restore(); }
+});
+
+test("F8/N22: Durable Object-svar valideras – ingen falsk ok utan giltig reservation", async () => {
+  const ns = (payload, status = 200) => ({ idFromName: (n) => n, get: () => ({ fetch: async () => new Response(typeof payload === "string" ? payload : JSON.stringify(payload), { status }) }) });
+  const run = (n) => reserve({ REVIEWS_KV: fakeKV(), QUOTA: n }, { scope: "global", key: "global:v", limit: 3, ttl: 60, requireAtomic: true });
+  assert.equal((await run(ns({ ok: true, used: 1 }))).ok, true);
+  for (const bad of [{}, { ok: "true", used: 1 }, { ok: true }, { ok: true, used: -1 }, { ok: true, used: 0 }, { ok: true, used: 4 }, { ok: true, used: 1.5 }, { ok: false, used: 1 }, { ok: false }, "<html>", null]) {
+    const res = await run(ns(bad));
+    assert.equal(res.ok, false, JSON.stringify(bad));
+    assert.equal(res.reason, "fel", JSON.stringify(bad));
+  }
+  assert.equal((await run(ns({ ok: true, used: 1 }, 500))).reason, "fel");
+  assert.equal((await run(ns({ ok: false, used: 3 }))).reason, "limit");
 });

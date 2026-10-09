@@ -219,6 +219,7 @@ for (const role of ["mottagare", "hantverkare"]) {
       assert.match(text, /Går inte att bedöma/);
       assert.match(text, /Avläsningen/);
       assert.match(text, /Startdatum/);
+      assert.match(text, /Räknekontrollens anteckning: Kontrollerade timmar × timpris\./); // F8/N19: skärmens räkneanteckning
     }
     if (role === "mottagare") assert.match(clip, /Vilket startdatum gäller\?/);
     else assert.match(clip, /Punkter att förtydliga/);

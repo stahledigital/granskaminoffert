@@ -38,23 +38,27 @@ INPUT_TOKEN_LIMIT = "60000"
 MAX_UPLOAD_BYTES = "8000000"
 RATE_LIMIT_PER_HOUR = "8"
 # Globalt tak per dygn (UTC) för alla användare tillsammans. Kampanjbeslut 2026-09-17: 300.
+# Måste vara ett heltal >= 0; allt annat stänger tjänsten (503) i stället för att gissa.
 GLOBAL_DAILY_LIMIT = "300"
 
 # Secret (ALDRIG i denna fil, aldrig i repo):
 #   npx wrangler secret put ANTHROPIC_API_KEY
 
-# ---- Valfritt, INTE aktiverat (kräver separat beslut/kontroll av Cloudflare-planen) ----
-# Atomärt dagstak: en Durable Object-instans räknar och är enda skrivare. Utan detta är
-# dagstaket "kv_best_effort" (se src/quota.js) och /health visar quotaHardCap=false.
-# Planens tillgänglighet för Durable Objects är UNKNOWN (ej kontrollerad). Aktivering:
-#   [[durable_objects.bindings]]
-#   name = "QUOTA"
-#   class_name = "QuotaCounter"
-#
-#   [[migrations]]
-#   tag = "v1"
-#   new_sqlite_classes = ["QuotaCounter"]
-#
+# Atomärt globalt dagstak (F8/N22): en SQLite-backad Durable Object-instans räknar och är enda
+# skrivare. Globala betalda anrop KRÄVER denna bindning; utan den svarar Workern 503 och gör
+# inget betalt anrop (src/quota.js). SQLite-backade Durable Objects finns på Cloudflares Free- och
+# Paid-planer (developers.cloudflare.com/durable-objects/platform/pricing/, läst 2026-10-09).
+# Detta är lokal konfiguration i repot: ingen molnresurs skapas förrän `wrangler deploy` körs,
+# och migrationen skapar klassen i samband med den. Publicering kräver separat release-GO.
+[[durable_objects.bindings]]
+name = "QUOTA"
+class_name = "QuotaCounter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuotaCounter"]
+
+# ---- Valfritt, INTE aktiverat ----
 # Begränsning av klienthändelser (/event), samma slags bindning som REVIEW_RL:
 #   [[ratelimits]]
 #   name = "EVENT_RL"

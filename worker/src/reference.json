@@ -294,8 +294,13 @@
       "sourceText": "Offerta aug 2026, HelpHero 2026, Hantverkskollen 2026"
     }
   },
+  "indexing": {
+    "schema": 1,
+    "basePeriod": null,
+    "note": "Vilken indexnivå (BKI arbetslön, månad) bandens siffror avser är inte styrkt (UNKNOWN). Uppdateringsskriptet indexerar därför inte förrän en basnivå satts med --rebase och belägg. Banden räknas därefter alltid från basnivån, aldrig ovanpå redan uppräknade band; samma period två gånger ändrar ingenting."
+  },
   "hourly": {
-    "_method": "Golv = lönehärlett (SCB-lön 2025/174 × 1,03 × 1,55 / 0,8 debiteringsgrad) exkl. moms, E. Marknadsmitt = Byggahus 2026 snitt, V i källan. Normalband = E. Tak = marknadens P75 × 1,15, E. Alla belopp kr/timme, privatperson, före ROT.",
+    "_method": "Golv = SCB:s 10:e percentil månadslön / 174 × 1,03 (löneökning, ett steg till per år som saknas) × 1,55 (arbetsgivaravgift, semester, avtalsförsäkring) × 1,25 moms = inkl. moms, avrundat nedåt till jämna 10 kr; exkl. = inkl. / 1,25, E. Ingen debiteringsgrad och ingen medellön. Marknadsmitt = Byggahus 2026 snitt, V i källan. Normalband = E. Tak = marknadens P75 × 1,15, E. Alla belopp kr/timme, privatperson, före ROT.",
     "snickare": {
       "label": "snickare",
       "ssyk": "7111",

@@ -61,6 +61,7 @@ export function rowsSumIncl(x) {
   return s === null || f === null ? null : s * f;
 }
 
+const kr0 = (n) => `${Math.round(n).toLocaleString("sv-SE")} kr`;
 const LABEL_BEFORE = "totalen är summan före ROT-avdrag";
 const LABEL_AFTER = "totalen är summan att betala efter ROT-avdrag";
 
@@ -82,6 +83,21 @@ export function resolveTotals(x) {
   const bases = f === null ? [["inkl", 1], ["exkl", 1 + VAT_RATE]] : [[tb, f]];
 
   if (before !== null) {
+    // Två uttryckliga uppgifter som inte hänger ihop (före ROT och att betala)
+    // får inte låta den ena försvinna bakom den andra: konflikten redovisas.
+    if (f !== null && pay !== null) {
+      const expectedPay = before * f - (hasRot ? rot : 0);
+      if (!withinPct(pay * f, expectedPay)) {
+        return {
+          status: "oklar", reason: "konflikt", conflict: true,
+          alternatives: [
+            { label: `summan före ROT-avdrag är ${kr0(before * f)} (som offerten anger)`, beforeRotIncl: before * f, basis: tb },
+            { label: `summan att betala är ${kr0(pay * f)} (som offerten anger)`, beforeRotIncl: hasRot ? pay * f + rot : pay * f, basis: tb },
+          ],
+          before: before * f, toPay: pay * f, expectedPay,
+        };
+      }
+    }
     if (f !== null) return { status: "belagd", beforeRotIncl: before * f, toPayIncl: hasRot ? before * f - rot : before * f, source: "explicit_fore_rot", basis: tb };
     return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `summan före ROT-avdrag är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: before * k, basis: b })) };
   }
@@ -109,7 +125,17 @@ export function resolveTotals(x) {
     const b = withinPct(legacy * f + rot, rows); // totalen är efter ROT
     if (a && !b) return { status: "belagd", beforeRotIncl: legacy * f, toPayIncl: legacy * f - rot, source: "rader", basis: tb };
     if (b && !a) return { status: "belagd", beforeRotIncl: legacy * f + rot, toPayIncl: legacy * f, source: "rader", basis: tb };
-    if (a && b) return { status: "belagd", beforeRotIncl: rows, toPayIncl: rows - rot, source: "rader", basis: tb }; // skillnaden ryms i toleransen
+    // Båda tolkningarna ryms i toleransen: raderna kan inte avgöra, och en
+    // hypotes som råkar passa är inte en belagd bas.
+    if (a && b) {
+      return {
+        status: "oklar", reason: "rot_tvetydig",
+        alternatives: [
+          { label: `${LABEL_BEFORE} (${tb === "inkl" ? "inklusive" : "exklusive"} moms)`, beforeRotIncl: legacy * f, basis: tb },
+          { label: `${LABEL_AFTER} (${tb === "inkl" ? "inklusive" : "exklusive"} moms)`, beforeRotIncl: legacy * f + rot, basis: tb },
+        ],
+      };
+    }
   }
   const alts = [];
   for (const [bb, k] of bases) {
