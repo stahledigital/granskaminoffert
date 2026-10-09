@@ -51,6 +51,9 @@ export const MODELS = {
   "claude-haiku-5-5": {
     inputUsdPerMTok: 0.1,
     outputUsdPerMTok: 0.5,
+    // Hela begäran prissätts högre när indata överstiger tröskeln (primärkälla: .../haiku-5-5/overview:
+    // "Over 100,000 tokens" $0.50 in / $2.50 ut per MTok).
+    longTier: { aboveInputTokens: 100000, inputUsdPerMTok: 0.5, outputUsdPerMTok: 2.5 },
     forcedTool: false,
     sampling: false,
     thinking: null,
@@ -86,6 +89,24 @@ export function buildAnthropicRequest({ model, system, userContent, tool }) {
   return body;
 }
 
+// Pris per MTok som gäller för en begäran med `inputTokens` indatatokens (nivåprissättning).
+export function ratesFor(m, inputTokens) {
+  const t = m.longTier;
+  if (t && Number.isFinite(inputTokens) && inputTokens > t.aboveInputTokens) {
+    return { input: t.inputUsdPerMTok, output: t.outputUsdPerMTok, tier: "lang" };
+  }
+  return { input: m.inputUsdPerMTok, output: m.outputUsdPerMTok, tier: "bas" };
+}
+
+// Värsta tänkbara kostnad för en begäran med uppmätt indata: allt tillåtet utdata (max_tokens) används.
+// null = okänd modell eller ogiltig mätning (då får ingen reservation göras).
+export function worstCaseUsd(model, inputTokens) {
+  const m = modelInfo(model);
+  if (!m || !Number.isFinite(inputTokens) || inputTokens < 0) return null;
+  const r = ratesFor(m, inputTokens);
+  return (inputTokens / 1e6) * r.input + (m.maxTokens / 1e6) * r.output;
+}
+
 // Kostnad ur faktisk användning. Okänd modell eller saknad användning ger
 // status "okand" och usd null – aldrig ett påhittat belopp.
 export function computeCost(model, usage) {
@@ -95,6 +116,7 @@ export function computeCost(model, usage) {
   if (!m || inTok === null || outTok === null) {
     return { status: "okand", inputTokens: inTok, outputTokens: outTok, usd: null };
   }
-  const usd = (inTok / 1e6) * m.inputUsdPerMTok + (outTok / 1e6) * m.outputUsdPerMTok;
+  const r = ratesFor(m, inTok);
+  const usd = (inTok / 1e6) * r.input + (outTok / 1e6) * r.output;
   return { status: "känd", inputTokens: inTok, outputTokens: outTok, usd: Number(usd.toFixed(6)) };
 }

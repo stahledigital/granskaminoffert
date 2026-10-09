@@ -422,3 +422,33 @@ test("F8/N22: Durable Object-svar valideras – ingen falsk ok utan giltig reser
   assert.equal((await run(ns({ ok: true, used: 1 }, 500))).reason, "fel");
   assert.equal((await run(ns({ ok: false, used: 3 }))).reason, "limit");
 });
+
+// ---------------- F8c: nivåpris, provider-modul, exportregler ----------------
+test("F8c: Haiku 5.5 över 100 000 indatatokens prissätts med högre nivå (hela begäran)", async () => {
+  const { computeCost, worstCaseUsd } = await import("../src/models.js");
+  assert.equal(computeCost("claude-haiku-5-5", { input_tokens: 100000, output_tokens: 1000 }).usd, 0.0105); // gränsen ingår i basnivån
+  assert.equal(computeCost("claude-haiku-5-5", { input_tokens: 150000, output_tokens: 6000 }).usd, 0.09);
+  assert.ok(Math.abs(worstCaseUsd("claude-haiku-5-5", 150000) - 0.09) < 1e-9); // 150 000 × 0,50/1e6 + 6 000 × 2,50/1e6
+  assert.equal(worstCaseUsd("okänd", 1000), null);
+  assert.equal(worstCaseUsd("claude-haiku-5-5", NaN), null);
+});
+
+test("F8c: huvudmodulen exporterar bara funktioner och hanterare (annars startar den inte i workerd)", async () => {
+  const mod = await import("../src/index.js");
+  for (const [k, v] of Object.entries(mod)) {
+    if (k === "default") { assert.equal(typeof v.fetch, "function"); continue; }
+    assert.equal(typeof v, "function", `export ${k} är ${typeof v}`);
+  }
+  const prov = await import("../src/provider.js");
+  assert.equal(prov.ANTHROPIC_URL, "https://api.anthropic.com/v1/messages");
+});
+
+test("F8c: readReview avvisar max_tokens, refusal och saknat verktyg även med komplett verktygsinmatning", async () => {
+  const { readReview } = await import("../src/provider.js");
+  const tool = { type: "tool_use", name: "submit_review", input: { extracted: {} } };
+  assert.deepEqual(readReview({ stop_reason: "tool_use", content: [tool] }), { extracted: {} });
+  assert.throws(() => readReview({ stop_reason: "max_tokens", content: [tool] }), /max_tokens/);
+  assert.throws(() => readReview({ stop_reason: "refusal", content: [tool] }), /refusal/);
+  assert.throws(() => readReview({ stop_reason: "end_turn", content: [{ type: "text", text: "x" }] }), /submit_review/);
+  assert.throws(() => readReview(null));
+});

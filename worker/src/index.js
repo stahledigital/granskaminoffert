@@ -18,8 +18,7 @@ import { sniffFile, countInputTokens, DEFAULT_INPUT_TOKEN_LIMIT } from "./limits
 // Durable Object-klassen måste exporteras härifrån för att kunna bindas (wrangler.toml, avsnittet QUOTA).
 export { QuotaCounter };
 
-const ANTHROPIC_VERSION = "2023-06-01";
-const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+import { ANTHROPIC_URL, ANTHROPIC_VERSION, readReview } from "./provider.js";
 
 // USD-priser per miljon tokens finns i models.js (en tabell, med källa). SEK-omräkning
 // är en grov, deklarerad uppskattning – kostnaden i USD är den mätta siffran, och för
@@ -589,13 +588,6 @@ function fileExt(name) {
   return m ? m[1] : "okand";
 }
 
-function extractReview(anthropicJson) {
-  const toolUse = (anthropicJson.content || []).find(
-    (b) => b.type === "tool_use" && b.name === "submit_review"
-  );
-  if (!toolUse) throw new Error("Modellen returnerade inget submit_review-anrop");
-  return toolUse.input;
-}
 
 // EN byggare för det som skickas till modellen. Både Workern och F2-körningen
 // (scripts/f2_run.mjs) går via denna, så ett prov mäter exakt den begäran produktionen skickar.
@@ -630,8 +622,6 @@ export function buildUserContent({ kind, text, mediaType, dataBase64 }) {
 export function buildReviewRequest({ model, kind, text, mediaType, dataBase64 }) {
   return buildAnthropicRequest({ model, system: systemPrompt(), userContent: buildUserContent({ kind, text, mediaType, dataBase64 }), tool: SUBMIT_REVIEW_TOOL });
 }
-
-export { extractReview, ANTHROPIC_URL, ANTHROPIC_VERSION };
 
 async function handleReview(request, env, ctx, allowedOrigins) {
   const origin = request.headers.get("Origin") || "";
@@ -757,13 +747,8 @@ async function handleReview(request, env, ctx, allowedOrigins) {
       errorDetail = respJson;
       throw new Error(`Anthropic API ${resp.status}: ${JSON.stringify(respJson).slice(0, 500)}`);
     }
-    if (respJson.stop_reason === "max_tokens") {
-      // Avkortat svar ger halva extracted-fält, och prisreglerna skulle räkna
-      // vidare på dem som om de vore avlästa ur offerten. Hellre inget svar.
-      throw new Error("Modellsvaret kapades (max_tokens) – offerten är för lång för en säker avläsning");
-    }
     usage = respJson.usage;
-    review = sanitizeReview(extractReview(respJson));
+    review = sanitizeReview(readReview(respJson));
   } catch (e) {
     ctx.waitUntil(
       kvPut(

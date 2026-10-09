@@ -12,7 +12,7 @@ const MODEL = "claude-sonnet-5-5";
 const ENV = { F2_BUDGET_APPROVED: "yes", F2_BUDGET_USD: "5", F2_MAX_CALLS: "20", ANTHROPIC_API_KEY: KEY, ANTHROPIC_MODEL: MODEL };
 
 // Mock av Anthropic: räknar anrop, ger fast tokenmätning och ett submit_review per fall.
-function mockApi({ inputTokens = 2000, usage = { input_tokens: 2000, output_tokens: 1000 }, extractedFor = (c) => ({ ...EXTRA[c.id], ...c.expectExtracted }), countFails = false, status = 200, failAfter = Infinity } = {}) {
+function mockApi({ inputTokens = 2000, usage = { input_tokens: 2000, output_tokens: 1000 }, extractedFor = (c) => ({ ...EXTRA[c.id], ...c.expectExtracted }), countFails = false, status = 200, failAfter = Infinity, stopReason = "tool_use" } = {}) {
   const calls = { count: 0, messages: 0, bodies: [], headers: [] };
   const byText = new Map(facit.cases.map((c) => [c.text, c]));
   const fetchImpl = async (url, init) => {
@@ -30,7 +30,7 @@ function mockApi({ inputTokens = 2000, usage = { input_tokens: 2000, output_toke
     const text = body.messages[0].content[0].text;
     const c = [...byText.values()].find((x) => text.includes(x.text.slice(0, 40)));
     const extracted = { trades: [], ...(c ? extractedFor(c) : {}) };
-    return Response.json({ stop_reason: "tool_use", usage, content: [{ type: "tool_use", name: "submit_review", input: { trade: "annat", contradictions: [], clarify: [], stated: [], calcCoverage: "checked", calcNote: "", price: { comment: "x" }, questions: [], extracted } }] }, { status });
+    return Response.json({ stop_reason: stopReason, usage, content: [{ type: "tool_use", name: "submit_review", input: { trade: "annat", contradictions: [], clarify: [], stated: [], calcCoverage: "checked", calcNote: "", price: { comment: "x" }, questions: [], extracted } }] }, { status });
   };
   return { fetchImpl, calls };
 }
@@ -150,4 +150,28 @@ test("F2-runner: Haiku 5.5 – dokumenterad anropsform och prissatt kostnad, uta
   assert.equal(r.summary.spentUsd, Number((facit.cases.length * 0.0007).toFixed(6)));
   // värsta fall per anrop 2 000 × 0,1/1e6 + 6 000 × 0,5/1e6 = 0,0032 USD: hela provet ryms med stor marginal i taket 0,25
   assert.ok(facit.cases.length * 0.0032 < 0.25);
+});
+
+test("F8c: avkortat (max_tokens) eller nekat svar är fel i F2, aldrig PASS – samma regel som Workern", async () => {
+  for (const [stopReason, label] of [["max_tokens", "max_tokens"], ["refusal", "refusal"]]) {
+    const api = mockApi({ stopReason });
+    const r = await run(ENV, api);
+    assert.notEqual(r.exitCode, 0, stopReason);
+    assert.equal(r.summary.pass, 0);
+    assert.ok(r.results.every((x) => x.error === label), stopReason);
+    assert.match(r.out, new RegExp(`FEL ${label}`));
+  }
+});
+
+test("F8c: nivåpris – över 100 000 indatatokens reserveras Haikus högre pris och budgeten stoppar före betalt anrop", async () => {
+  // 150 000 in + 6 000 max ut = 0,09 USD värsta fall; budget 0,02 ryms inte
+  let api = mockApi({ inputTokens: 150000 });
+  let r = await run({ ...ENV, ANTHROPIC_MODEL: "claude-haiku-5-5", F2_BUDGET_USD: "0.02" }, api);
+  assert.equal(api.calls.messages, 0);
+  assert.equal(r.summary.stopped, "budget");
+  // med tillräcklig budget släpps anropet och den faktiska kostnaden prissätts på högre nivå
+  api = mockApi({ inputTokens: 150000, usage: { input_tokens: 150000, output_tokens: 6000 } });
+  r = await run({ ...ENV, ANTHROPIC_MODEL: "claude-haiku-5-5", F2_BUDGET_USD: "0.10", F2_MAX_CALLS: "1" }, api, { cases: [facit.cases[0]] });
+  assert.equal(api.calls.messages, 1);
+  assert.equal(r.summary.spentUsd, 0.09);
 });

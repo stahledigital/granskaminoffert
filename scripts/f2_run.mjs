@@ -8,7 +8,8 @@
 //  - Bygger varje begäran med SAMMA byggare som Workern (buildReviewRequest) på de syntetiska
 //    texterna i worker/test/f2/facit.json. Inga riktiga offerter, inga personuppgifter.
 //  - FÖRE varje betalt anrop mäts indata exakt med Anthropics kostnadsfria tokenräknare och
-//    värsta tänkbara kostnad reserveras: indata × indatapris + max_tokens × utdatapris.
+//    värsta tänkbara kostnad reserveras: indata × indatapris + max_tokens × utdatapris, med
+//    modellens nivåpris (Haiku 5.5 kostar mer för hela begäran över 100 000 indatatokens).
 //    Överstiger spenderat + reservation budgeten startas anropet inte. Kan kostnaden inte
 //    bestämmas (okänd modell, tokenräknaren svarar fel, användning saknas i svaret) stoppar
 //    hela körningen. Efter anropet bokförs faktisk kostnad (aldrig lägre än den uppmätta).
@@ -21,9 +22,10 @@
 //            3 avbruten (budget, anropstak, okänd kostnad eller fel) innan alla fall kördes.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { buildReviewRequest, extractReview, buildPriceReport, ANTHROPIC_URL, ANTHROPIC_VERSION } from "../worker/src/index.js";
+import { buildReviewRequest, buildPriceReport } from "../worker/src/index.js";
+import { ANTHROPIC_URL, ANTHROPIC_VERSION, readReview } from "../worker/src/provider.js";
 import { sanitizeExtracted } from "../worker/src/sanitize.js";
-import { modelInfo, computeCost, DEFAULT_MODEL } from "../worker/src/models.js";
+import { modelInfo, computeCost, worstCaseUsd, DEFAULT_MODEL } from "../worker/src/models.js";
 import { countInputTokens } from "../worker/src/limits.js";
 
 const FACIT_URL = new URL("../worker/test/f2/facit.json", import.meta.url);
@@ -98,7 +100,6 @@ export async function runF2({ env = {}, argv = [], fetchImpl = fetch, cases, wri
   let spent = 0; // bokförd (faktisk eller konservativt reserverad) kostnad i USD
   const results = [];
   let stop = null;
-  const rate = (inTok) => (inTok / 1e6) * info.inputUsdPerMTok + (info.maxTokens / 1e6) * info.outputUsdPerMTok;
 
   log(`F2-körning: modell ${model}, tak ${budget} USD och ${maxCalls} betalda anrop, ${list.length} syntetiska fall.`);
 
@@ -115,7 +116,8 @@ export async function runF2({ env = {}, argv = [], fetchImpl = fetch, cases, wri
       break;
     }
     // 2. Reservera värsta tänkbara kostnad innan anropet.
-    const reserve = rate(inTok);
+    const reserve = worstCaseUsd(model, inTok); // nivåmedveten (Haiku över 100 000 indatatokens)
+    if (reserve === null) { stop = "okand_kostnad_reservation"; break; }
     if (spent + reserve > budget) { stop = "budget"; break; }
 
     // 3. Det betalda anropet.
@@ -156,9 +158,11 @@ export async function runF2({ env = {}, argv = [], fetchImpl = fetch, cases, wri
     }
     let extracted;
     try {
-      extracted = sanitizeExtracted(extractReview(respJson).extracted || {}).x;
-    } catch {
-      results.push({ id: c.id, error: "saknar_submit_review", costUsd: cost.usd });
+      extracted = sanitizeExtracted(readReview(respJson).extracted || {}).x;
+    } catch (e) {
+      // samma avvisningar som Workern: max_tokens, refusal, saknat verktygsanrop är fel, aldrig PASS
+      const why = /max_tokens/.test(String(e.message)) ? "max_tokens" : /refusal/.test(String(e.message)) ? "refusal" : "saknar_submit_review";
+      results.push({ id: c.id, error: why, costUsd: cost.usd });
       continue;
     }
     const rep = buildPriceReport(extracted, []);
