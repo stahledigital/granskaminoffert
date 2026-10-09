@@ -2,6 +2,7 @@
 
 ## gmo-v16 / gmo-api-v10 – rättning F8e (KANDIDAT 5 – ej släppt)
 - **extracted obligatoriskt** (Codex-fynd efter riktig Haiku-körning 5/11): `extracted` ingår nu i verktygsschemats `required`, instruktionen säger att objektet alltid lämnas med alla fält, och `readReview` (Workern + F2) avvisar svar utan giltigt `extracted` som fel (F2: `saknar_extracted`, aldrig PASS). Tidigare blev saknat `extracted` ett tomt objekt (allt null, okänd moms) som såg ut som en lyckad men tom granskning – kan förklara avvikelserna i Haiku-körningen (orsak ej bevisad utan rå tool-input).
+- **propertyType-instruktion**: tydlig avbildning bostadsrätt/BRF → bostadsratt, villa/småhus/egnahem → smahus, hyreshus → flerbostadshus (Sonnet 5.5 lämnade F2-07 null trots uttryckligt "bostadsrätt"; verifieras med nytt F2-prov). Facit oförändrat.
 - **F2-diagnostik**: avvikande fall visar `diag` (stop_reason, utdatatokens, antal fält i extracted och hur många som inte är null) – ingen offerttext.
 - **Modelltabell**: `claude-opus-5-5` ($4/$20) och `claude-fable-5-1` ($10/$50), forcerat verktyg stöds ej (auto), tänkande alltid på, max_tokens 12000. Produktionsmodell oförändrad.
 - Tester: Worker 122, UI 14, Codex-prober 24/3/8/2/7/6 PASS.

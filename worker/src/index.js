@@ -267,7 +267,8 @@ ROT-avdrag), amountToPaySek (uttryckligen att betala efter ROT) och, bara om
 offerten inte märker sin total, totalSumSek. Gissa aldrig om en omärkt total
 är före eller efter ROT, och gissa aldrig momsbasen: totalVatBasis är null
 om offerten inte uttryckligen anger den. propertyType fylls bara i om
-bostadstypen står, och totalContract bara om offerten uttryckligen säger totalentreprenad. Ett omärkt "totalt" eller "summa" är totalSumSek, aldrig totalBeforeRotSek. Datum som ÅÅÅÅ-MM-DD.
+bostadstypen står, och då alltid: bostadsrätt/BRF/lägenhet i förening = bostadsratt, villa/småhus/egnahem = smahus,
+hyreshus/flerbostadshus = flerbostadshus. totalContract fylls i bara om offerten uttryckligen säger totalentreprenad. Ett omärkt "totalt" eller "summa" är totalSumSek, aldrig totalBeforeRotSek. Datum som ÅÅÅÅ-MM-DD.
 workDescription är högst 15 ord utan namn, adress eller företagsnamn.
 
 ORDVAL: orden "för dyrt", "överpris", "svart", "oseriöst" och "fusk" får inte
