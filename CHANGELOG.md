@@ -1,5 +1,13 @@
 # Granska min offert – ändringslogg
 
+## gmo-v19 / gmo-api-v10 – tydligare besked efter granskning
+- Ett tydligt färgbesked, verkliga antal och animerade segment med samma underlag som detaljer och export. Okänt visas separat; grön gäller enbart de kontrollerade delarna. Reducerad rörelse stöds.
+- Reserverad laddningsyta ersätts på plats; ingen scroll när svaret kommer. Alla fynd och frågor ligger bakom en stängd öppning.
+- Beräknade numeriska avvikelser visas i räkningens stapel även när AI-kontrollen inte rapporterat en motsägelse. En sådan kontroll räknas inte samtidigt som grön.
+- Växjö borttaget från synlig topp, sidfot och exempel. Företagsuppgifternas adress finns kvar.
+- Backend, modell, prisregler och kvoter är oförändrade. AI-prioritering för de andra verktygen ingår i ett separat backendsteg.
+
+
 ## gmo-v16 / gmo-api-v10 – rättning F8e (KANDIDAT 5 – ej släppt)
 - **extracted obligatoriskt** (Codex-fynd efter riktig Haiku-körning 5/11): `extracted` ingår nu i verktygsschemats `required`, instruktionen säger att objektet alltid lämnas med alla fält, och `readReview` (Workern + F2) avvisar svar utan giltigt `extracted` som fel (F2: `saknar_extracted`, aldrig PASS). Tidigare blev saknat `extracted` ett tomt objekt (allt null, okänd moms) som såg ut som en lyckad men tom granskning – kan förklara avvikelserna i Haiku-körningen (orsak ej bevisad utan rå tool-input).
 - **propertyType-instruktion**: tydlig avbildning bostadsrätt/BRF → bostadsratt, villa/småhus/egnahem → smahus, hyreshus → flerbostadshus (Sonnet 5.5 lämnade F2-07 null trots uttryckligt "bostadsrätt"; verifieras med nytt F2-prov). Facit oförändrat.

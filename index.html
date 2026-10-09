@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v16">
+<meta name="app-version" content="gmo-v19">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
 <meta name="description" content="AI-stödd granskning av hantverkarofferter i PDF, foto eller text. För dig som fått en offert eller ska skicka en. Hitta oklarheter. Gratis att prova utan konto.">
@@ -75,7 +75,7 @@ textarea.on{display:block}
 .res{display:none;margin-top:26px}
 .res.on{display:block}
 .loading{display:none;margin-top:26px;padding:20px;text-align:center;color:var(--ink2)}
-.loading.on{display:block}
+.loading.on{display:block;position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);margin:0;padding:0}
 .errbox{display:none;margin-top:20px;padding:14px 16px;border-radius:8px;background:var(--badsoft);color:var(--bad);border-left:6px solid var(--bad)}
 .errbox.on{display:block}
 .optin{display:flex;gap:10px;align-items:flex-start;margin:14px 0 0;font-size:14px;color:var(--ink2);max-width:60ch}
@@ -115,13 +115,42 @@ details summary{cursor:pointer;padding:12px 0;font-weight:600;font-size:14px}
 details .body{padding:0 0 14px;font-size:14px;color:var(--ink2);max-width:60ch}
 details .body p{margin:8px 0}
 details .body ul{margin:8px 0;padding-left:20px}
+.gmo-card{--g:#247345;--a:#98600c;--r:#b33836;--n:#596b75;--track:#e4e6df;border:1px solid var(--line);border-radius:14px;background:var(--paper);padding:22px 20px 18px;margin-bottom:18px}
+.gmo-card[data-tone=green]{--v:var(--g)}.gmo-card[data-tone=amber]{--v:var(--a)}.gmo-card[data-tone=red]{--v:var(--r)}.gmo-card[data-tone=grey]{--v:var(--n)}
+.gmo-verdict{display:flex;align-items:center;gap:17px;margin:0 0 18px}
+.gmo-mark{flex:0 0 60px;height:60px;display:grid;place-items:center;border-radius:50%;background:var(--v);color:#fff;font-size:32px;font-weight:700;line-height:1}
+.gmo-eyebrow{font-size:11px;font-weight:700;letter-spacing:.09em;color:var(--ink2);text-transform:uppercase}
+.gmo-card h2{font-family:"Barlow Condensed",sans-serif;font-size:30px;line-height:1.08;margin:4px 0 6px;text-transform:none;text-wrap:balance;color:var(--v)}
+.gmo-short{margin:0;color:var(--ink2);font-size:16px}
+.gmo-counts{display:flex;flex-wrap:wrap;gap:8px 22px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:0}
+.gmo-counts span{font-size:14px;color:var(--ink2)}
+.gmo-counts strong{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;margin-right:5px;color:var(--ink)}
+.gmo-gap{margin:14px 0 0;padding:10px 12px;border-radius:8px;border:2px dashed var(--n);color:var(--ink);font-size:15px}
+.gmo-gap b{color:var(--n)}
+.gmo-bars{display:grid;gap:15px;margin:20px 0}
+.gmo-control>div:first-child{display:flex;justify-content:space-between;gap:4px 12px;flex-wrap:wrap;margin-bottom:6px;font-size:15px}
+.gmo-control strong{font-size:13px;font-weight:500;color:var(--ink2)}
+.gmo-track{height:10px;background:var(--track);border-radius:7px;overflow:hidden;display:flex}.gmo-track.gmo-empty{background:transparent;border:2px dashed var(--n)}.gmo-scope{margin:12px 0 0;font-size:15px;color:var(--ink2)}.gmo-counts i{font-style:normal;font-weight:700;margin-right:5px}.gmo-counts [data-c=green] i,.gmo-counts [data-c=green] strong{color:var(--g)}.gmo-counts [data-c=amber] i,.gmo-counts [data-c=amber] strong{color:var(--a)}.gmo-counts [data-c=red] i,.gmo-counts [data-c=red] strong{color:var(--r)}.gmo-counts [data-c=grey] i{color:var(--n)}
+.gmo-skel{min-height:560px;border:1px solid var(--line);border-radius:14px;padding:22px 20px;background:var(--paper);margin-bottom:18px}.gmo-skel p{margin:0 0 16px;font-weight:600}.gmo-skel span{display:block;height:14px;border-radius:7px;background:var(--track);margin:0 0 14px;animation:gmopulse 1.4s ease-in-out infinite}.gmo-skel span:nth-of-type(2){width:80%}.gmo-skel span:nth-of-type(3){width:60%}@keyframes gmopulse{50%{opacity:.45}}
+details.gmo-all{margin-top:12px}
+.gmo-fill{display:block;height:100%;width:0;background:var(--c,var(--n));transition:width 700ms cubic-bezier(.2,.7,.3,1)}
+.gmo-fill[data-c=green]{--c:var(--g)}.gmo-fill[data-c=amber]{--c:var(--a)}.gmo-fill[data-c=red]{--c:var(--r)}.gmo-fill[data-c=grey]{--c:var(--n)}
+.gmo-next{padding:14px 0 6px;border-top:1px solid var(--line)}
+.gmo-next>span{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--ink2)}
+.gmo-next p{margin:5px 0 0;font-size:17px;font-weight:600}
+.gmo-card details{border:0;border-top:1px solid var(--line);border-radius:0;background:transparent;padding:0;margin-top:10px}
+.gmo-card details summary{min-height:44px;display:flex;align-items:center}
+.gmo-card .gmo-detailtext p{margin:0 0 8px;font-size:15px}
+.gmo-foot{font-size:12px;color:var(--ink2);margin:12px 0 0}
+@media(max-width:430px){.gmo-card{padding:18px 16px 14px}.gmo-card h2{font-size:25px}.gmo-mark{flex-basis:48px;height:48px;font-size:26px}.gmo-verdict{gap:12px}}
+@media(prefers-reduced-motion:reduce){.gmo-fill{transition:none}.gmo-skel span{animation:none}}
 </style>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebApplication", "@id": "https://granskaminoffert.se/#app", "name": "Granska min offert", "url": "https://granskaminoffert.se/", "inLanguage": "sv-SE", "applicationCategory": "BusinessApplication", "operatingSystem": "Any", "description": "AI-stödd dokumentgranskning av hantverkarofferter i PDF, foto eller text, för den som har fått eller ska skicka en offert.", "publisher": {"@type": "Organization", "name": "Ståhle Digital", "url": "https://stahledigital.se/"}}</script>
 </head>
 <body>
 
 <main class="wrap">
-<header><span>Granska min offert · Växjö</span><a href="https://stahledigital.se/verkstaden">Ståhle Digital</a></header>
+<header><span>Granska min offert</span><a href="https://stahledigital.se/verkstaden">Ståhle Digital</a></header>
 <h1>Granska min offert.<br>Färre frågetecken.</h1>
 <p class="lead">Få hjälp att upptäcka oklarheter, motsägelser och uppgifter som behöver förtydligas i offerten.</p>
 
@@ -170,7 +199,7 @@ details .body ul{margin:8px 0;padding-left:20px}
 </div>
 </details>
 
-<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital – Verkstaden</a>, Växjö · <a href="/foretagsuppgifter/">Företagsuppgifter</a> · <a href="mailto:hej@stahledigital.se" data-cta="epost">hej@stahledigital.se</a></p>
+<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital</a> · <a href="/foretagsuppgifter/">Företagsuppgifter</a> · <a href="mailto:hej@stahledigital.se" data-cta="epost">hej@stahledigital.se</a></p>
 </main>
 
 <script>
@@ -184,7 +213,7 @@ const SD_TEST=/[?&]sd-test=1(&|$)/.test(location.search);
 
 const demoText=`OFFERT nr 2026-118
 Byggfirma Exempel AB, Org.nr 556XXX-XXXX, Innehar F-skattsedel
-Kund: Anna Andersson, Storgatan 12, Växjö
+Kund: Anna Andersson, Storgatan 12, Exempelstad
 
 Arbete: Byte av 32 m² takpannor inkl. läkt och underlagspapp, garage.
 Material: Benders Palema betongpannor, bärläkt 25x48, underlagspapp YAP 2200.
@@ -238,6 +267,15 @@ let lastResult=null;
 let lastIsDemo=false;
 const PATHNOTE={mottagare:'Du får en lista med det som är otydligt – och kan skicka frågorna direkt till hantverkaren.',hantverkare:'Du får en punktlista att fixa innan offerten går iväg – så slipper du frågorna efteråt.'};
 
+// Reserverad resultatyta: skelettet tar platsen före anropet och ersätts på plats av resultatet.
+// Sidan scrollas högst EN gång, till resultatets topp vid start. Ingen slutscroll när resultatet kommer.
+function showSkeleton(){
+  const r=$('res');
+  r.innerHTML='<section class="gmo-skel" aria-hidden="true"><p>Granskar offerten…</p><span></span><span></span><span></span><span></span></section>';
+  r.setAttribute('aria-busy','true');r.classList.add('on');
+  r.scrollIntoView({behavior:'auto',block:'start'});
+}
+function hideSkeleton(){const r=$('res');r.removeAttribute('aria-busy');if(r.querySelector('.gmo-skel')){r.classList.remove('on');r.innerHTML='';}}
 function setLoading(on){$('loading').classList.toggle('on',on);$('run').disabled=on;}
 function showError(msg){$('errbox').textContent=msg;$('errbox').classList.add('on');}
 function clearError(){$('errbox').classList.remove('on');$('errbox').textContent='';}
@@ -312,8 +350,9 @@ function priceCounts(result){
   const isOk=c=>c.status==='ok';
   const okN=checked.filter(c=>isOk(c)&&!FORMAL.includes(c.id)).length;
   const formalOk=checked.filter(c=>isOk(c)&&FORMAL.includes(c.id)).length;
-  const ask=checked.filter(c=>c.status==='fraga'||c.status==='flagga').length+cmp.filter(c=>c.mode!=='inom').length;
-  const cannotN=cannot.length;
+  const cmpUnk=cmp.filter(c=>c.mode==='ej_bedombar').length;
+  const ask=checked.filter(c=>c.status==='fraga'||c.status==='flagga').length+cmp.filter(c=>c.mode!=='inom'&&c.mode!=='ej_bedombar').length;
+  const cannotN=cannot.length+cmpUnk;
   return {bad,okN,formalOk,ask,cannotN,partial:!!pr.partial};
 }
 // Sammanfattningens prisdel. "Stämmer" sägs bara om minst en prisregel faktiskt kördes och föll ut som OK;
@@ -411,6 +450,112 @@ function renderActionList(result,path){
 }
 function sendLabel(){return chosenPath==='hantverkare'?'Skicka punkterna till dig själv':'Skicka frågorna till hantverkaren';}
 
+
+// Resultatkortet. EN modell (verdictModel) ger färg, antal, staplar och nästa steg från samma resultatobjekt som listorna
+// och exporten. Regler: röd = belagd avvikelse; grå = inget kunde bedömas; gul = något att förtydliga/följa upp;
+// grön bara när allt som bedömts stämmer, något faktiskt bedömts och inget centralt lämnats obedömt. Inga poäng.
+function verdictModel(result,path){
+  const pr=result.priceReport,pc=priceCounts(result);
+  const checked=(pr&&pr.checked)||[],cmp=(pr&&pr.compared)||[],cannot=(pr&&pr.cannotAssess)||[];
+  const FORMAL=['moms','pristyp','betaldatum'];
+  const rules=checked.filter(c=>!FORMAL.includes(c.id)||c.status==='fraga'||c.status==='flagga'||c.status==='fel');
+  const rOk=rules.filter(c=>c.status==='ok').length;
+  const rBad=rules.filter(c=>c.status==='fel').length;
+  const rAsk=rules.filter(c=>c.status==='fraga'||c.status==='flagga').length;
+  // En jämförelse som inte kunde genomföras (ej_bedombar) är OKÄND, aldrig en prisfråga.
+  const cOk=cmp.filter(c=>c.mode==='inom').length,cUnk=cmp.filter(c=>c.mode==='ej_bedombar').length,cAsk=cmp.length-cOk-cUnk;
+  // Motsägelser/räknefel kommer från modellens avläsning (ingen avläsningssäkerhet, ingen koppling till originalets position).
+  // De är därför "kontrollera siffrorna i originalet" (gul), aldrig ett säkert rött besked. Röd kräver en beräknad prisregel som föll ut som fel.
+  const calcN=(result.contradictions||[]).length;
+  const calcUnknown=result.calcCoverage==='insufficient_data'&&calcN===0;
+  const numericBad=rules.filter(c=>c.status==='fel'&&['summa','arbetssumma','total_konflikt','rot_belopp','rot_material','rot_schablon'].includes(c.id)).length;
+  const calcOk=!calcUnknown&&calcN===0&&numericBad===0?1:0;
+  const clarifyN=(result.clarify||[]).length,statedN=(result.stated||[]).length;
+  const ok=calcOk+rOk+cOk,bad=rBad,ctrlAsk=rAsk+cAsk;
+  const attention=ctrlAsk+clarifyN+calcN;
+  const unknownParts=[];
+  if(calcUnknown)unknownParts.push('AI-kontrollen av räkningen');
+  if(!pr)unknownParts.push('prisgranskningen');
+  if(cannot.length)unknownParts.push(cannot.length===1?'1 prisuppgift':cannot.length+' prisuppgifter');
+  if(cUnk)unknownParts.push(cUnk===1?'1 jämförelse med referens':cUnk+' jämförelser med referens');
+  if(pc&&pc.partial)unknownParts.push('delar av prisgranskningen');
+  const noRules=!!pr&&rOk+rBad+rAsk===0;
+  if(noRules)unknownParts.push('prisreglerna');
+  const unknown=(calcUnknown?1:0)+(pr?0:1)+cannot.length+cUnk+((pc&&pc.partial)?1:0)+(noRules?1:0);
+  const assessed=ok+bad+ctrlAsk+calcN;
+  const hant=path==='hantverkare';
+  let tone,mark,title,short,next;
+  if(bad>0){
+    tone='red';mark='×';
+    title=hant?'Avvikelse att rätta innan du skickar':'Avvikelse som behöver förklaras';
+    short=`${bad} ${bad===1?'kontroll stämmer inte':'kontroller stämmer inte'}${assessed?` – ${ok} av ${assessed} kontroller stämmer`:''}. Kontrollera mot originalet.`;
+    next=hant?'Rätta det som inte stämmer i offerten och läs frågorna nedan innan du skickar den.':'Be hantverkaren förklara eller rätta det som inte stämmer innan du skriver på.';
+  }else if(assessed===0){
+    tone='grey';mark='–';
+    title='Underlag saknas för ett besked';
+    short='Ingen kontroll kunde göras med det som gick att läsa. Det är inget besked om att offerten är bra eller dålig.';
+    next=hant?'Gör offerten tydligare (belopp, timpris, villkor) och granska igen.':'Be om en tydligare offert eller ladda upp en bättre bild, och granska igen.';
+  }else if(calcN>0&&attention===calcN){
+    tone='amber';mark='!';
+    title=hant?'Kontrollera siffrorna innan du skickar':'Kontrollera siffrorna i originalet';
+    short=`${calcN} ${calcN===1?'möjlig avvikelse i siffrorna':'möjliga avvikelser i siffrorna'}. Det är en avläsning ur offerten som behöver jämföras med originalet – inte ett konstaterat fel.`;
+    next=hant?'Jämför siffrorna nedan med din offert och rätta det som inte stämmer innan du skickar den.':'Jämför siffrorna nedan med originalet och fråga hantverkaren om något inte stämmer.';
+  }else if(attention>0){
+    tone='amber';mark='!';
+    title=hant?'Förtydliga innan du skickar':'Förtydliga innan du bestämmer dig';
+    short=`${ok} av ${assessed} kontroller stämmer. ${attention} ${attention===1?'sak':'saker'} att följa upp.`;
+    next=hant?'Gå igenom punkterna nedan och komplettera offerten innan du skickar den.':'Skicka frågorna nedan till hantverkaren och be om svar innan du skriver på.';
+  }else if(unknown>0){
+    tone='grey';mark='–';
+    title='Delar gick inte att bedöma';
+    short=`${ok} av ${assessed} kontroller stämmer, men inte allt gick att bedöma. Det är inget besked om att offerten är komplett.`;
+    next=hant?'Komplettera det som inte gick att läsa och granska igen.':'Fråga hantverkaren om det som inte gick att bedöma innan du skriver på.';
+  }else{
+    tone='green';mark='✓';
+    title='Kontrollerade delar stämmer';
+    short=`${ok} av ${assessed} kontroller stämmer och inget att följa upp hittades. Avser bara det vi kunde kontrollera (se nedan).`;
+    next=hant?'Inget att rätta i det vi kontrollerade. Läs ändå igenom offerten en gång till innan du skickar.':'Inget att följa upp i det vi kontrollerade. Läs ändå igenom offerten själv innan du skriver på.';
+  }
+  // Staplar: verkliga segment (grön/gul/röd/grå) med gemensam nämnare per rad. total 0 = "Ej bedömd" (tom, streckad).
+  const mk=(label,text,g,a,r,n)=>({label,text,segs:g+a+r===0?[]:[['green',g],['amber',a],['red',r],['grey',n]].filter(x=>x[1]>0).map(x=>({c:x[0],n:x[1]})),total:g+a+r===0?0:g+a+r+n});
+  const bars=[];
+  bars.push(numericBad?mk('Räkningen',`${numericBad} ${numericBad===1?'beräknad avvikelse':'beräknade avvikelser'} – kontrollera originalet`,0,calcN,numericBad,0):calcUnknown?mk('Räkningen','Ej bedömd – kunde inte kontrolleras',0,0,0,0):mk('Räkningen',calcN?`${calcN} ${calcN===1?'möjlig avvikelse':'möjliga avvikelser'} att jämföra med originalet`:'Inga avvikelser hittades',calcOk,calcN,0,0));
+  {const t=rOk+rBad+rAsk,g=cannot.length;bars.push(mk('Prisregler',t||g?`${rOk} av ${t+g} stämmer${rBad?` · ${rBad} stämmer inte`:''}${rAsk?` · ${rAsk} ${rAsk===1?'fråga':'frågor'}`:''}${g?` · ${g} ej bedömda`:''}`:'Ej bedömd – ingen regel kunde kontrolleras',rOk,rAsk,rBad,g));}
+  bars.push(mk('Jämförelse med referens',cmp.length?`${cOk} av ${cmp.length} inom intervall${cAsk?` · ${cAsk} ${cAsk===1?'fråga':'frågor'}`:''}${cUnk?` · ${cUnk} ej bedömd${cUnk===1?'':'a'}`:''}`:'Ej bedömd – ingen jämförelse ingick',cOk,cAsk,0,cUnk));
+  bars.push(mk('Tydlighet i offerten',statedN+clarifyN?`${statedN} anges i offerten (inte verifierat) · ${clarifyN} att förtydliga`:'Ej bedömd – inget att bedöma',statedN,clarifyN,0,0));
+  const scope=[];
+  if(!calcUnknown)scope.push('räkningen');
+  if(rOk+rBad+rAsk)scope.push(`${rOk+rBad+rAsk} ${rOk+rBad+rAsk===1?'prisregel':'prisregler'}`);
+  if(cmp.length-cUnk)scope.push(`${cmp.length-cUnk} ${cmp.length-cUnk===1?'jämförelse':'jämförelser'} med referens`);
+  return {tone,mark,title,short,next,ok,bad,attention,unknown,assessed,unknownParts,bars,scope};
+}
+function renderVerdictCard(result,isDemo,summary){
+  const v=verdictModel(result,chosenPath);
+  const bars=v.bars.map(b=>{
+    const track=b.total?`<div class="gmo-track" aria-hidden="true">${b.segs.map(g=>`<span class="gmo-fill" data-c="${g.c}" data-w="${(100*g.n/b.total).toFixed(2)}"></span>`).join('')}</div>`:`<div class="gmo-track gmo-empty" aria-hidden="true"></div>`;
+    return `<div class="gmo-control"><div><span>${escapeHtml(b.label)}</span><strong>${escapeHtml(b.text)}</strong></div>${track}</div>`;
+  }).join('');
+  const gap=v.unknown>0?`<p class="gmo-gap"><b>Ej bedömt:</b> ${escapeHtml(v.unknownParts.join(', '))} gick inte att bedöma.</p>`:'';
+  const scope=`<p class="gmo-scope"><b>Kontrollerat:</b> ${v.scope.length?escapeHtml(v.scope.join(', ')):'ingenting'}.</p>`;
+  const tonename={green:'kontrollerat',amber:'förtydliga',red:'avvikelse',grey:'ej bedömt'}[v.tone];
+  const cnt=(n,c,glyph,word)=>n>0?`<span data-c="${c}"><i aria-hidden="true">${glyph}</i><strong>${n}</strong>${word}</span>`:'';
+  const counts=[cnt(v.ok,'green','✓','stämmer'),cnt(v.bad,'red','×',v.bad===1?'avvikelse':'avvikelser'),cnt(v.attention,'amber','!','att följa upp'),cnt(v.unknown,'grey','–','ej bedömt')].join('');
+  return `<section class="gmo-card" data-tone="${v.tone}" aria-label="Resultat: ${tonename}">
+  <div class="gmo-verdict"><div class="gmo-mark" aria-hidden="true">${v.mark}</div><div><div class="gmo-eyebrow">Ditt besked${isDemo?' · <span class="tag">Exempel</span>':''}</div><h2>${escapeHtml(v.title)}</h2><p class="gmo-short">${escapeHtml(v.short)}</p></div></div>
+  <p class="gmo-counts">${counts||'<span data-c="grey"><i aria-hidden="true">–</i>Inget kunde räknas</span>'}</p>
+  ${scope}${gap}
+  <div class="gmo-bars" role="group" aria-label="Utfall per kontroll">${bars}</div>
+  <div class="gmo-next"><span>NÄSTA STEG</span><p>${escapeHtml(v.next)}</p></div>
+  <p class="gmo-foot">Avser det vi kunde kontrollera i offerten. Granskningen bedömer inte hantverkarens arbete och är inget juridiskt utlåtande.</p>
+</section>`;
+}
+function animateBars(){
+  const fills=$('res').querySelectorAll('.gmo-fill');
+  const go=()=>fills.forEach(f=>{f.style.width=f.dataset.w+'%';});
+  if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches){go();return;}
+  requestAnimationFrame(()=>requestAnimationFrame(go));
+}
+
 function render(result,isDemo){
   lastResult=result;lastIsDemo=!!isDemo;
   const clarifyN=(result.clarify||[]).length;
@@ -420,23 +565,26 @@ function render(result,isDemo){
   const priceFrag=priceSummaryFragment(result);
   const summary=`${clarifyN} ${clarifyWord}, ${calcSummaryFragment(result)}${priceFrag}, ${statedN} ${statedN===1?'uppgift som framgår':'uppgifter som framgår'} tydligt.`;
 
-  $('res').innerHTML=`<div class="summarybox"><h2>Så här ser offerten ut${isDemo?' <span class="tag">Exempel</span>':''}</h2><p>${summary}</p></div>
-  ${renderActionList(result,chosenPath)}
+  $('res').innerHTML=`${renderVerdictCard(result,isDemo,summary)}
   <div class="send">
     <a class="btn acc" id="sendmail" href="#">${sendLabel()}</a>
     ${isMobile()?'<a class="btn" id="sendsms" href="#">Skicka som SMS</a>':''}
     <button type="button" class="btn ghost" id="copybtn">Kopiera</button>
   </div>
   <p class="caveat" id="shortnote" hidden>E-post- och SMS-texten är förkortad. Hela listan finns under Kopiera.</p>
+  <details class="gmo-all"><summary>Se alla fynd och frågor</summary>
+  <div class="summarybox"><p>${escapeHtml(summary)}</p></div>
+  ${renderActionList(result,chosenPath)}
   <h3>Motsägelser och räknefel</h3>${renderCalcSection(result)}
   ${chosenPath==='hantverkare'?'':`<h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):(fullyAssessed(result)?'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>':'<p>Inget otydligt hittades i det som kontrollerades, men delar gick inte att bedöma (se nedan).</p>')}`}
   <h3>Prisbild</h3>${renderPriceReport(result)}
-  <details class="stated"><summary>Uppgifter som framgår (${statedN})</summary>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}</details>
+  <h3>Uppgifter som framgår (${statedN})</h3>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}
+  </details>
   <div class="alt">
     <button class="btn ghost" onclick="location.reload()">Granska en till</button>
   </div>
   ${chosenPath==='hantverkare'?`<aside class="fromsd"><p class="fromsd-tag">Från Ståhle Digital</p>
-    <p>Har firman ingen hemsida, eller en som inte ger jobb? Vi bygger hemsidor för hantverkare i Växjö med omnejd.</p>
+    <p>Har firman ingen hemsida, eller en som inte ger jobb? Vi bygger hemsidor för hantverkare, i hela Sverige.</p>
     <a class="btn" href="https://stahledigital.se" rel="noopener" data-cta="hemsida">Se vad vi gör</a>
     <p class="sub">Ska du räkna material till jobbet? <a href="https://stahledigital.se/verkstaden/materialraknaren" rel="noopener" data-cta="materialraknaren">Materialräknaren är gratis.</a></p>
   </aside>`:''}`;
@@ -448,10 +596,11 @@ function render(result,isDemo){
   if($('sendsms')){$('sendsms').href='sms:?&body='+encodeURIComponent(sms.text);$('sendsms').addEventListener('click',()=>trackShare('sms'));}
   if(mail.cut||($('sendsms')&&sms.cut))$('shortnote').hidden=false;
   $('res').querySelectorAll('[data-cta]').forEach(a=>a.addEventListener('click',()=>sendEvent({type:'client',event:'kontakt_cta',detail:a.dataset.cta})));
+  $('res').removeAttribute('aria-busy');
   $('res').classList.add('on');
   $('announce').textContent=(isDemo?'Exempel. ':'Granskningen är klar. ')+summary;
   const h=$('res').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}
-  $('res').scrollIntoView({behavior:'smooth',block:'start'});
+  animateBars();
   if(!isDemo)sendEvent({type:'client',event:'rapport_klar'});
 
   const copyBtn=$('copybtn');
@@ -502,7 +651,7 @@ async function runReview(){
   payload.path=chosenPath;
   payload.stats=!!($('statsopt')&&$('statsopt').checked);
   setLoading(true);
-  $('res').classList.remove('on');
+  showSkeleton();
   const avbryt=new AbortController();
   const tidsgrans=setTimeout(()=>avbryt.abort(),120000); // hellre ett ärligt fel än evig väntan
   try{
@@ -517,6 +666,7 @@ async function runReview(){
     else showError('Kunde inte nå granskningstjänsten. Kontrollera din uppkoppling och försök igen.');
   }finally{
     clearTimeout(tidsgrans);
+    hideSkeleton();
     setLoading(false);
   }
 }
@@ -534,6 +684,7 @@ $('demo').onclick=()=>{
   pendingFile=null;
   $('txt').value=demoText;$('txt').classList.add('on');$('runwrap').style.display='flex';
   clearError();$('res').classList.remove('on');
+  $('res').scrollIntoView({behavior:'auto',block:'start'});
   render(demoResult,true);
 };
 $('paste').onclick=()=>{pendingFile=null;$('filepreview').classList.remove('on');$('txt').classList.add('on');$('runwrap').style.display='flex';$('txt').focus();};
