@@ -23,7 +23,7 @@ function ctx() { const jobs = []; return { jobs, waitUntil: (p) => jobs.push(p) 
 const fakeReview = {
   trade: "tak", contradictions: [], clarify: [{ key: "A", text: "b" }, { key: "C", text: "d" }],
   stated: [], calcCoverage: "checked", calcNote: "ok",
-  price: { hourlyRateSek: 595, totalSumSek: 42820, rotDeducted: true, comment: "x" }, questions: ["q"],
+  price: { hourlyRateSek: 595, totalSumSek: 42820, rotDeducted: true, comment: "x" }, questions: ["q"], extracted: { trades: [] },
 };
 
 test("summaband", () => {

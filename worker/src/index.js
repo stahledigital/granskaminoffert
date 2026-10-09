@@ -115,6 +115,7 @@ const SUBMIT_REVIEW_TOOL = {
       "calcNote",
       "price",
       "questions",
+      "extracted",
     ],
     properties: {
       trade: {
@@ -258,7 +259,7 @@ tjänstens egen kod mot källbelagda referensintervall, efter din läsning.
 comment-fältet kommenterar bara hur tydligt/fullständigt prisuppgifterna är
 angivna, aldrig om priset är rimligt.
 
-EXTRAKTION (extracted-fältet): fyll i exakt de siffror och uppgifter som står
+EXTRAKTION (extracted-fältet, OBLIGATORISKT – lämna alltid in objektet med ALLA fält, även när allt är null): fyll i exakt de siffror och uppgifter som står
 i offerten. Fält som inte står där är null — räkna aldrig fram, gissa aldrig,
 anta aldrig. Timpris skrivs som det står (inkl. eller exkl. moms styrs av
 vatMode). Skilj på tre sorters totaler: totalBeforeRotSek (uttryckligen före

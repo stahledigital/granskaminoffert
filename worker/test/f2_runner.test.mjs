@@ -175,3 +175,14 @@ test("F8c: nivåpris – över 100 000 indatatokens reserveras Haikus högre pri
   assert.equal(api.calls.messages, 1);
   assert.equal(r.summary.spentUsd, 0.09);
 });
+
+test("F8d: svar utan extracted är fel i F2 (saknar_extracted), aldrig PASS", async () => {
+  const fetchImpl = async (url) => {
+    if (String(url).endsWith("/count_tokens")) return Response.json({ input_tokens: 2000 });
+    return Response.json({ stop_reason: "tool_use", usage: { input_tokens: 2000, output_tokens: 300 }, content: [{ type: "tool_use", name: "submit_review", input: { trade: "annat", contradictions: [], clarify: [], stated: [], calcCoverage: "checked", calcNote: "", price: { comment: "x" }, questions: [] } }] });
+  };
+  const r = await run(ENV, { fetchImpl, calls: {} });
+  assert.notEqual(r.exitCode, 0);
+  assert.equal(r.summary.pass, 0);
+  assert.ok(r.results.every((x) => x.error === "saknar_extracted"));
+});

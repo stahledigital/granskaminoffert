@@ -17,5 +17,11 @@ export function readReview(respJson) {
   if (respJson.stop_reason === "refusal") throw new Error("Modellen avstod från att svara (refusal)");
   const toolUse = (respJson.content || []).find((b) => b.type === "tool_use" && b.name === "submit_review");
   if (!toolUse) throw new Error("Modellen returnerade inget submit_review-anrop");
-  return toolUse.input;
+  const input = toolUse.input;
+  // extracted är obligatoriskt: utan det skulle sanering ge ett tomt objekt (allt null/okänd moms) som
+  // ser ut som en lyckad men tom avläsning. Hellre fel än en tyst tom granskning (Codex 2026-10-09).
+  if (!input || typeof input !== "object" || !input.extracted || typeof input.extracted !== "object" || Array.isArray(input.extracted)) {
+    throw new Error("Modellsvaret saknar avläsningen (extracted)");
+  }
+  return input;
 }

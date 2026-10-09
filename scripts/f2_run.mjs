@@ -157,23 +157,28 @@ export async function runF2({ env = {}, argv = [], fetchImpl = fetch, cases, wri
       continue;
     }
     let extracted;
+    let diag = null;
     try {
-      extracted = sanitizeExtracted(readReview(respJson).extracted || {}).x;
+      const rawReview = readReview(respJson);
+      // Diagnostik utan innehåll: hur många av avläsningens fält modellen faktiskt lämnade (inte null/saknade)
+      const rawKeys = Object.keys(rawReview.extracted);
+      diag = { stop: respJson.stop_reason ?? null, outTok: respJson.usage && Number.isFinite(respJson.usage.output_tokens) ? respJson.usage.output_tokens : null, extractedKeys: rawKeys.length, nonNull: rawKeys.filter((k) => rawReview.extracted[k] !== null && rawReview.extracted[k] !== undefined).length };
+      extracted = sanitizeExtracted(rawReview.extracted).x;
     } catch (e) {
       // samma avvisningar som Workern: max_tokens, refusal, saknat verktygsanrop är fel, aldrig PASS
-      const why = /max_tokens/.test(String(e.message)) ? "max_tokens" : /refusal/.test(String(e.message)) ? "refusal" : "saknar_submit_review";
+      const why = /max_tokens/.test(String(e.message)) ? "max_tokens" : /refusal/.test(String(e.message)) ? "refusal" : /extracted/.test(String(e.message)) ? "saknar_extracted" : "saknar_submit_review";
       results.push({ id: c.id, error: why, costUsd: cost.usd });
       continue;
     }
     const rep = buildPriceReport(extracted, []);
-    results.push({ id: c.id, extractDiff: diffExtracted(c.expectExtracted, extracted), ruleDiff: diffRules(c.expectRules, rep), costUsd: cost.usd });
+    results.push({ id: c.id, extractDiff: diffExtracted(c.expectExtracted, extracted), ruleDiff: diffRules(c.expectRules, rep), costUsd: cost.usd, diag });
   }
 
   const mism = results.filter((r) => r.error || r.extractDiff.length || r.ruleDiff.length);
   for (const r of results) {
     if (r.error) log(`${r.id}: FEL ${r.error}`);
     else if (!r.extractDiff.length && !r.ruleDiff.length) log(`${r.id}: PASS`);
-    else log(`${r.id}: AVVIKER ${JSON.stringify({ extract: r.extractDiff, rules: r.ruleDiff })}`);
+    else log(`${r.id}: AVVIKER ${JSON.stringify({ extract: r.extractDiff, rules: r.ruleDiff, diag: r.diag })}`);
   }
   const summary = {
     model, calls, maxCalls, spentUsd: Number(spent.toFixed(6)), budgetUsd: budget,

@@ -126,9 +126,10 @@ test("B: hela Worker-flödet med fientligt modellsvar ger 200 med läsbar delgra
     const m2 = mockAnthropic({ output: { ...GOOD, extracted: bad } });
     try {
       const r = await worker.fetch(req({ kind: "text", text: "Offert" }, { "CF-Connecting-IP": "203.0.113." + (bad === null ? 80 : 81 + String(bad).length) }), env(), ctx());
-      assert.equal(r.status, 200, "extracted=" + JSON.stringify(bad));
+      // F8d (Codex): saknad eller felaktig avläsning är ett fel, aldrig en tyst tom granskning
+      assert.notEqual(r.status, 200, "extracted=" + JSON.stringify(bad));
       const j = await r.json();
-      assert.ok(j.priceReport.cannotAssess.length > 0);
+      assert.equal(j.priceReport, undefined);
     } finally { m2.restore(); }
   }
 });
@@ -465,4 +466,17 @@ test("F8d: Opus 5.5 och Fable 5.1 – dokumenterade priser, auto tool_choice, in
     assert.equal("thinking" in b, false);
     assert.equal(b.max_tokens, 12000);
   }
+});
+
+test("F8d: extracted är obligatoriskt i verktygsschemat och i läsningen – saknat extracted blir aldrig PASS", async () => {
+  const { buildReviewRequest } = await import("../src/index.js");
+  const { readReview } = await import("../src/provider.js");
+  const body = buildReviewRequest({ model: "claude-sonnet-5-5", kind: "text", text: "x" });
+  assert.ok(body.tools[0].input_schema.required.includes("extracted"));
+  assert.match(body.system, /OBLIGATORISKT/);
+  const { extracted, ...utan } = GOOD;
+  const wrap = (input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "submit_review", input }] });
+  assert.throws(() => readReview(wrap(utan)), /extracted/);
+  for (const bad of [null, "x", 5, [1]]) assert.throws(() => readReview(wrap({ ...GOOD, extracted: bad })), /extracted/);
+  assert.equal(readReview(wrap(GOOD)).trade, "tak");
 });
