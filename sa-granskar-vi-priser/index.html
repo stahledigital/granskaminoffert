@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v15">
+<meta name="app-version" content="gmo-v16">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Så granskar vi priser – Granska min offert</title>
 <meta name="description" content="Hur prisbilden i Granska min offert räknas: vilka källor vi lutar oss mot, vad ett referensintervall är och inte är, och vad som sparas om du bidrar till statistiken.">
@@ -54,6 +54,8 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2
 
 <h2>Två lager: regler och referens</h2>
 <p><b>Regelkontroller</b> görs av vår egen kod, inte av AI. Det är räkneregler med ett facit: att ROT-avdraget är 30 procent av arbetskostnaden inklusive moms (Skatteverket), att ROT inte räknats på material eller resor, att timmar gånger timpris blir arbetssumman, att raderna summerar till totalen, att momsen anges konsekvent, och att offerten säger om priset är fast, ungefärligt eller löpande. Här kan resultatet bli <i>stämmer</i> eller <i>stämmer inte</i>.</p>
+<p><b>När en regel får svara "stämmer".</b> Bara när offerten själv anger, eller raderna entydigt visar, vilken summa som är <i>före</i> ROT-avdrag och vilken som är <i>att betala</i>, och om beloppen är inklusive eller exklusive moms. Passar flera tolkningar av en omärkt total svarar vi i stället med en fråga och skriver ut tolkningarna. Anges momsen inte alls gissar vi inte: då blir det en fråga, aldrig ett "stämmer". Anges priser exklusive moms räknas de om med 25 procent innan de jämförs, oavsett om du är privatperson eller företag.</p>
+<p><b>Värmepumpar.</b> Skatteverkets schablon (35 procent av totalpriset räknas som arbete vid berg-, jord- och sjövärme, 30 procent vid luftvärmepump) kontrolleras bara för fast pris i småhus och bara när totalen före ROT-avdrag och dess momsbas är klar. Är något av det oklart, eller gäller offerten bostadsrätt, ställer vi en fråga i stället för att räkna. Skatteverkets sida anger inte om schablonen räknas på pris med eller utan moms; anges totalen exklusive moms visar vi därför båda utfallen.</p>
 <p><b>Referensjämförelsen</b> sätter offertens timpris och totalpris i förhållande till intervall vi har byggt av offentliga källor. Här finns inget facit – bara fyra lägen: under referensgolvet, under intervallet men över golvet, inom intervallet, eller över intervallet. Varje sådan mening anger källa och datum.</p>
 <p>AI (Anthropic Claude) används för ett enda steg: att läsa offerten och plocka ut siffrorna – timpris, timmar, arbete, material, ROT, datum. Det som inte står i offerten lämnas tomt; AI:n får inte gissa. All räkning och jämförelse sker sedan i vanlig, granskningsbar kod.</p>
 
@@ -72,8 +74,8 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2
 <p><b>Golvet svarar på något annat: om priset ens täcker lönekostnaden för en anställd.</b> Det är räknat från SCB:s lönestatistik och Skatteverkets arbetsgivaravgift, inte från vad någon tar betalt. Den raden visas bara när timpriset ligger under golvet. Ett pris mellan golvet och intervallet är alltså lågt, men inte orimligt – då frågar vi i stället vad som ingår.</p>
 <p>Golvet är kostnaden per <i>arbetad</i> timme, medan offertens timpris gäller en <i>debiterad</i> timme. Alla timmar går inte att debitera, så jämförelsen är medvetet försiktig åt hantverkarens håll: ett pris som underskrider golvet underskrider det med marginal.</p>
 
-<h2>Referensintervall, version 2026-09-18</h2>
-<p>Timpris till privatperson, före ROT, inklusive moms. Golvet är härlett från SCB 2025 (10:e percentilen), intervallet är vår sammanvägning av marknadskällorna 2026, taket är marknadens övre kvartil plus 15 procent.</p>
+<h2>Referensintervall, version 2026-10-09</h2>
+<p>Timpris till privatperson, före ROT, inklusive moms. Golvet är härlett från SCB 2025 (10:e percentilen), intervallet är vår sammanvägning av marknadskällorna 2026, taket är marknadens övre kvartil plus 15 procent. Anger offerten timpriset exklusive moms jämförs det mot motsvarande intervall exklusive moms (intervallen ovan delade med 1,25). Anges ingen moms alls jämför vi i båda fallen och redovisar bara en bedömning om den är densamma i båda; annars säger vi att priset inte går att bedöma.</p>
 <div class="tw" tabindex="0" role="region" aria-label="Tabell, går att rulla i sidled"><table>
 <tr><th>Yrke</th><th>Referensgolv</th><th>Intervall</th><th>Marknadsmitt (källa)</th></tr>
 <tr><td>Snickare</td><td>~380 kr/h</td><td>550–800 kr/h</td><td>707 kr/h (Byggahus.se mars 2026)</td></tr>
@@ -91,13 +93,14 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2
 <li>Inte en bedömning av företaget. Vi vet ingenting om firman, bara vad som står i dokumentet.</li>
 <li>Inte juridisk rådgivning. Regelkontrollerna bygger på Skatteverkets och Konsumentverkets publicerade regler, men det är alltid källan som gäller.</li>
 <li>Inte uppmätta i Växjö. Intervallen bygger på nationella källor och prisguider.</li>
+<li>Inte tillämpliga på vilket omfång som helst. Ett projektintervall gäller ett bestämt omfång – till exempel badrumsrenovering på 4–6 m². Avviker offertens yta, eller anges ingen yta, jämför vi inte alls och säger det.</li>
 </ul>
 
 <h2>Om du bidrar till prisstatistiken</h2>
 <p>Rutan "Bidra anonymt till prisstatistik" är avbockad som standard. Kryssar du i den sparar vi, utan koppling till dig eller offerten: jobbtyp, län, summaband (till exempel 25–100 tkr), timprisband (till exempel 600–799 kr/h), ungefärlig andel arbete och material, om ROT förekom, vilka kontroller som föll ut och datum. Aldrig fritext, företagsnamn, organisationsnummer, personnamn, adress, IP-adress eller filnamn. När det finns tillräckligt många bidrag per jobbtyp kan vi visa egna intervall per län, märkta med antal. Mer i avsnittet <a href="/#om">Om tjänsten och dina uppgifter</a> på startsidan.</p>
 
 <h2>Uppdatering</h2>
-<p>Referensdata har ett versionsdatum som visas i varje rapport. SCB:s lönestatistik och byggkostnadsindex hämtas via SCB:s öppna API en gång om året (januari) och intervallen räknas om; marknadskällorna läses om varje kvartal; ROT-reglerna kontrolleras mot Skatteverket vid varje uppdatering. Aktuell version: <b>2026-09-18</b> (källor lästa 2026-09-17, referensgolven omräknade 2026-09-18 från SCB:s 10:e percentil).</p>
+<p>Referensdata har ett versionsdatum som visas i varje rapport. SCB:s lönestatistik och byggkostnadsindex hämtas via SCB:s öppna API en gång om året (januari) och intervallen räknas om; marknadskällorna läses om varje kvartal; ROT-reglerna kontrolleras mot Skatteverket vid varje uppdatering. Aktuell version: <b>2026-10-09</b> (källor lästa 2026-09-17, referensgolven omräknade 2026-09-18 från SCB:s 10:e percentil). Versionen 2026-10-09 ändrar inga belopp; den tillför omfångsvillkoret för badrum, texter för oklar momsbas och en striktare tolkning av totalsummor.</p>
 
 <a class="btn" href="/">Granska en offert</a>
 

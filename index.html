@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v15">
+<meta name="app-version" content="gmo-v16">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Granska min offert – hitta oklarheter i hantverkarofferten</title>
 <meta name="description" content="AI-stödd granskning av hantverkarofferter i PDF, foto eller text. För dig som fått en offert eller ska skicka en. Hitta oklarheter. Gratis att prova utan konto.">
@@ -41,7 +41,15 @@ h1 em{font-style:normal;color:var(--acc-text)}
 .pathcard{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:14px 16px;cursor:pointer;font:inherit;color:inherit}
 .pathcard b{display:block;font-size:16px;margin-bottom:4px}
 .pathcard span{color:var(--ink2);font-size:13px}
-.pathcard.sel{border-color:var(--acc);background:#fff4ee}
+.pathcard.sel{border-color:var(--acc);background:#fff4ee;box-shadow:inset 0 0 0 2px var(--acc)}
+.pathcard[aria-pressed="true"] b::after{content:" ✓";color:var(--acc-text)}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+:focus-visible{outline:3px solid #1a56c4;outline-offset:2px}
+.btn:focus-visible,.pathcard:focus-visible{outline:3px solid #1a56c4;outline-offset:2px}
+.privinfo{font-size:14px;color:var(--ink2);margin:10px 0 0;max-width:60ch}
+.privinfo a{color:var(--ink)}
+#res:focus{outline:none}
+.chk li>div,.qs li,.calcnote,.price>div{min-width:0;overflow-wrap:anywhere}
 @media (max-width:480px){.pathsel{grid-template-columns:1fr}}
 .pathnote{margin:-8px 0 20px;font-size:15px;color:var(--ink2);max-width:52ch}
 .fromsd{margin-top:28px;border:1px solid var(--line);border-left:6px solid var(--acc);border-radius:10px;padding:16px 18px;background:var(--paper)}
@@ -117,22 +125,23 @@ details .body ul{margin:8px 0;padding-left:20px}
 <h1>Granska min offert.<br>Färre frågetecken.</h1>
 <p class="lead">Få hjälp att upptäcka oklarheter, motsägelser och uppgifter som behöver förtydligas i offerten.</p>
 
-<div class="pathsel" id="pathsel">
-  <button type="button" class="pathcard sel" data-path="mottagare"><b>Jag har fått en offert</b><span>Förstå vad som står i den och vad du bör fråga om innan du skriver på.</span></button>
-  <button type="button" class="pathcard" data-path="hantverkare"><b>Jag ska skicka en offert</b><span>Se vad kunden kommer att fråga om – innan du skickar.</span></button>
+<div class="pathsel" id="pathsel" role="group" aria-label="Välj din roll">
+  <button type="button" class="pathcard sel" data-path="mottagare" aria-pressed="true"><b>Jag har fått en offert</b><span>Förstå vad som står i den och vad du bör fråga om innan du skriver på.</span></button>
+  <button type="button" class="pathcard" data-path="hantverkare" aria-pressed="false"><b>Jag ska skicka en offert</b><span>Se vad kunden kommer att fråga om – innan du skickar.</span></button>
 </div>
-<p class="pathnote" id="pathnote">Du får en lista med det som är otydligt – och kan skicka frågorna direkt till hantverkaren.</p>
+<p class="pathnote" id="pathnote" aria-live="polite">Du får en lista med det som är otydligt – och kan skicka frågorna direkt till hantverkaren.</p>
 
 <div class="drop" id="drop"><b>Släpp din offert här</b><span>PDF, foto eller text</span>
   <div class="alt" style="justify-content:center;margin-top:16px">
-    <label class="btn acc" for="file">Välj fil</label>
-    <label class="btn" for="cam">Ta foto</label>
+    <button type="button" class="btn acc" id="pickfile">Välj fil</button>
+    <button type="button" class="btn" id="pickcam">Ta foto</button>
   </div>
-  <input type="file" id="file" accept=".pdf,image/*,.txt">
-  <input type="file" id="cam" accept="image/*" capture="environment">
+  <input type="file" id="file" accept=".pdf,image/*,.txt" tabindex="-1" aria-label="Offertfil">
+  <input type="file" id="cam" accept="image/*" capture="environment" tabindex="-1" aria-label="Foto av offert">
 </div>
-<div class="filepreview" id="filepreview"></div>
+<div class="filepreview" id="filepreview" role="status"></div>
 <p style="font-size:14px;color:var(--ink2);margin:10px 0 0">AI-stödd granskning av dokumentets innehåll. Gratis att prova, inget konto.</p>
+<p class="privinfo" id="privinfo">Offerten skickas till Anthropic (Claude) för analys. AI:ns svar och teknisk information sparas hos oss högst 24 timmar för felsökning. Personuppgifter behövs inte för granskningen – dölj gärna personnummer, namn och adress innan du skickar. <a href="#om" id="privlink">Läs hela texten om dina uppgifter</a>.</p>
 <div class="alt">
   <button class="btn ghost" id="demo">Prova med en exempeloffert</button>
   <button class="btn ghost" id="paste">Klistra in text i stället</button>
@@ -143,9 +152,10 @@ details .body ul{margin:8px 0;padding-left:20px}
   <div class="alt"><button class="btn" id="run">Granska</button></div>
 </div>
 
-<div class="loading" id="loading">Granskningen kan ta en stund.</div>
-<div class="errbox" id="errbox"></div>
-<div class="res" id="res" data-nosnippet></div>
+<div class="loading" id="loading" role="status" aria-live="polite">Granskningen kan ta en stund.</div>
+<div class="errbox" id="errbox" role="alert"></div>
+<div class="sr" id="announce" role="status" aria-live="polite"></div>
+<div class="res" id="res" data-nosnippet tabindex="-1" aria-label="Granskningsresultat"></div>
 
 <details id="om">
 <summary>Om tjänsten och dina uppgifter</summary>
@@ -155,11 +165,12 @@ details .body ul{margin:8px 0;padding-left:20px}
 <p>Vi sparar inte själva offertfilen eller den inklistrade texten i vår egen infrastruktur. Vi behåller AI:ts svar (som kan innehålla uppgifter hämtade ur offerten, t.ex. belopp eller adress) samt teknisk information inklusive din IP-adress i högst 24 timmar, enbart för att kunna felsöka fel — därefter raderas det automatiskt.</p>
 <p>Vi använder Cloudflare Web Analytics för kakfri besöks- och prestandastatistik. Offerttext, filer och granskningsresultat skickas inte till besöksmätningen.</p>
 <p>Prisbilden i resultatet räknas av vår egen kod mot referensintervall från offentliga källor (SCB, Skatteverket, Konsumentverket och namngivna prisguider) – se <a href="/sa-granskar-vi-priser/">Så granskar vi priser</a>. Om du kryssar i "Bidra anonymt till prisstatistik" sparar vi, utan koppling till dig eller offerten, ett fåtal grova uppgifter: jobbtyp, län, summaband, timprisband, ungefärlig andel arbete/material, om ROT förekom, vilka kontroller som föll ut och datum. Aldrig fritext, företagsnamn, organisationsnummer, personnamn, adress, IP-adress eller filnamn. Rutan är avbockad som standard. Uppgifterna används för att på sikt visa egna referensintervall per län.</p>
+<p>Vi räknar också hur många granskningar som blev klara, hur ofta Kopiera, e-post eller SMS används och hur ofta länkarna till Ståhle Digital klickas. Det är bara räknare med händelsens namn och vald roll – ingen offerttext, inga belopp, ingen IP-adress och inga filnamn.</p>
 <p>Läs mer i <a href="https://stahledigital.se/integritet">Ståhle Digitals integritetspolicy</a>.</p>
 </div>
 </details>
 
-<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital – Verkstaden</a>, Växjö · <a href="/foretagsuppgifter/">Företagsuppgifter</a> · <a href="mailto:hej@stahledigital.se">hej@stahledigital.se</a></p>
+<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital – Verkstaden</a>, Växjö · <a href="/foretagsuppgifter/">Företagsuppgifter</a> · <a href="mailto:hej@stahledigital.se" data-cta="epost">hej@stahledigital.se</a></p>
 </main>
 
 <script>
@@ -217,7 +228,7 @@ const demoResult={
     "Har ni ansvarsförsäkring och vilken garanti gäller på arbetet?",
     "Ingår bortforsling av allt rivningsmaterial, eller bara det som nämns?"
   ],
-  priceReport:Object.assign({"checked":[{"id":"moms","status":"ok","title":"Moms","text":"Priserna anges inklusive moms, konsekvent.","source":""},{"id":"rot_belopp","status":"ok","title":"ROT-belopp","text":"ROT-avdraget 6 426 kr är 30 % av arbetskostnaden 21 420 kr inklusive moms.","source":"Skatteverket, Rot och rut, sidan ändrad 2026-03-03"},{"id":"arbetssumma","status":"ok","title":"Timmar × timpris","text":"36 timmar × 595 kr = 21 420 kr, vilket stämmer med arbetssumman.","source":""},{"id":"summa","status":"ok","title":"Summering","text":"Raderna summerar till 42 820 kr, och efter ROT-avdrag 6 426 kr blir det 36 394 kr att betala – det stämmer.","source":""},{"id":"pristyp","status":"flagga","title":"Pristyp","text":"Offerten anger inte om priset är fast, ungefärligt eller löpande. Ett ungefärligt pris får överskridas med högst 15 %; ett löpande pris har inget tak.","source":"Konsumentverket, Anlita hantverkare, 2026"}],"compared":[{"id":"tim_snickare","mode":"inom","title":"Marknad – timpris snickare","text":"Timpriset 595 kr per timme inkl. moms ligger inom det intervall vi ser för snickare 2026 (550–800 kr per timme inkl. moms; Byggahus.se mars 2026, SCB lönestatistik 2025).","source":"Byggahus.se mars 2026, SCB lönestatistik 2025"},{"id":"projekt","mode":"inom","title":"Totalpris takomläggning","text":"Totalpriset 1 338 kr per m² ligger inom det spann publika prisguider anger för takomläggning 2026 (1 200–3 000 kr per m², typiskt ~1 500 kr/m²; Byggstart 2026). Guiderna redovisar inte metod – se det som en grov referens.","source":"Byggstart 2026"}],"cannotAssess":[{"title":"Betalningsdatum","text":"Varken offertdatum eller planerad betalning anges. ROT-satsen styrs av när betalningen sker, så kontrollen ovan utgår från betalning i år.","source":"Skatteverket, Rot och rut, sidan ändrad 2026-03-03"}]},{referenceVersion:"2026-09-18",disclaimer:"Referensintervallen bygger på offentliga källor och är en uppskattning, inte facit. Ett pris utanför intervallet är en fråga att ställa, inte ett fel."}),
+  priceReport:Object.assign({"checked":[{"id":"moms","status":"ok","title":"Moms","text":"Priserna anges inklusive moms, konsekvent.","source":""},{"id":"rot_belopp","status":"ok","title":"ROT-belopp","text":"ROT-avdraget 6 426 kr är 30 % av arbetskostnaden 21 420 kr inklusive moms.","source":"Skatteverket, Rot och rut, sidan ändrad 2026-03-03"},{"id":"arbetssumma","status":"ok","title":"Timmar × timpris","text":"36 timmar × 595 kr = 21 420 kr, vilket stämmer med arbetssumman.","source":""},{"id":"summa","status":"ok","title":"Summering","text":"Raderna summerar till 42 820 kr, och efter ROT-avdrag 6 426 kr blir det 36 394 kr att betala – det stämmer.","source":""},{"id":"pristyp","status":"flagga","title":"Pristyp","text":"Offerten anger inte om priset är fast, ungefärligt eller löpande. Ett ungefärligt pris får överskridas med högst 15 %; ett löpande pris har inget tak.","source":"Konsumentverket, Anlita hantverkare, 2026"}],"compared":[{"id":"tim_snickare","mode":"inom","title":"Marknad – timpris snickare","text":"Timpriset 595 kr per timme inkl. moms ligger inom det intervall vi ser för snickare 2026 (550–800 kr per timme inkl. moms; Byggahus.se mars 2026, SCB lönestatistik 2025).","source":"Byggahus.se mars 2026, SCB lönestatistik 2025"},{"id":"projekt","mode":"inom","title":"Totalpris takomläggning","text":"Totalpriset 1 338 kr per m² ligger inom det spann publika prisguider anger för takomläggning 2026 (1 200–3 000 kr per m², typiskt ~1 500 kr/m²; Byggstart 2026). Guiderna redovisar inte metod – se det som en grov referens.","source":"Byggstart 2026"}],"cannotAssess":[{"title":"Betalningsdatum","text":"Varken offertdatum eller planerad betalning anges. ROT-satsen styrs av när betalningen sker, så kontrollen ovan utgår från betalning i år.","source":"Skatteverket, Rot och rut, sidan ändrad 2026-03-03"}]},{referenceVersion:"2026-10-09",disclaimer:"Referensintervallen bygger på offentliga källor och är en uppskattning, inte facit. Ett pris utanför intervallet är en fråga att ställa, inte ett fel."}),
   meta:{demo:true}
 };
 
@@ -246,7 +257,7 @@ function findingsList(items,statusClass,icon){
 function calcSummaryFragment(result){
   if(result.calcCoverage==='insufficient_data')return 'beräkningen gick inte att kontrollera';
   const n=(result.contradictions||[]).length;
-  if(n===0)return 'inga räknefel upptäckta';
+  if(n===0)return 'inga räknefel upptäckta i AI-kontrollen';
   return n===1?'1 avvikelse hittad':`${n} avvikelser hittade`;
 }
 
@@ -294,29 +305,84 @@ function renderPriceReport(result){
 }
 function priceCounts(result){
   const pr=result.priceReport;if(!pr)return null;
-  const bad=(pr.checked||[]).filter(c=>c.status==='fel').length;
-  const ask=(pr.checked||[]).filter(c=>c.status==='fraga'||c.status==='flagga').length+(pr.compared||[]).filter(c=>c.mode!=='inom').length;
-  return {bad,ask};
+  const checked=pr.checked||[],cmp=pr.compared||[],cannot=pr.cannotAssess||[];
+  const bad=checked.filter(c=>c.status==='fel').length;
+  const okN=checked.filter(c=>c.status==='ok').length;
+  const ask=checked.filter(c=>c.status==='fraga'||c.status==='flagga').length+cmp.filter(c=>c.mode!=='inom').length;
+  const cannotN=cannot.length;
+  return {bad,okN,ask,cannotN,partial:!!pr.partial};
+}
+// Sammanfattningens prisdel. "Stämmer" sägs bara om minst en prisregel faktiskt kördes och föll ut som OK;
+// ingenting grönt sägs om kontroller som inte gick att göra (de redovisas som "går inte att bedöma").
+function priceSummaryFragment(result){
+  const pc=priceCounts(result);
+  if(!pc)return '';
+  const parts=[];
+  if(pc.bad)parts.push(`${pc.bad} ${pc.bad===1?'prisregel som inte stämmer':'prisregler som inte stämmer'}`);
+  if(pc.okN&&!pc.bad&&!pc.ask)parts.push(`${pc.okN} ${pc.okN===1?'prisregel kontrollerad och stämmer':'prisregler kontrollerade och stämmer'}`);
+  else if(pc.okN&&!pc.bad)parts.push(`${pc.okN} ${pc.okN===1?'prisregel stämmer':'prisregler stämmer'}`);
+  if(pc.ask)parts.push(`${pc.ask} ${pc.ask===1?'prisfråga att ställa':'prisfrågor att ställa'}`);
+  if(pc.cannotN)parts.push(`${pc.cannotN} ${pc.cannotN===1?'prisuppgift som inte går att bedöma':'prisuppgifter som inte går att bedöma'}`);
+  if(!parts.length)parts.push('ingen prisregel kunde kontrolleras');
+  if(pc.partial)parts.push('prisgranskningen är ofullständig');
+  return ', '+parts.join(', ');
 }
 function ctaLabel(){
   return chosenPath==='hantverkare' ? 'Kopiera punkter att förtydliga' : 'Kopiera frågor till hantverkaren';
 }
 
 const SIGN='\n\nGranskat med granskaminoffert.se – gratis granskning av hantverkarofferter';
-function buildClipboardText(result,path){
-  if(path==='hantverkare'){
-    const items=result.clarify||[];
-    if(!items.length)return 'Inga punkter att förtydliga hittades.'+SIGN;
-    return 'Punkter att förtydliga innan offerten skickas:\n'+items.map(i=>`– ${i.key}: ${i.text}`).join('\n')+SIGN;
-  }
-  const qs=result.questions||[];
+// EN källa för både skärm och export: samma resultatobjekt, samma urval. Roll styr bara inledning och
+// huvudlista; räknefel, prisfel/prisfrågor och osäkerheter exporteras för båda rollerna.
+function exportModel(result){
   const pr=result.priceReport;
-  const pl=pr?[...(pr.checked||[]).filter(c=>c.status!=='ok'),...(pr.compared||[]).filter(c=>c.mode!=='inom'),...(pr.cannotAssess||[])]:[];
-  if(!qs.length&&!pl.length)return 'Inga frågor genererades.'+SIGN;
-  let t='Hej! Jag har några frågor om offerten innan jag skriver på:\n'+qs.map(q=>`– ${q}`).join('\n');
-  if(pl.length)t+='\n\nOm priset:\n'+pl.map(c=>`– ${c.title}: ${c.text}`).join('\n');
-  return t+SIGN;
+  const checked=(pr&&pr.checked)||[],cmp=(pr&&pr.compared)||[],cannot=(pr&&pr.cannotAssess)||[];
+  const t=c=>({title:c.title,text:c.text});
+  const unsure=[];
+  if(result.calcCoverage==='insufficient_data')unsure.push({title:'Räknekontroll',text:result.calcNote||'Underlaget räckte inte för att kontrollera beräkningen.'});
+  cannot.forEach(c=>unsure.push(t(c)));
+  if(!pr)unsure.push({title:'Prisgranskning',text:'Prisgranskningen saknas i det här svaret.'});
+  return {
+    calc:(result.contradictions||[]).map(i=>({title:i.key,text:i.text})),
+    calcChecked:result.calcCoverage==='checked',
+    priceBad:checked.filter(c=>c.status==='fel').map(t),
+    priceAsk:[...checked.filter(c=>c.status==='fraga'||c.status==='flagga'),...cmp.filter(c=>c.mode!=='inom')].map(t),
+    unsure,
+    clarify:(result.clarify||[]).map(i=>({title:i.key,text:i.text})),
+    questions:result.questions||[]
+  };
 }
+const lines=(arr)=>arr.map(i=>`– ${i.title}: ${i.text}`).join('\n');
+function exportBody(result,path){
+  const m=exportModel(result);
+  const sec=[];
+  if(path==='hantverkare'){
+    sec.push('Punkter att förtydliga innan offerten skickas:'+(m.clarify.length?'\n'+lines(m.clarify):'\n– Inget hittades som behöver förtydligas i det som kontrollerades.'));
+  }else{
+    sec.push('Hej! Jag har några frågor om offerten innan jag skriver på:'+(m.questions.length?'\n'+m.questions.map(q=>`– ${q}`).join('\n'):'\n– (Inga frågor genererades.)'));
+    if(m.clarify.length)sec.push('Det som är otydligt i offerten:\n'+lines(m.clarify));
+  }
+  if(m.calc.length)sec.push('Räknefel och motsägelser:\n'+lines(m.calc));
+  else if(m.calcChecked)sec.push('Räknekontroll: inga räknefel hittades i AI-kontrollen.');
+  if(m.priceBad.length)sec.push('Prisregler som inte stämmer:\n'+lines(m.priceBad));
+  if(m.priceAsk.length)sec.push('Prisfrågor:\n'+lines(m.priceAsk));
+  if(m.unsure.length)sec.push('Går inte att bedöma:\n'+lines(m.unsure));
+  return sec.join('\n\n');
+}
+// Hela texten går alltid att Kopiera. E-post och SMS förkortas rad för rad om länken annars blir för lång,
+// och förkortningen anges i texten och på sidan.
+const SHORT_NOTE='\n\n[Förkortad text – hela listan finns under Kopiera på granskaminoffert.se-sidan.]';
+function fitText(body,maxEncoded){
+  const enc=t=>encodeURIComponent(t).length;
+  if(enc(body+SIGN)<=maxEncoded)return {text:body+SIGN,cut:false};
+  const out=[];
+  for(const ln of body.split('\n')){
+    if(enc(out.concat(ln).join('\n')+SHORT_NOTE+SIGN)>maxEncoded)break;
+    out.push(ln);
+  }
+  return {text:out.join('\n').replace(/\s+$/,'')+SHORT_NOTE+SIGN,cut:true};
+}
+function buildClipboardText(result,path){return exportBody(result,path)+SIGN;}
 function isMobile(){return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&innerWidth<900);}
 function renderActionList(result,path){
   if(path==='hantverkare'){
@@ -336,16 +402,17 @@ function render(result,isDemo){
   const statedN=(result.stated||[]).length;
   const clarifyWord=clarifyN===1?'sak att förtydliga':'saker att förtydliga';
   const pc=priceCounts(result);
-  const priceFrag=pc?(pc.bad?`, ${pc.bad} ${pc.bad===1?'prisregel som inte stämmer':'prisregler som inte stämmer'}`:', prisreglerna stämmer')+(pc.ask?` och ${pc.ask} ${pc.ask===1?'prisfråga att ställa':'prisfrågor att ställa'}`:''):'';
-  const summary=`${clarifyN} ${clarifyWord}, ${calcSummaryFragment(result)}${priceFrag}, ${statedN} uppgifter som framgår tydligt.`;
+  const priceFrag=priceSummaryFragment(result);
+  const summary=`${clarifyN} ${clarifyWord}, ${calcSummaryFragment(result)}${priceFrag}, ${statedN} ${statedN===1?'uppgift som framgår':'uppgifter som framgår'} tydligt.`;
 
   $('res').innerHTML=`<div class="summarybox"><h2>Så här ser offerten ut${isDemo?' <span class="tag">Exempel</span>':''}</h2><p>${summary}</p></div>
   ${renderActionList(result,chosenPath)}
   <div class="send">
     <a class="btn acc" id="sendmail" href="#">${sendLabel()}</a>
     ${isMobile()?'<a class="btn" id="sendsms" href="#">Skicka som SMS</a>':''}
-    <button class="btn ghost" id="copybtn">Kopiera</button>
+    <button type="button" class="btn ghost" id="copybtn">Kopiera</button>
   </div>
+  <p class="caveat" id="shortnote" hidden>E-post- och SMS-texten är förkortad. Hela listan finns under Kopiera.</p>
   <h3>Motsägelser och räknefel</h3>${renderCalcSection(result)}
   ${chosenPath==='hantverkare'?'':`<h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>'}`}
   <h3>Prisbild</h3>${renderPriceReport(result)}
@@ -355,16 +422,22 @@ function render(result,isDemo){
   </div>
   ${chosenPath==='hantverkare'?`<aside class="fromsd"><p class="fromsd-tag">Från Ståhle Digital</p>
     <p>Har firman ingen hemsida, eller en som inte ger jobb? Vi bygger hemsidor för hantverkare i Växjö med omnejd.</p>
-    <a class="btn" href="https://stahledigital.se" rel="noopener">Se vad vi gör</a>
-    <p class="sub">Ska du räkna material till jobbet? <a href="https://stahledigital.se/verkstaden/materialraknaren" rel="noopener">Materialräknaren är gratis.</a></p>
+    <a class="btn" href="https://stahledigital.se" rel="noopener" data-cta="hemsida">Se vad vi gör</a>
+    <p class="sub">Ska du räkna material till jobbet? <a href="https://stahledigital.se/verkstaden/materialraknaren" rel="noopener" data-cta="materialraknaren">Materialräknaren är gratis.</a></p>
   </aside>`:''}`;
-  const text=buildClipboardText(result,chosenPath);
+  const body=exportBody(result,chosenPath);
   const subj=chosenPath==='hantverkare'?'Punkter att förtydliga i offerten':'Frågor om offerten';
-  $('sendmail').href='mailto:?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(text);
+  const mail=fitText(body,1900),sms=fitText(body,1200);
+  $('sendmail').href='mailto:?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(mail.text);
   $('sendmail').addEventListener('click',()=>trackShare('email'));
-  if($('sendsms')){$('sendsms').href='sms:?&body='+encodeURIComponent(text);$('sendsms').addEventListener('click',()=>trackShare('sms'));}
+  if($('sendsms')){$('sendsms').href='sms:?&body='+encodeURIComponent(sms.text);$('sendsms').addEventListener('click',()=>trackShare('sms'));}
+  if(mail.cut||($('sendsms')&&sms.cut))$('shortnote').hidden=false;
+  $('res').querySelectorAll('[data-cta]').forEach(a=>a.addEventListener('click',()=>sendEvent({type:'client',event:'kontakt_cta',detail:a.dataset.cta})));
   $('res').classList.add('on');
+  $('announce').textContent=(isDemo?'Exempel. ':'Granskningen är klar. ')+summary;
+  const h=$('res').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}
   $('res').scrollIntoView({behavior:'smooth',block:'start'});
+  if(!isDemo)sendEvent({type:'client',event:'rapport_klar'});
 
   const copyBtn=$('copybtn');
   copyBtn.onclick=async()=>{
@@ -373,6 +446,7 @@ function render(result,isDemo){
       await navigator.clipboard.writeText(text);
       trackShare('copy');
       copyBtn.textContent='Kopierat!';
+      $('announce').textContent='Texten är kopierad.';
       setTimeout(()=>{copyBtn.textContent='Kopiera';},1800);
     }catch(e){
       showError('Kunde inte kopiera automatiskt — markera och kopiera texten manuellt.');
@@ -380,15 +454,20 @@ function render(result,isDemo){
   };
 }
 
-// Räknar bara att en delningsknapp trycktes (kanal), inget innehåll. Exempeloffert räknas inte.
-function trackShare(channel){
+// Mätning: bara räknare, aldrig innehåll. Exempeloffert och testkörningar skickar inget i skarpt läge.
+// Roll skickas som etikett; händelsen "rapport_klar" är klientens egen och ersätter inte serverns granskning_klar.
+function sendEvent(ev){
   try{
-    if(!API_BASE||!lastResult||lastIsDemo)return;
+    if(!API_BASE||lastIsDemo)return;
     const url=API_BASE.replace(/\/$/,'')+'/event';
-    const body=JSON.stringify({type:'share',channel});
+    const body=JSON.stringify(Object.assign({role:chosenPath,test:SD_TEST},ev));
     if(navigator.sendBeacon){navigator.sendBeacon(url,new Blob([body],{type:'application/json'}));}
     else{fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:true}).catch(()=>{});}
   }catch(e){}
+}
+function trackShare(channel){
+  if(!lastResult)return;
+  sendEvent({type:'share',channel});
 }
 
 async function runReview(){
@@ -430,7 +509,7 @@ async function runReview(){
 document.querySelectorAll('.pathcard').forEach(el=>{
   el.addEventListener('click',()=>{
     chosenPath=el.dataset.path;
-    document.querySelectorAll('.pathcard').forEach(c=>c.classList.toggle('sel',c===el));
+    document.querySelectorAll('.pathcard').forEach(c=>{c.classList.toggle('sel',c===el);c.setAttribute('aria-pressed',c===el?'true':'false');});
     $('pathnote').textContent=PATHNOTE[chosenPath];
     if(lastResult&&$('res').classList.contains('on'))render(lastResult,lastIsDemo);
   });
@@ -444,6 +523,12 @@ $('demo').onclick=()=>{
 };
 $('paste').onclick=()=>{pendingFile=null;$('filepreview').classList.remove('on');$('txt').classList.add('on');$('runwrap').style.display='flex';$('txt').focus();};
 $('run').onclick=runReview;
+
+// Riktiga knappar öppnar filväljaren, så Tab, Enter och Mellanslag fungerar utan mus.
+$('pickfile').addEventListener('click',()=>$('file').click());
+$('pickcam').addEventListener('click',()=>$('cam').click());
+$('privlink').addEventListener('click',()=>{const d=$('om');d.open=true;});
+document.querySelectorAll('.foot [data-cta]').forEach(a=>a.addEventListener('click',()=>sendEvent({type:'client',event:'kontakt_cta',detail:a.dataset.cta})));
 
 const drop=$('drop');
 ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over');}));
@@ -510,7 +595,7 @@ function laddaFil(f){
     const kind=f.type==='application/pdf'?'pdf':'image';
     pendingFile={kind,dataBase64:base64,mediaType:f.type,filename:f.name};
     $('txt').classList.remove('on');
-    $('filepreview').textContent=`Vald fil: ${f.name} (${Math.round(f.size/1024)} kB)`;
+    $('filepreview').textContent=`Vald fil: ${f.name} (${Math.round(f.size/1024)} kB). Tryck Granska för att starta.`;
     $('filepreview').classList.add('on');
     $('runwrap').style.display='flex';
   };

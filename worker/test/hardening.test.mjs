@@ -316,18 +316,33 @@ test("mätning: klienthändelser valideras, får andra namn än serverbekräftad
   assert.equal(normalizeClientEvent({ type: "share", event: "export" }), null);
   const ae = fakeAE();
   const post = (b, o = {}) => worker.fetch(new Request("https://api.test/event", { method: "POST", headers: { Origin: o.origin || ORIGIN, "CF-Connecting-IP": "203.0.113.1", ...(o.h || {}) }, body: typeof b === "string" ? b : JSON.stringify(b) }), env({ GRANSKA_H: ae }), ctx());
-  assert.equal((await post({ type: "client", event: "kontakt_cta", detail: "donatello", role: "okand" })).status, 204);
+  assert.equal((await post({ type: "client", event: "kontakt_cta", detail: "hemsida", role: "okand" })).status, 204);
   assert.equal((await post({ type: "client", event: "rapport_klar", role: "mottagare", test: true })).status, 204);
   assert.equal((await post({ type: "client", event: "export", detail: "sms", role: "x" }, { h: { "X-SD-Test": "1" } })).status, 204);
   assert.equal((await post({ type: "client", event: "export", detail: "Anna Andersson" })).status, 204);
   assert.equal((await post("x".repeat(3000))).status, 204);
   assert.equal((await post({ type: "client", event: "rapport_klar" }, { origin: "https://ond.example" })).status, 403);
   assert.deepEqual(ae.p, [
-    { blobs: ["klient_kontakt_cta", "donatello", "okand"], indexes: ["skarp"] },
+    { blobs: ["klient_kontakt_cta", "hemsida", "okand"], indexes: ["skarp"] },
     { blobs: ["klient_rapport_klar", "", "mottagare"], indexes: ["test"] },
     { blobs: ["klient_export", "sms", "okand"], indexes: ["test"] },
   ]);
   assert.ok(!ae.p.some((x) => x.blobs[0] === "granskning_klar"), "klienten kan inte skapa serverbekräftade granskningar");
+});
+
+test("mätning: delningsklick räknas även som export i mätningen (en beacon), demo och fritext släpps inte igenom", async () => {
+  const ae = fakeAE();
+  const e = env({ GRANSKA_H: ae });
+  const post = (b) => worker.fetch(new Request("https://api.test/event", { method: "POST", headers: { Origin: ORIGIN }, body: JSON.stringify(b) }), e, ctx());
+  await post({ type: "share", channel: "email", role: "hantverkare" });
+  await post({ type: "share", channel: "sms", role: "mottagare", test: true });
+  await post({ type: "share", channel: "fax" });
+  const kv = [...e.REVIEWS_KV.m.keys()];
+  assert.ok(kv.includes("count:share:email"));
+  assert.deepEqual(ae.p, [
+    { blobs: ["klient_export", "email", "hantverkare"], indexes: ["skarp"] },
+    { blobs: ["klient_export", "sms", "mottagare"], indexes: ["test"] },
+  ]);
 });
 
 test("mätning: klienthändelser begränsas av EVENT_RL när bindningen finns", async () => {

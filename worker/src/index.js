@@ -484,7 +484,7 @@ export function normalizeChannel(c) {
 const CLIENT_EVENTS = {
   rapport_klar: [],
   export: ["email", "sms", "copy"],
-  kontakt_cta: ["donatello", "stahledigital"],
+  kontakt_cta: ["hemsida", "materialraknaren", "epost"],
 };
 export function normalizeClientEvent(body) {
   if (!body || typeof body !== "object" || body.type !== "client") return null;
@@ -921,6 +921,8 @@ export default {
           const body = JSON.parse(raw);
           channel = normalizeChannel(body && body.type === "share" ? body.channel : null);
           client = normalizeClientEvent(body);
+          // En delningsklick är också en "export" i mätningen (samma signal, en beacon).
+          if (channel && !client) client = normalizeClientEvent({ type: "client", event: "export", detail: channel, role: body.role, test: body.test });
         }
       } catch (e) { /* ogiltig kropp: ignorera */ }
       if (channel) ctx.waitUntil(recordShare(env, channel).catch(() => {}));

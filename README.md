@@ -17,3 +17,10 @@ Backend: dubbelklicka `DEPLOY_GRANSKAMINOFFERT_WORKER.command` (wrangler deploy 
 
 ## Ändringslogg
 Se `CHANGELOG.md`.
+
+## D03-kandidat (2026-10-09)
+- Worker-tester: `cd worker && node --test test/*.test.mjs` (inget nätverk, ingen nyckel).
+- UI-tester: `node --test tests/ui/ui.test.mjs` (kräver Playwright + Chromium; `PLAYWRIGHT_MODULE`, `CHROMIUM_PATH`).
+- F2 (verkligt AI-prov): facit i `worker/test/f2/facit.json`. `scripts/f2_run.mjs` kör inget utan ett beslutat provbudget. Offline-delen (`f2.test.mjs`) prövar bara regelkoden.
+- Aktivering av atomärt dagstak: se kommentarsblocket i `worker/wrangler.toml` (kräver separat kontroll av plan).
+- Rollback: kandidatens bas är commit `78703f4`; live-identiteten före släpp läses från `/health` (`version`, `build`, `model`).
