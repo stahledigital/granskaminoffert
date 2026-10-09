@@ -73,6 +73,10 @@ async function newPage(viewport = { width: 390, height: 844 }, mock = {}) {
   });
   await page.route(/cloudflareinsights/, (r) => r.abort());
   await page.goto(base + "/", { waitUntil: "load" });
+  // Playwright slår på filväljar-avlyssning asynkront: utan lyssnare + liten väntan kan det första Enter-trycket
+  // komma före avlyssningen (testartefakt, påvisad i 12 körningar utan lyssnare: 6 missar; med lyssnare: 0).
+  page.on("filechooser", () => {});
+  await page.waitForTimeout(300);
   return { page, context, events, reviews };
 }
 async function runWithText(page, text = "Offert 42 820 kr") {
@@ -90,6 +94,7 @@ test("tangentbord: Välj fil och Ta foto är knappar som öppnar filväljaren me
     const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.keyboard.press(key)]);
     assert.ok(chooser, `${sel} ${key}`);
     await chooser.setFiles([]);
+    await page.waitForTimeout(250); // headless Chromium behöver landa förra väljaren innan nästa öppnas
   }
   // fokusordning: rollknappar -> Välj fil nås med Tab utan att passera dolda inputs
   await page.focus(".pathcard[data-path=hantverkare]");
