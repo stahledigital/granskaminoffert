@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## gmo-v20 / gmo-api-v10 – exempelbeskedet direkt i bild
+- Exempelofferten använder samma reserverade resultatposition som en riktig granskning. Beskedet kommer i bild direkt utan något API-anrop.
+
+
 ## gmo-v19 / gmo-api-v10 – tydligare besked efter granskning
 - Ett tydligt färgbesked, verkliga antal och animerade segment med samma underlag som detaljer och export. Okänt visas separat; grön gäller enbart de kontrollerade delarna. Reducerad rörelse stöds.
 - Reserverad laddningsyta ersätts på plats; ingen scroll när svaret kommer. Alla fynd och frågor ligger bakom en stängd öppning.
