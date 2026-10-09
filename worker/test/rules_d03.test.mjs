@@ -222,6 +222,10 @@ test("F8/T07-T08: framkörningssumma för flera besök jämförs per besök, ald
   assert.match(unknown[0].text, /antal besök/);
   // verkligt avvikande per besök flaggas fortfarande
   assert.equal(checkNormalAddons(prep({ travelSumSek: 12000, travelVisits: 8 }), REFX)[0].status, "flagga");
+  // F8c/T08: belopp inom spannet men okänt antal besök är fråga, inte OK på hypotesen "ett besök"
+  const inSpan = checkNormalAddons(prep({ travelSumSek: 450 }), REFX);
+  assert.equal(inSpan[0].status, "fraga");
+  assert.match(inSpan[0].text, /antal besök/);
   // ett besök
   assert.equal(checkNormalAddons(prep({ travelSumSek: 450, travelVisits: 1 }), REFX)[0].status, "ok");
   // ogiltigt antal besök avvisas av saneringen

@@ -1,5 +1,13 @@
 # Granska min offert – ändringslogg
 
+## gmo-v16 / gmo-api-v10 – rättning F8c (KANDIDAT 4 – ej släppt)
+Rättar Codex återtest av c90c370 och 2ff74b1 (RATTNINGAR_F8.md). Inget publicerat, ingen betald AI.
+- **Worker-start i workerd**: konstanterna `ANTHROPIC_URL`/`ANTHROPIC_VERSION` och svarsläsningen ligger i egen modul `worker/src/provider.js`; huvudingången exporterar bara funktioner/klasser/handler. Hela produktionsingången (esbuild-paketerad som vid deploy) startas i Miniflare/workerd i `test/entry_runtime.test.mjs`: `/health`, 12 samtidiga granskningar mot globalt tak 3 → exakt 3 betalda anrop (mock), samt stängd betald trafik utan Durable Object.
+- **max_tokens/refusal**: `readReview` delas av Workern och F2-runnern. Avkortat eller nekat svar eller saknat `submit_review` är fel i F2, aldrig PASS.
+- **Haiku 5.5 nivåpris**: över 100 000 indatatokens gäller 0,50/2,50 USD per MTok för hela anropet. `computeCost` och F2:s reservation (`worstCaseUsd`) räknar med nivån; 150 000 in + 6 000 ut = 0,09 USD och blockeras av budget 0,02 före betalt anrop.
+- **T08 Framkörning**: okänt antal besök ger alltid fråga, även när summan ryms i per-besöksspannet (450 kr utan besöksantal). 450 kr/1 besök → OK, 3 600/8 → OK, 12 000/8 → flagga oförändrat.
+- Tester: Worker 119, UI 14, Codex-prober (semantic 24/24, travel 3/3, f2 8/8, index 6/6, worker N23/N24, kvot 7/7) PASS lokalt.
+
 ## gmo-v16 / gmo-api-v10 – rättning F8b (KANDIDAT 3 – ej släppt)
 - **N18 Sammanfattning/UI** (`index.html`): moms, pristyp och betaldatum räknas som formalia och ger aldrig "prisregler kontrollerade och stämmer". Ren formalia visas som "N formaliauppgifter kontrollerade – inga priser bedömda". "Inga frågor genererades – offerten verkar besvara det vi kontrollerar" och motsvarande texter sägs bara när något sakligt bedömts och inget lämnats obedömt; annars ett neutralt besked.
 - **P04 Netto utan ROT-belopp** (`amounts.js`): uttrycklig summa att betala utan angivet ROT-belopp ometiketteras inte som "före ROT". Avviker raderna från nettot blir totalen `oklar` (`avdrag_okant`) med två villkorade tolkningar (inget avdrag / avdrag som saknas i avläsningen) och summeringen blir en fråga, inte ett fel.

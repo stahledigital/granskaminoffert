@@ -19,7 +19,7 @@ const byId = (arr, id) => arr.find((c) => c.id === id);
 // Fem testofferter enligt Moneymans krav.
 export const FIXTURES = {
   korrekt: { ...base, jobType: "altan", trades: ["snickare"], hourlyRateSek: 650, hours: 60, laborSumSek: 39000, materialSumSek: 28000,
-    travelSumSek: 600, rotAmountSek: 11700, rotRatePct: 30, priceType: "fast", vatMode: "inkl", totalSumSek: 55900, totalIncludesVat: true,
+    travelSumSek: 600, travelVisits: 1, rotAmountSek: 11700, rotRatePct: 30, priceType: "fast", vatMode: "inkl", totalSumSek: 55900, totalIncludesVat: true,
     quoteDate: "2026-09-10", plannedPaymentDate: "2026-10-15", workDescription: "Altan 20 m² tryckimpregnerat trä på plintar", county: "Kronoberg", areaM2: 20 },
   rotPaMaterial: { ...base, jobType: "badrum", trades: ["plattsattare", "vvs"], hourlyRateSek: 750, laborSumSek: 120000, materialSumSek: 60000,
     rotAmountSek: 54000, rotOnMaterialOrTravel: true, priceType: "fast", vatMode: "inkl", totalSumSek: 126000, totalIncludesVat: true,

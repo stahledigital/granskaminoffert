@@ -335,9 +335,11 @@ export function checkNormalAddons(x, ref) {
           : `Framkörning ${calcTxt}. Vanligt spann är ${range} per besök – en fråga att ställa om vad som ingår.`,
         source: src(ref, a.travel.source) });
     } else {
+      // Antal besök saknas: ett belopp inom per-besöksspannet är bara ett OK om det gäller ett besök, vilket
+      // offerten inte säger. Därför alltid fråga, aldrig OK på hypotesen "ett besök" (T08).
       const inside = travel >= a.travel.min && travel <= a.travel.max;
-      out.push({ id: "framkorning", status: inside ? "ok" : "fraga", title: "Framkörning / servicebil",
-        text: inside ? `Framkörning ${kr(travel)} ligger inom det vanliga spannet ${range} per besök om den gäller ett besök. Offerten anger inte antal besök.`
+      out.push({ id: "framkorning", status: "fraga", title: "Framkörning / servicebil",
+        text: inside ? `Framkörning ${kr(travel)}. Spannet ${range} gäller per besök, och offerten anger inte antal besök: summan ryms om den gäller ett besök, men är den summan för flera besök blir priset per besök lägre. Fråga hur många besök den gäller.`
           : `Framkörning ${kr(travel)} totalt. Vanligt spann är ${range} per besök och offerten anger inte antal besök, så summan går inte att jämföra. Fråga hur många besök den gäller och vad som ingår.`,
         source: src(ref, a.travel.source) });
     }
