@@ -1,5 +1,17 @@
 # Granska min offert – ändringslogg
 
+## gmo-v16 / gmo-api-v10 – rättning F8 (GMO-REVISION-20261009-01 D03, KANDIDAT 2 – ej släppt)
+Rättar Codex återtest av f8a18a9 (RATTNINGAR_F8.md). Inget publicerat, ingen betald AI.
+- **P02/P03 Totalsummor** (`amounts.js`, `rules.js`): när både "före ROT" och "efter ROT" ryms i toleransen mot raderna är totalen `oklar` (tidigare `belagd`). Uttryckligen angivna "före ROT" och "att betala" som motsäger varandra ger felraden `total_konflikt` i stället för att den ena göms.
+- **P01 Värmepump**: nytt fält `totalContract` (uttrycklig totalentreprenad). Schablonen blir aldrig "stämmer": villkorat räkneexempel (inkl/exkl moms) och en fråga; "fel" bara när småhus, fast pris och totalentreprenad är uttryckliga och ingen momsbas ger beloppet. Skatteverkets sida anger inte momsbasen (UNKNOWN).
+- **Schema**: `totalBeforeRotSek` beskriver bara uttryckligt "före ROT"; ett omärkt "totalt"/"summa" är `totalSumSek`.
+- **N19 Export**: räkneanteckningen som syns på skärmen följer med i Kopiera/e-post/SMS för båda roller.
+- **N22 Kvot**: globala betalda dagstaket kräver atomär reservation (SQLite-backad Durable Object `QUOTA`, nu bunden i `wrangler.toml` med migration `v1`; ingen molnresurs skapas förrän deploy). Saknas bindningen svarar Workern 503 utan betalt anrop. Trasiga räknare, ogiltig konfiguration och ogiltiga Durable Object-svar nekar. Provad mot riktig lokal workerd (Miniflare): 40 samtidiga mot tak 7 → exakt 7.
+- **T07/T08 Framkörning**: summa för flera besök jämförs per besök (nytt fält `travelVisits`); okänt antal besök ger fråga, inte prisfynd.
+- **F2-runner** (`scripts/f2_run.mjs`): körbar, med exakta tak (USD och antal anrop), kostnadsreservation före varje anrop via gratis tokenmätning, stopp vid okänd kostnad. Samma begäranbyggare som Workern. Modellpost för `claude-haiku-5-5`.
+- **Prisindex** (`worker/scripts/indexing.mjs`, `update_reference.mjs`): band räknas alltid från en versionerad basnivå; samma period två gånger ändrar inget (inte heller med `--force`); okänd basperiod eller ogiltigt index stoppar utan ändring; ny basnivå kräver separat `--rebase` med belägg. Projektband med basis total indexeras inte (50/50-vikten saknade källa). Basperioden för nuvarande band är UNKNOWN, så ingen uppräkning görs. `hourly._method` stämmer nu med den faktiska golvformeln.
+- Tester: Worker 110 (inkl. 4 mot riktig workerd, 8 för F2-runnern, 7 för indexering), UI 13.
+
 ## gmo-v16 / gmo-api-v10 – 2026-10-09 (GMO-REVISION-20261009-01 D03, KANDIDAT – ej släppt)
 Allt nedan är lokalt kodat och testat mot mock. Ingenting är publicerat. Verklig AI-träffsäkerhet, riktig mobil och skärmläsare är EJ TESTAT.
 - **B Validering** (`worker/src/sanitize.js`): allt modellen returnerar saneras (enum, typer, tal, datum, listor, gränser, prototypnycklar). Ogiltigt blir tomt, aldrig gissat; ogiltig eller saknad moms blir `okant_moms` och ger en fråga. Ogiltiga fält redovisas som lucka ("Avläsningen"). Ett fel i ett prissteg ger en läsbar delgranskning (`partial`) i stället för ett 5xx.
