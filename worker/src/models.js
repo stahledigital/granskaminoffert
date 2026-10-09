@@ -42,6 +42,21 @@ export const MODELS = {
     maxTokens: 6000, // tänkande räknas som utdata; 4 000 räckte inte på äldre modell med lång offert
     lifecycle: "current",
   },
+  // Källa: platform.claude.com/docs/en/models/haiku-5-5/overview och .../migration-guide, läst 2026-10-09:
+  // $0.10 in / $0.50 ut per MTok upp till 100 000 tokens (över det $0.50 / $2.50 – våra begäranden
+  // ligger långt under, INPUT_TOKEN_LIMIT är 60 000). Forcerat tool_choice tillåts men utan tänkande, så
+  // `auto` används som för 5.5. temperature måste utelämnas (annat än 1 ger 400). Tänkande är adaptivt
+  // som standard; `between_tools` är inte dokumenterat för Haiku 5.5, så ingen thinking-parameter skickas.
+  // Samma nya tokenizer (~30 % fler tokens än Haiku 4.5). Träffsäkerheten är EJ TESTAT (F2).
+  "claude-haiku-5-5": {
+    inputUsdPerMTok: 0.1,
+    outputUsdPerMTok: 0.5,
+    forcedTool: false,
+    sampling: false,
+    thinking: null,
+    maxTokens: 6000,
+    lifecycle: "current (released 2026-10-07)",
+  },
 };
 
 const own = (o, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(o, k);

@@ -134,3 +134,20 @@ test("F2-runner: nyckel och rubriker skrivs aldrig ut", async () => {
     assert.ok(!/x-api-key/i.test(all));
   }
 });
+
+test("F2-runner: Haiku 5.5 – dokumenterad anropsform och prissatt kostnad, utan temperature och utan thinking-parameter", async () => {
+  const api = mockApi();
+  const env = { ...ENV, ANTHROPIC_MODEL: "claude-haiku-5-5", F2_BUDGET_USD: "0.25", F2_MAX_CALLS: "11" };
+  const r = await run(env, api);
+  assert.equal(r.exitCode, 0, r.out);
+  assert.equal(api.calls.messages, facit.cases.length);
+  const b = api.calls.bodies[0];
+  assert.equal(b.model, "claude-haiku-5-5");
+  assert.equal("temperature" in b, false);
+  assert.equal("thinking" in b, false);
+  assert.deepEqual(b.tool_choice, { type: "auto" });
+  // 2 000 in × 0,10 + 1 000 ut × 0,50 per MTok = 0,0007 USD per anrop
+  assert.equal(r.summary.spentUsd, Number((facit.cases.length * 0.0007).toFixed(6)));
+  // värsta fall per anrop 2 000 × 0,1/1e6 + 6 000 × 0,5/1e6 = 0,0032 USD: hela provet ryms med stor marginal i taket 0,25
+  assert.ok(facit.cases.length * 0.0032 < 0.25);
+});
