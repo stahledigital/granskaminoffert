@@ -17,6 +17,9 @@ import { sniffFile, countInputTokens, DEFAULT_INPUT_TOKEN_LIMIT } from "./limits
 
 // Durable Object-klassen måste exporteras härifrån för att kunna bindas (wrangler.toml, avsnittet QUOTA).
 export { QuotaCounter };
+export { ExplainBudget } from "./explain_budget.js";
+import { probeCreditOrg, creditExpired } from "./org_probe.js";
+import { handleExplain, explainCors, explainOrigins } from "./explain.js";
 
 import { ANTHROPIC_URL, ANTHROPIC_VERSION, readReview } from "./provider.js";
 
@@ -312,7 +315,7 @@ function corsHeaders(origin, allowedOrigins) {
 // Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
 // Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
 // aldrig underlag för fakturering.
-const WORKER_VERSION = "gmo-api-v10";
+const WORKER_VERSION = "gmo-api-v12";
 
 function dayKey(d = new Date()) {
   return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
@@ -879,6 +882,9 @@ export default {
       .map((s) => s.trim());
     const origin = request.headers.get("Origin") || "";
 
+    if (request.method === "OPTIONS" && url.pathname === "/explain") {
+      return new Response(null, { status: 204, headers: explainCors(origin, explainOrigins(env)) });
+    }
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(origin, allowedOrigins) });
     }
@@ -895,6 +901,8 @@ export default {
           build: typeof env.BUILD_ID === "string" && env.BUILD_ID ? env.BUILD_ID.slice(0, 40) : "okand",
           model, modelInTable: info !== null, modelLifecycle: info ? info.lifecycle : "okand",
           referenceVersion: REFERENCE.version,
+          // AI-förklaring (S3): av som standard. Visar bara läget, aldrig hemligheter.
+          explain: { enabled: env.EXPLAIN_ENABLED === "1", budgetBinding: Boolean(env.EXPLAIN_BUDGET && typeof env.EXPLAIN_BUDGET.get === "function"), turnstileSecret: Boolean(env.TURNSTILE_SECRET_KOLLAR) },
           quotaMode: quotaMode(env), quotaHardCap: quotaMode(env) === "durable_object", paidTrafficAllowed: quotaMode(env) === "durable_object",
         },
         200,
@@ -910,6 +918,18 @@ export default {
         else tratt(env, request, "granskning_fel", felOrsak(svar.status));
       }
       return svar;
+    }
+
+    // S4: bunden org-kontroll (bara bool + status + tid; aldrig org-ID eller leverantörssvar). Cachad: högst en verklig kontroll per nyckel och två minuter.
+    if (url.pathname === "/explain/org" && request.method === "GET") {
+      const expired = creditExpired(env);
+      const p = await probeCreditOrg(env);
+      return jsonResponse({ creditOrgMatches: p.creditOrgMatches, status: p.status, ms: p.ms, creditExpired: expired }, 200, { "cache-control": "no-store" });
+    }
+
+    // AI-förklaring för Ägarkollen/Synlighetskollen (S3). Eget CORS och eget budgettak; flagga AV som standard.
+    if (url.pathname === "/explain" && request.method === "POST") {
+      return handleExplain(request, env, ctx, { tratt });
     }
 
     // Delningsklick. Tar bara emot från vår egen sida (Origin-kontroll), och

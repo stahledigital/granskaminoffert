@@ -1,5 +1,24 @@
 # Granska min offert – ändringslogg
 
+## gmo-api-v12 – S3-rättning (slutna ID, fast text) + S4 org-kontroll + kreditstopp i /explain (KANDIDAT 11 – ej släppt, bas 646ff79 (live frontend gmo-v20, alla fem frontendfiler orörda), EN squash-commit)
+- **S3-rättning (Codex `S3_RATTNINGAR.md`):** modellen returnerar bara `priority_ids` (1–3, enum ur serverns giltiga åtgärder). Fri intro finns inte längre; varje annat fält i modellsvaret avvisas. ALL synlig text (intro `AI_INTRO`, etikett, åtgärder) är fast servertext, så obelagda påståenden (lösenordsläckage, betalningsanmärkningar, dataläckage) aldrig kan nå kunden. Ordlistevalideringen är borttagen. Cacheposter med gamla fria fält avvisas (`explain-v2`). Codex `explain_acceptance.mjs`: **8/8** (var 5/8), positivt ID-fall fungerar.
+- **Turnstile:** används bara om `TURNSTILE_SECRET_KOLLAR` finns; då krävs success + hostname (tillåtna origins) + action `forklaring`. Utan secret ingen påhittad spärr: vägen är serverbegränsad som `/review` (riktig CF-IP, atomisk budget 20 USD/månad, dag 100, IP 5). Inga nya secrets/konton/rotationer.
+- Ny `worker/src/org_probe.js`: `GET https://api.anthropic.com/v1/models?limit=1` (metadata, ingen generering, inget betalt anrop) med befintligt `ANTHROPIC_API_KEY`, fast URL, 4 s timeout; läser bara svarshuvudet `anthropic-organization-id` och jämför med krediterad organisation (konstant, kan ersättas av `EXPLAIN_CREDIT_ORG_ID`). Svarskroppen läses aldrig.
+- Portar i `/explain` före Turnstile, budget och AI: org stämmer inte / huvud saknas / fel eller timeout → **fast reservväg, inget AI-anrop**. Utgången kredit → samma. Org-ID, nyckel och leverantörssvar visas aldrig.
+- Kreditutgång: nya AI-anrop stoppas automatiskt från **2026-10-14 00:00 UTC** (fail-closed). Först ett nytt användarbeslut om budget kan öppna igen genom att sätta `EXPLAIN_CREDIT_UNTIL` (YYYY-MM-DD, första dagen utan kredit). Ogiltigt värde stänger.
+- Rate limit/cache: högst en verklig kontroll per nyckel och 10 min (ok) respektive 2 min (misslyckande), isolatminne + delad KV. Cachenyckeln är en hash av hemlighet + förväntad org, så ett byte av hemlighet ger ny nyckel och gammalt resultat återanvänds aldrig.
+- `GET /explain/org` returnerar endast `{creditOrgMatches, status, ms, creditExpired}` (`Cache-Control: no-store`). `/review` är **oförändrad** och styrs inte av org-kontrollen.
+- Inga nycklar roteras, inga konton/fakturor/krediter berörs. Tester: `worker/test/org_probe.test.mjs`, `explain.test.mjs` omskriven för slutna ID och valfri Turnstile.
+- **UNKNOWN/EJ TESTAT:** verklig probe mot Anthropic (inget riktigt anrop gjort), vilken organisation produktionsnyckeln faktiskt tillhör, att `anthropic-organization-id` returneras på `/v1/models` för just den nyckeltypen (dokumenterat i officiell API-översikt, ej provat här).
+
+## gmo-api-v11 – S3 POST /explain bakom flagga AV (KANDIDAT 8 – ej släppt, bas 7bf91df)
+- Nytt: `POST /explain` för Ägarkollen/Synlighetskollen. **`EXPLAIN_ENABLED = "0"`**: utan aktivering inga AI-anrop, ingen Turnstile, ingen budgetreservation; svaret är de fasta åtgärdstexterna.
+- Indata = fast katalog (`src/explain_catalog.js`): app + kontroll-ID + statusenum; allt annat avvisas (400). Ingen fritext/domän/IP/kontaktuppgift når modellen.
+- Modellen väljer och ordnar högst 3 giltiga åtgärds-ID + skriver en kort inledning; servern mappar fasta texter. Validering i kod (ID ur indata, inga statusord, inga siffror/domäner/priser/garantier/ranking/brådska/ägar- eller indexeringspåståenden, ingen ny teknisk term, längd) → annars fast reservväg, aldrig felruta.
+- Eget CORS (`EXPLAIN_ALLOWED_ORIGIN`), eget atomärt utgiftstak i `ExplainBudget` (SQLite-DO, migration v2): 20 USD/månad, 100/dygn, 5/IP/dygn, värsta-fall-reservation i µUSD (indatabytes + 1 200 utdatatokens inkl. tänkande), settle mot uppmätt kostnad, fail-closed.
+- Händelse `anrop_kostnad` med `app=agarkollen|synlighetskollen`. `/health` visar `explain`-läge.
+- **EJ TESTAT:** riktigt AI-anrop (inga betalda anrop gjorda), riktig Turnstile-siteverify, verklig kostnad per förklaring (UNKNOWN), produktionssecret/org-koppling (UNKNOWN).
+
 ## gmo-v20 / gmo-api-v10 – exempelbeskedet direkt i bild
 - Exempelofferten använder samma reserverade resultatposition som en riktig granskning. Beskedet kommer i bild direkt utan något API-anrop.
 

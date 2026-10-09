@@ -72,6 +72,8 @@ Workers och KV på gratisnivå. Anthropic-anropen kostar per användning: `meta.
 | Väg | Metod | Skydd |
 |---|---|---|
 | `/review` | POST | Origin måste finnas i `ALLOWED_ORIGIN` (403 annars), rate limit per IP och timme, globalt dagstak, max 8 MB, bara jpeg/png/webp/gif eller PDF |
+| `/explain` | POST | **Flagga `EXPLAIN_ENABLED` AV som standard.** Egen CORS (`EXPLAIN_ALLOWED_ORIGIN`, stahledigital.se), indata bara kontroll-ID + statusenum (strikt schema), modellen väljer bara slutna åtgärds-ID, ALL synlig text är fast servertext, Turnstile före AI-anrop **bara om** `TURNSTILE_SECRET_KOLLAR` finns (hostname + action `forklaring` verifieras; annars serverbegränsad väg som `/review`), egen atomär budget `EXPLAIN_BUDGET` (20 USD/månad, 100/dygn, 5/IP/dygn, fail-closed), ett anrop per färdig kontroll (cache), validering i kod → fast reservväg. Rör inte `/review`. |
+| `/explain/org` | GET | S4: bunden kontroll att nyckeln hör till den krediterade organisationen. Returnerar bara `creditOrgMatches` (bool), `status`, `ms`, `creditExpired`. Cachad (högst en verklig `GET /v1/models?limit=1` per nyckel och 2–10 min); cachenyckeln hashar hemligheten så ett byte ger ny kontroll. `/explain` gör nya AI-anrop bara om kontrollen är ok och krediten inte gått ut (standard stopp 2026-10-14 00:00 UTC; `EXPLAIN_CREDIT_UNTIL` efter nytt användarbeslut). |
 | `/event` | POST | Origin måste finnas i `ALLOWED_ORIGIN` (403 annars). Bara delningskanal, inget innehåll |
 | `/health` | GET | Öppen. Räknarna cachas 60 sekunder per isolat |
 

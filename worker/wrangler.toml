@@ -41,8 +41,19 @@ RATE_LIMIT_PER_HOUR = "8"
 # Måste vara ett heltal >= 0; allt annat stänger tjänsten (503) i stället för att gissa.
 GLOBAL_DAILY_LIMIT = "300"
 
+# POST /explain (AI-förklaring, Ägarkollen/Synlighetskollen). AV som standard: utan "1" görs inget AI-anrop,
+# ingen org-kontroll, ingen Turnstile-kontroll och ingen budgetreservation; svaret är de fasta åtgärdstexterna.
+# Modellen väljer bara slutna åtgärds-ID; ALL synlig text (intro, etikett, åtgärder) är fast servertext.
+# Turnstile används bara OM secret TURNSTILE_SECRET_KOLLAR finns (då verifieras hostname + action "forklaring");
+# utan den skyddas vägen av serverbegränsningarna (riktig CF-IP, atomisk 20 USD/månad, dag 100, IP 5) som publika /review.
+# Nya AI-anrop kräver dessutom lyckad org-kontroll (S4) och att krediten inte gått ut (EXPLAIN_CREDIT_UNTIL, standard 2026-10-14).
+# Aktiveras först efter oberoende test + separat release-GO. Egen CORS (inte ALLOWED_ORIGIN).
+EXPLAIN_ENABLED = "0"
+EXPLAIN_ALLOWED_ORIGIN = "https://stahledigital.se"
+
 # Secret (ALDRIG i denna fil, aldrig i repo):
 #   npx wrangler secret put ANTHROPIC_API_KEY
+#   (valfritt för /explain, bara om Turnstile ska användas:) npx wrangler secret put TURNSTILE_SECRET_KOLLAR
 
 # Atomärt globalt dagstak (F8/N22): en SQLite-backad Durable Object-instans räknar och är enda
 # skrivare. Globala betalda anrop KRÄVER denna bindning; utan den svarar Workern 503 och gör
@@ -57,6 +68,16 @@ class_name = "QuotaCounter"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["QuotaCounter"]
+
+# AI-förklaring för Ägarkollen/Synlighetskollen (POST /explain, S3). EGET atomärt utgiftstak (20 USD/månad),
+# skilt från GMO:s QUOTA. Ny klass kräver migration v2; ingen molnresurs skapas förrän `wrangler deploy`.
+[[durable_objects.bindings]]
+name = "EXPLAIN_BUDGET"
+class_name = "ExplainBudget"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["ExplainBudget"]
 
 # ---- Valfritt, INTE aktiverat ----
 # Begränsning av klienthändelser (/event), samma slags bindning som REVIEW_RL:
