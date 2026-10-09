@@ -307,10 +307,14 @@ function priceCounts(result){
   const pr=result.priceReport;if(!pr)return null;
   const checked=pr.checked||[],cmp=pr.compared||[],cannot=pr.cannotAssess||[];
   const bad=checked.filter(c=>c.status==='fel').length;
-  const okN=checked.filter(c=>c.status==='ok').length;
+  // Formalia (moms, pristyp, betaldatum) säger inget om priserna: de räknas inte som "prisregler som stämmer".
+  const FORMAL=['moms','pristyp','betaldatum'];
+  const isOk=c=>c.status==='ok';
+  const okN=checked.filter(c=>isOk(c)&&!FORMAL.includes(c.id)).length;
+  const formalOk=checked.filter(c=>isOk(c)&&FORMAL.includes(c.id)).length;
   const ask=checked.filter(c=>c.status==='fraga'||c.status==='flagga').length+cmp.filter(c=>c.mode!=='inom').length;
   const cannotN=cannot.length;
-  return {bad,okN,ask,cannotN,partial:!!pr.partial};
+  return {bad,okN,formalOk,ask,cannotN,partial:!!pr.partial};
 }
 // Sammanfattningens prisdel. "Stämmer" sägs bara om minst en prisregel faktiskt kördes och föll ut som OK;
 // ingenting grönt sägs om kontroller som inte gick att göra (de redovisas som "går inte att bedöma").
@@ -321,11 +325,19 @@ function priceSummaryFragment(result){
   if(pc.bad)parts.push(`${pc.bad} ${pc.bad===1?'prisregel som inte stämmer':'prisregler som inte stämmer'}`);
   if(pc.okN&&!pc.bad&&!pc.ask)parts.push(`${pc.okN} ${pc.okN===1?'prisregel kontrollerad och stämmer':'prisregler kontrollerade och stämmer'}`);
   else if(pc.okN&&!pc.bad)parts.push(`${pc.okN} ${pc.okN===1?'prisregel stämmer':'prisregler stämmer'}`);
+  if(pc.formalOk)parts.push(`${pc.formalOk} ${pc.formalOk===1?'formaliauppgift kontrollerad':'formaliauppgifter kontrollerade'}${pc.okN?'':' – inga priser bedömda'}`);
   if(pc.ask)parts.push(`${pc.ask} ${pc.ask===1?'prisfråga att ställa':'prisfrågor att ställa'}`);
   if(pc.cannotN)parts.push(`${pc.cannotN} ${pc.cannotN===1?'prisuppgift som inte går att bedöma':'prisuppgifter som inte går att bedöma'}`);
   if(!parts.length)parts.push('ingen prisregel kunde kontrolleras');
   if(pc.partial)parts.push('prisgranskningen är ofullständig');
   return ', '+parts.join(', ');
+}
+// Ett positivt "inget att fråga"-besked ges bara när något sakligt faktiskt bedömts och inget lämnats obedömt.
+function fullyAssessed(result){
+  const pc=priceCounts(result);
+  if(result.calcCoverage==='insufficient_data')return false;
+  if(!pc)return false;
+  return pc.okN>0&&pc.cannotN===0&&!pc.partial;
 }
 function ctaLabel(){
   return chosenPath==='hantverkare' ? 'Kopiera punkter att förtydliga' : 'Kopiera frågor till hantverkaren';
@@ -390,11 +402,11 @@ function isMobile(){return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 function renderActionList(result,path){
   if(path==='hantverkare'){
     const items=result.clarify||[];
-    const body=items.length?`<ol class="qs">${items.map(i=>`<li><b>${escapeHtml(i.key)}</b><small>${escapeHtml(i.text)}</small></li>`).join('')}</ol>`:'<p>Vi hittade inget som behöver förtydligas i det vi kontrollerar.</p>';
+    const body=items.length?`<ol class="qs">${items.map(i=>`<li><b>${escapeHtml(i.key)}</b><small>${escapeHtml(i.text)}</small></li>`).join('')}</ol>`:(fullyAssessed(result)?'<p>Vi hittade inget som behöver förtydligas i det vi kontrollerar.</p>':'<p>Vi hittade inget att förtydliga, men delar av offerten gick inte att bedöma (se nedan), så det är inget besked om att allt är komplett.</p>');
     return `<h3>Punkter att förtydliga innan du skickar</h3>${body}`;
   }
   const qs=result.questions||[];
-  const body=qs.length?`<ol class="qs">${qs.map(q=>`<li>${escapeHtml(q)}</li>`).join('')}</ol>`:'<p>Inga frågor genererades – offerten verkar besvara det vi kontrollerar.</p>';
+  const body=qs.length?`<ol class="qs">${qs.map(q=>`<li>${escapeHtml(q)}</li>`).join('')}</ol>`:(fullyAssessed(result)?'<p>Inga frågor genererades – offerten verkar besvara det vi kontrollerar.</p>':'<p>Inga frågor genererades, men delar av offerten gick inte att bedöma (se nedan). Det är inget besked om att offerten är komplett.</p>');
   return `<h3>Frågor att ställa innan du skriver på</h3>${body}`;
 }
 function sendLabel(){return chosenPath==='hantverkare'?'Skicka punkterna till dig själv':'Skicka frågorna till hantverkaren';}
@@ -417,7 +429,7 @@ function render(result,isDemo){
   </div>
   <p class="caveat" id="shortnote" hidden>E-post- och SMS-texten är förkortad. Hela listan finns under Kopiera.</p>
   <h3>Motsägelser och räknefel</h3>${renderCalcSection(result)}
-  ${chosenPath==='hantverkare'?'':`<h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>'}`}
+  ${chosenPath==='hantverkare'?'':`<h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):(fullyAssessed(result)?'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>':'<p>Inget otydligt hittades i det som kontrollerades, men delar gick inte att bedöma (se nedan).</p>')}`}
   <h3>Prisbild</h3>${renderPriceReport(result)}
   <details class="stated"><summary>Uppgifter som framgår (${statedN})</summary>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}</details>
   <div class="alt">

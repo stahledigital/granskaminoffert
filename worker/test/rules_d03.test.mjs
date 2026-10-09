@@ -227,3 +227,24 @@ test("F8/T07-T08: framkörningssumma för flera besök jämförs per besök, ald
   // ogiltigt antal besök avvisas av saneringen
   assert.equal(prep({ travelSumSek: 3600, travelVisits: 0.5 }).travelVisits, null);
 });
+
+test("F8/P04: explicit netto utan angivet ROT-belopp ometiketteras inte som före ROT; avvikande rader ger fråga", () => {
+  const o = { vatMode: "inkl", laborSumSek: 40000, materialSumSek: 20000, amountToPaySek: 48000, totalVatBasis: "inkl", rotAmountSek: null };
+  const t = resolveTotals(prep(o));
+  assert.equal(t.status, "oklar");
+  assert.equal(t.reason, "avdrag_okant");
+  assert.equal(t.toPayIncl, 48000);
+  assert.equal(t.alternatives.length, 2);
+  const s = by(rules(o), "summa");
+  assert.equal(s.status, "fraga");
+  assert.doesNotMatch(s.text, /totalen anges till 48\s000 kr före ROT/);
+  assert.match(s.text, /12\s000 kr/);
+  // netto och rader stämmer: belagt som tidigare
+  assert.equal(resolveTotals(prep({ ...o, amountToPaySek: 60000 })).status, "belagd");
+  // uttryckligt noll-ROT eller utan rader ändrar inte tidigare beteende
+  assert.equal(resolveTotals(prep({ ...o, rotAmountSek: 0 })).status, "belagd");
+  assert.equal(resolveTotals(prep({ vatMode: "inkl", amountToPaySek: 48000, totalVatBasis: "inkl" })).status, "belagd");
+  // N14 (nettot med ROT och rader) förblir belagt före 15 000
+  const n14 = resolveTotals(prep({ vatMode: "exkl", laborSumSek: 10000, materialSumSek: 2000, totalVatBasis: "inkl", totalIncludesVat: true, rotAmountSek: 3750, amountToPaySek: 11250 }));
+  assert.deepEqual([n14.status, n14.beforeRotIncl, n14.toPayIncl], ["belagd", 15000, 11250]);
+});

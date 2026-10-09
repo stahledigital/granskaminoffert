@@ -105,6 +105,20 @@ export function resolveTotals(x) {
   if (pay !== null) {
     if (f !== null) {
       const toPayIncl = pay * f;
+      // Uttrycklig summa att betala utan angivet ROT-belopp: ett saknat belopp är inte ett belägg för
+      // "inget avdrag". Skiljer sig raderna från nettot kan ett avdrag ha tappats i avläsningen. Nettot
+      // behåller sin identitet (aldrig ometiketterat som "före ROT"); före-ROT-beloppet redovisas villkorat.
+      const rowsIncl = rowsSumIncl(x);
+      if (rot === null && rowsIncl !== null && !withinPct(toPayIncl, rowsIncl)) {
+        const gap = rowsIncl - toPayIncl;
+        return {
+          status: "oklar", reason: "avdrag_okant", toPayIncl, basis: tb,
+          alternatives: [
+            { label: `inget ROT-avdrag finns och ${kr0(toPayIncl)} är hela priset`, beforeRotIncl: toPayIncl, basis: tb },
+            ...(gap > 0 ? [{ label: `ett avdrag på ${kr0(gap)} saknas i avläsningen, så att ${kr0(toPayIncl)} är summan att betala efter avdraget (före avdrag ${kr0(rowsIncl)})`, beforeRotIncl: rowsIncl, basis: tb }] : []),
+          ],
+        };
+      }
       return { status: "belagd", beforeRotIncl: hasRot ? toPayIncl + rot : toPayIncl, toPayIncl, source: hasRot ? "explicit_att_betala" : "ingen_rot", basis: tb };
     }
     return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `summan att betala är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: hasRot ? pay * k + rot : pay * k, basis: b })) };

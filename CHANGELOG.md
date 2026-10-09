@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## gmo-v16 / gmo-api-v10 – rättning F8b (KANDIDAT 3 – ej släppt)
+- **N18 Sammanfattning/UI** (`index.html`): moms, pristyp och betaldatum räknas som formalia och ger aldrig "prisregler kontrollerade och stämmer". Ren formalia visas som "N formaliauppgifter kontrollerade – inga priser bedömda". "Inga frågor genererades – offerten verkar besvara det vi kontrollerar" och motsvarande texter sägs bara när något sakligt bedömts och inget lämnats obedömt; annars ett neutralt besked.
+- **P04 Netto utan ROT-belopp** (`amounts.js`): uttrycklig summa att betala utan angivet ROT-belopp ometiketteras inte som "före ROT". Avviker raderna från nettot blir totalen `oklar` (`avdrag_okant`) med två villkorade tolkningar (inget avdrag / avdrag som saknas i avläsningen) och summeringen blir en fråga, inte ett fel.
+- Tester: Worker 111, UI 14.
+
 ## gmo-v16 / gmo-api-v10 – rättning F8 (GMO-REVISION-20261009-01 D03, KANDIDAT 2 – ej släppt)
 Rättar Codex återtest av f8a18a9 (RATTNINGAR_F8.md). Inget publicerat, ingen betald AI.
 - **P02/P03 Totalsummor** (`amounts.js`, `rules.js`): när både "före ROT" och "efter ROT" ryms i toleransen mot raderna är totalen `oklar` (tidigare `belagd`). Uttryckligen angivna "före ROT" och "att betala" som motsäger varandra ger felraden `total_konflikt` i stället för att den ena göms.

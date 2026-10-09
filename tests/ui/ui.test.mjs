@@ -191,9 +191,13 @@ test("sammanfattning: inget grönt utan genomförd relevant kontroll", async () 
   assert.match(t, /beräkningen gick inte att kontrollera/);
   assert.doesNotMatch(t, /inga räknefel/);
   // genomförd kontroll utan fynd får vara grön, och bara då
-  t = await summaryFor((r) => { r.contradictions = []; r.priceReport.checked = [{ id: "moms", status: "ok", title: "Moms", text: "ok", source: "" }]; r.priceReport.cannotAssess = []; });
+  t = await summaryFor((r) => { r.contradictions = []; r.priceReport.checked = [{ id: "rot_belopp", status: "ok", title: "ROT-belopp", text: "ok", source: "" }]; r.priceReport.cannotAssess = []; });
   assert.match(t, /inga räknefel upptäckta i AI-kontrollen/);
   assert.match(t, /1 prisregel kontrollerad och stämmer/);
+  // F8/N18: bara formalia (moms/pristyp) är inte "prisregler som stämmer"
+  t = await summaryFor((r) => { r.contradictions = []; r.priceReport.checked = [{ id: "moms", status: "ok", title: "Moms", text: "ok", source: "" }, { id: "pristyp", status: "ok", title: "Pristyp", text: "Fast pris anges.", source: "" }]; r.priceReport.cannotAssess = [{ title: "Belopp", text: "Inga belopp kan bedömas.", source: "" }]; });
+  assert.doesNotMatch(t, /prisreg(el|ler)[^,]*stämmer/);
+  assert.match(t, /2 formaliauppgifter kontrollerade – inga priser bedömda/);
   // fel som finns får inte döljas av grönt
   t = await summaryFor(() => {});
   assert.match(t, /1 prisregel som inte stämmer/);
@@ -231,6 +235,21 @@ for (const role of ["mottagare", "hantverkare"]) {
     await context.close();
   });
 }
+
+test("F8/N18: bara formalia kontrollerat → inget positivt 'offerten verkar besvara'-besked, varken i listor eller sammanfattning", async () => {
+  const r = clone(RESULT);
+  r.contradictions = []; r.clarify = []; r.questions = []; r.calcCoverage = "insufficient_data";
+  r.priceReport.checked = [{ id: "moms", status: "ok", title: "Moms", text: "ok", source: "" }, { id: "pristyp", status: "ok", title: "Pristyp", text: "Fast pris anges.", source: "" }];
+  r.priceReport.compared = []; r.priceReport.cannotAssess = [{ title: "Belopp", text: "Inga belopp kan bedömas.", source: "" }];
+  const { page, context } = await newPage({ width: 390, height: 844 }, { review: { status: 200, body: r } });
+  await runWithText(page);
+  const screen = await page.textContent("#res");
+  assert.doesNotMatch(screen, /prisreg(el|ler)[^.]*stämmer/);
+  assert.doesNotMatch(screen, /verkar besvara det vi kontrollerar/);
+  assert.match(screen, /inget besked om att offerten är komplett/);
+  assert.match(screen, /2 formaliauppgifter kontrollerade/);
+  await context.close();
+});
 
 test("export: Kopiera ger hela texten, e-post och SMS förkortas tydligt när de blir för långa", async () => {
   const r = clone(RESULT);
