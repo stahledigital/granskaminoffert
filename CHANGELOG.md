@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1l – D11-P2b offert först: kolumner, Sortera efter, Visa mer (KANDIDAT – AV, ej släppt; ovanpå D11-P2a ecb58fb9)
+- Resultatet visar 2–4 offerter som kolumner med jämförbara rader (pris inkl. moms/ROT-bas, arbete/material, omfattning, start/tid, betalning/ÄTA, företagsuppgifter). ✓ endast vid uttryckligt "ingår", ? (text+ikon) när det inte framgår, "Kunde inte avläsas säkert" skilt från "Framgår inte". Avvikande rad märks direkt.
+- En liten "Sortera efter"-meny: uppladdningsordning (start), lägst jämförbart pris (bara när jämförbart), minst/flest oklarheter (fast uppsättning, delad placering, ej bedömbart sist – aldrig 0/sämst), högst Google-/Trustpilot-betyg avstängt tills verifierad dataåtkomst/villkor. Ingen total-/bäst-poäng. Hela kolumnen flyttas.
+- Smal skärm: två offerter åt gången med val. Långa förklaringar (jämförbarhet, skillnader, metod, begränsningar, omdömen) ligger under EN hopfälld "Visa mer"; kompakt källrad (Google · Trustpilot, "Visa omdömen") vid firmarubriken.
+
 ## jamfor-v1k – D11-P2a utställaridentitet (KANDIDAT – AV, ej släppt; ovanpå D11-P1 8d8a57d3)
 - Avläsningen läser utställarens namn/orgnr/adress/ort/telefon/webb med belägg (EXTRACT avlasning-2); avläsningsfel skiljs från saknat; personnummerliknande orgnr ⇒ enskild firma, aldrig till recensionskällor.
 - "Uppgifter att reda ut" per offert på fast uppsättning (mycket svårläst ⇒ ej bedömbart, aldrig 0/sämst); saknad väsentlig företagsuppgift är offertbrist och ingår i fullständigheten; original bevaras.

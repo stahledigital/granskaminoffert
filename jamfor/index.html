@@ -76,6 +76,31 @@ summary{cursor:pointer;font-weight:600;padding:10px 0;min-height:44px}
 .progress i{display:block;height:100%;background:var(--acc);transition:width .4s}
 .mono{font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all}
 footer{margin-top:36px;font-size:13px;color:var(--ink2)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sortbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0 6px}
+.sortbar label{font-weight:600}
+.sortbar select,.pickbar select{font:16px Barlow,sans-serif;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);max-width:100%}
+.sortbar .hint{flex-basis:100%;margin:0}
+.pickbar{display:none;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.pickbar .hint{flex-basis:100%;margin:0}
+.cmpwrap{margin:8px 0}
+table.cmp{width:100%;border-collapse:collapse;table-layout:fixed;background:#fff;border:1px solid var(--line);font-size:15px}
+table.cmp th,table.cmp td{border-top:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+table.cmp thead th,table.cmp thead td{border-top:0;background:var(--paper);font-weight:400}
+table.cmp tbody th[scope=row]{font-weight:600;width:24%;background:#fafaf7}
+table.cmp tr.grp th{background:var(--bg);font:600 13px Barlow,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+table.cmp tr.dev th[scope=row]{box-shadow:inset 4px 0 0 var(--acc)}
+.cv{display:inline-block;font-weight:600}.cv.ok{color:var(--ok)}.cv.no{color:var(--bad)}.cv.q{color:var(--warn)}
+table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13px}
+.oh{display:block;font-size:17px}.firm{display:block;font-size:14px;color:var(--ink2)}.firm.q{color:var(--warn)}
+.oc{display:block;font-size:14px;font-weight:600;margin-top:4px}.oc.unk{color:var(--warn)}
+.rk{display:inline-block;font-size:12px;font-weight:600;border:1px solid var(--ink);border-radius:99px;padding:1px 8px;margin-bottom:4px}.rk.unk{border-color:var(--warn);color:var(--warn)}
+.lowtag{display:inline-block;font-size:12px;font-weight:600;background:var(--oksoft);color:var(--ok);border-radius:99px;padding:1px 8px;margin-top:4px}
+.srcline{display:block;font-size:13px;color:var(--ink2);margin-top:4px}
+.linkbtn{background:none;border:0;padding:6px 0;color:var(--acc-text);text-decoration:underline;font:600 14px Barlow,sans-serif;cursor:pointer;min-height:44px}
+.colhide{display:none!important}
+.morebox>summary{font-size:17px}
+@media (max-width:720px){.pickbar{display:flex}table.cmp,table.cmp tbody,table.cmp thead{display:block}table.cmp tr{display:grid;grid-template-columns:1fr 1fr}table.cmp tbody th[scope=row],table.cmp tr.grp th{grid-column:1/-1;width:auto}table.cmp thead .corner{display:none}table.cmp caption{display:block}}
 @media print{body{background:#fff}.noprint{display:none!important}.card,details{break-inside:avoid}details>*{display:block}}
 </style>
 </head>
@@ -394,59 +419,138 @@ async function consentAgain(msg){
 var STATUS={ingar:'Ingår',ingar_inte:'Ingår inte',framgar_inte:'Framgår inte'};
 function ref(c){if(c.status==='framgar_inte')return null;return (c.page?'s. '+c.page+(c.ref?', ':''):'')+(c.ref||'')}
 function money(m){return m?kr(m.value):'Framgår inte'}
+// ---------- D11: offert först – kolumner per offert, jämförbara rader, sortering, fördjupning under Visa mer ----------
+var SORTS=[{v:'upload',t:'Uppladdningsordning'},{v:'price',t:'Lägst jämförbara pris'},{v:'fewopen',t:'Minst antal oklarheter'},{v:'mostopen',t:'Flest oklarheter'},{v:'rating',t:'Högst Google-/Trustpilot-betyg'}];
+function idStat(f){return f.status==='framgar'?{k:'ok',t:'Framgår'}:f.status==='ej_lasbar'?{k:'unk',t:'Kunde inte avläsas säkert'}:{k:'q',t:'Framgår inte'}}
+// Placeringar: lika värden = delad placering (konkurrensrangordning), okända/ej bedömbara får ingen placering och hamnar sist (aldrig 0/sämst).
+function sortOffers(R,mode){
+  var n=R.offers.length,idx=[],i;for(i=0;i<n;i++)idx.push(i);
+  var val=function(){return null};
+  if(mode==='price'&&R.ranking.shown){var pm={};R.ranking.values.forEach(function(v){pm[v.index]=v.incVat});val=function(k){return typeof pm[k]==='number'?pm[k]:null}}
+  else if(mode==='fewopen'||mode==='mostopen'){val=function(k){var o=R.offers[k].open;return o&&o.assessable&&typeof o.count==='number'?o.count:null}}
+  else return {order:idx,ranks:{},unknown:[]};
+  var known=idx.filter(function(k){return val(k)!==null}),unk=idx.filter(function(k){return val(k)===null});
+  var dir=mode==='mostopen'?-1:1;
+  known.sort(function(a,b){return dir*(val(a)-val(b))||a-b}); // stabil: lika värden behåller uppladdningsordning
+  var ranks={},prev=null,pos=0;
+  known.forEach(function(k,j){if(prev===null||val(k)!==prev){pos=j+1;prev=val(k)}ranks[k]=pos});
+  return {order:known.concat(unk),ranks:ranks,unknown:unk};
+}
+function cellOf(kind,c){
+  var td=el('td',{});
+  function put(cls,icon,text,small){var b=el('span',{class:'cv '+cls},el('span',{class:'ic','aria-hidden':'true',text:icon}),el('span',{text:' '+text}));td.appendChild(b);if(small)td.appendChild(el('small',{text:small}))}
+  if(kind==='scope'){
+    if(c.status==='ingar')put('ok','✓','Ingår',ref(c));else if(c.status==='ingar_inte')put('no','✕','Ingår inte',ref(c));else put('q','?','Framgår inte');
+  }
+  return td;
+}
+function buildGrid(R,mode,view){
+  var n=R.offers.length,S=sortOffers(R,mode),order=S.order;
+  var wrap=el('div',{class:'cmpwrap'});
+  var t=el('table',{class:'cmp','data-sort':mode});
+  t.appendChild(el('caption',{class:'sr',text:'Jämförelse av '+n+' offerter, rad för rad'}));
+  var hr=el('tr',{});hr.appendChild(el('td',{class:'corner'}));
+  order.forEach(function(k,pos){
+    var of=R.offers[k],id=of.identity,th=el('th',{scope:'col','data-col':String(k),'data-pos':String(pos)});
+    if(S.ranks[k]){var shared=Object.keys(S.ranks).filter(function(x){return S.ranks[x]===S.ranks[k]}).length>1;th.appendChild(el('span',{class:'rk','data-rank':String(S.ranks[k]),text:'Plats '+S.ranks[k]+(shared?' (delad)':'')}))}
+    else if(S.unknown.indexOf(k)>=0&&mode!=='upload')th.appendChild(el('span',{class:'rk unk',text:'Ej bedömbart'}));
+    th.appendChild(el('b',{class:'oh',text:of.label}));
+    var fn=id&&id.fields.name.status==='framgar'?id.fields.name.value+(id.fields.city.status==='framgar'?' · '+id.fields.city.value:''):null;
+    th.appendChild(el('span',{class:'firm'+(fn?'':' q'),'data-firm-line':String(k),text:fn||(id&&id.state==='ej_avlast'?'Företag: kunde inte avläsas säkert':'Företag framgår inte av offerten')}));
+    var op=of.open;
+    th.appendChild(el('span',{class:'oc'+(op&&op.assessable?'':' unk'),text:op&&op.assessable?op.count+' uppgifter att reda ut':'Går inte att bedöma säkert'+(op&&op.unreadable&&op.unreadable.length?'':'')}));
+    th.appendChild(el('span',{class:'srcline','data-src-offer':String(k)}));
+    if(R.ranking.shown&&R.ranking.lowest&&R.ranking.lowest.index===k)th.appendChild(el('span',{class:'lowtag',text:'Lägst jämförbart pris'}));
+    var sl=state.slots&&state.slots[k];
+    if(sl&&sl.file){var ob=el('button',{type:'button',class:'linkbtn',text:'Öppna originalet'});ob.addEventListener('click',function(){var u=URL.createObjectURL(sl.file);window.open(u,'_blank','noopener');setTimeout(function(){URL.revokeObjectURL(u)},60000)});th.appendChild(ob)}
+    hr.appendChild(th);
+  });
+  var thd=el('thead',{});thd.appendChild(hr);t.appendChild(thd);
+  var tb=el('tbody',{});
+  function grp(title){var tr=el('tr',{class:'grp'});tr.appendChild(el('th',{scope:'colgroup',colspan:String(n+1),text:title}));tb.appendChild(tr)}
+  function row(label,cellFn,flag){
+    var tr=el('tr',{class:flag?'dev':''});
+    tr.appendChild(el('th',{scope:'row',text:label}));
+    order.forEach(function(k){var td=cellFn(R.offers[k],k);td.setAttribute('data-col',String(k));tr.appendChild(td)});
+    tb.appendChild(tr);return tr;
+  }
+  function txt(text,cls,small){var td=el('td',{});td.appendChild(el('span',{class:'cv '+(cls||''),text:text}));if(small)td.appendChild(el('small',{text:small}));return td}
+  // Pris
+  grp('Pris');
+  var comparable=R.ranking.shown;
+  row('Pris inkl. moms (före ROT)'+(comparable?'':' – ej jämförbart'),function(of){var p=of.price;
+    if(p.normalized)return txt(kr(p.normalized.incVat),'ok',p.vatBasis==='exkl'?'Offerten anger '+money(p.totalBeforeRot)+' exkl. moms (25 % antas)':'Offerten anger beloppet inkl. moms');
+    if(p.totalBeforeRot)return txt(money(p.totalBeforeRot),'q','Moms inkl/exkl framgår inte');
+    if(p.totalUnmarked)return txt(kr(p.totalUnmarked.value),'q','Före/efter ROT framgår inte');
+    return txt('Framgår inte','q');},!comparable);
+  row('ROT-avdrag / att betala',function(of){var p=of.price;return txt(p.rotAmount?'ROT '+kr(p.rotAmount.value):'ROT anges inte',p.rotAmount?'':'q',p.amountToPay?'Att betala '+kr(p.amountToPay.value):null)});
+  row('Pristyp',function(of){var pt=of.price.priceType;return txt(pt==='fast'?'Fast pris':pt==='ungefarligt'?'Uppskattat pris':pt==='lopande'?'Löpande räkning':'Framgår inte',pt==='fast'?'':'q')},R.differences.some(function(d){return d.id==='price:typ'}));
+  row('Arbete / material / resor',function(of){var p=of.price,a=[];if(p.labor)a.push('Arbete '+kr(p.labor.value));if(p.material)a.push('Material '+kr(p.material.value));if(p.travel)a.push('Resor '+kr(p.travel.value));return a.length?txt(a.join(' · ')):txt('Delposter framgår inte','q')});
+  // Omfattning, tid och villkor (raderna ur motorns matris; poster som skiljer visas direkt)
+  var byId={};R.scopeMatrix.forEach(function(m){byId[m.id]=m});
+  var G1=['material','arbete','resor','bortforsling','rivning'],G2=['startdatum','tidplan'],G3=['betalningsplan','ata','garanti','forsakring','fskatt'];
+  function srow(id){var m=byId[id];if(!m)return;var flag=m.kind==='skiljer'||m.kind==='oklart_for_nagon';row(m.label+(m.kind==='skiljer'?' · skiljer':m.kind==='oklart_for_nagon'?' · oklart i någon':''),function(of,k){return cellOf('scope',m.cells[k])},flag)}
+  grp('Omfattning');G1.forEach(srow);
+  grp('Start och tid');G2.forEach(srow);
+  grp('Betalning och villkor');G3.forEach(srow);
+  // Företagsuppgifter ur dokumentet (original)
+  grp('Företagsuppgifter i offerten');
+  [['name','Företagsnamn'],['orgnr','Organisationsnummer'],['kontakt','Adress eller telefon']].forEach(function(f){
+    var anyBad=R.offers.some(function(of){return of.identity&&of.identity.essential&&of.identity.essential[f[0]]!=='framgar'});
+    row(f[1],function(of){var id=of.identity;if(!id)return txt('Ingen avläsning','q');
+      var st=id.essential[f[0]];var v=f[0]==='kontakt'?[id.fields.address.value,id.fields.phone.value].filter(Boolean).join(' · '):id.fields[f[0]].value;
+      var td=el('td',{});var s=st==='framgar'?{k:'ok',i:'✓',t:'Framgår'}:st==='ej_lasbar'?{k:'q',i:'?',t:'Kunde inte avläsas säkert'}:{k:'q',i:'?',t:'Framgår inte'};
+      td.appendChild(el('span',{class:'cv '+s.k},el('span',{class:'ic','aria-hidden':'true',text:s.i}),el('span',{text:' '+s.t})));if(v)td.appendChild(el('small',{text:v}));return td},anyBad);
+  });
+  t.appendChild(tb);wrap.appendChild(t);return wrap;
+}
 function renderReport(R,o){
   var host=$('rep');host.textContent='';show('rep',true);
   host.appendChild(el('h2',{id:'h-rep',text:'Din jämförelse'}));
-  var L=R.offers.map(function(x){return x.label});
-  // beslutsblad
-  var ds=R.decisionSheet,sheet=el('div',{class:'card acc'});
-  sheet.appendChild(el('h3',{style:'margin-top:0',text:'Beslutsblad'}));
-  sheet.appendChild(el('p',{text:R.comparability.reasons.join(' ')}));
-  if(ds.canCompareNow.length){sheet.appendChild(el('h3',{text:'Det här går att jämföra nu'}));var u=el('ul',{class:'tight'});ds.canCompareNow.forEach(function(t){u.appendChild(el('li',{text:t}))});sheet.appendChild(u)}
-  if(ds.mustClarify.length){sheet.appendChild(el('h3',{text:'Det här behöver du få klarlagt innan du väljer'}));var u2=el('ul',{class:'tight'});ds.mustClarify.forEach(function(t){u2.appendChild(el('li',{text:t.text}))});sheet.appendChild(u2)}
-  host.appendChild(sheet);
-  // rangordning
-  var rk=R.ranking,rb=el('div',{class:rk.shown?'okbox':'warnbox'});
-  if(rk.shown){
-    rb.appendChild(el('p',{style:'margin:0 0 4px',text:rk.lowest?'Lägst angivet belopp: '+L[rk.lowest.index]+' ('+kr(rk.lowest.diffKr)+' lägre än näst lägsta, '+String(rk.lowest.diffPct).replace('.',',')+' %).':'Beloppen är lika på samma bas.'}));
-    rb.appendChild(el('p',{class:'hint',text:rk.basis+'.'}));
-  }else{
-    rb.appendChild(el('p',{style:'margin:0 0 4px',text:'Vi rangordnar inte offerterna, eftersom det inte går att veta att de omfattar samma sak:'}));
-    var ur=el('ul',{class:'tight'});rk.reasons.forEach(function(t){ur.appendChild(el('li',{text:t}))});rb.appendChild(ur);
-  }
-  (rk.shown?rk.reasons:[]).forEach(function(t){rb.appendChild(el('p',{class:'hint',text:t}))});
+  var n=R.offers.length;
+  // 1. Kort ingress: bara vad som är viktigast; resten under Visa mer.
+  host.appendChild(el('p',{class:'hint',text:'Offerterna sida vid sida. ✓ = offerten säger uttryckligen att det ingår. ? = framgår inte (fråga hantverkaren). Beloppen är avlästa – kontrollera mot originalet.'}));
+  var rk=R.ranking,L=R.offers.map(function(x){return x.label});
+  var rb=el('div',{class:rk.shown?'okbox':'warnbox','data-ranking':rk.shown?'ja':'nej'});
+  if(rk.shown)rb.appendChild(el('p',{style:'margin:0',text:rk.lowest?'Lägst angivet belopp: '+L[rk.lowest.index]+' ('+kr(rk.lowest.diffKr)+' lägre än näst lägsta, '+String(rk.lowest.diffPct).replace('.',',')+' %). Det säger inget om kvalitet eller om det som inte står i offerterna.':'Beloppen är lika på samma bas.'}));
+  else rb.appendChild(el('p',{style:'margin:0',text:'Priserna går inte att ställa mot varandra rakt av – se raderna som skiljer nedan. Ingen offert pekas ut som billigast.'}));
   host.appendChild(rb);
-  // pris
-  host.appendChild(el('h3',{text:'Pris och moms'}));
-  var pg=el('div',{class:'grid'});
-  R.offers.forEach(function(of){
-    var p=of.price,d=el('dl');
-    function row(k,v){d.appendChild(el('dt',{text:k}));d.appendChild(el('dd',{text:v}))}
-    row('Totalt före ROT',money(p.totalBeforeRot));
-    if(!p.totalBeforeRot&&p.totalUnmarked)row('Omärkt total',kr(p.totalUnmarked.value)+' (före/efter ROT framgår inte)');
-    row('Momsbas',p.vatBasis==='inkl'?'Inklusive moms':p.vatBasis==='exkl'?'Exklusive moms':'Framgår inte');
-    row('Inklusive moms',p.normalized?kr(p.normalized.incVat):'Kan inte räknas om');
-    row('ROT-avdrag',p.rotAmount?kr(p.rotAmount.value):'Anges inte');
-    row('Att betala',p.amountToPay?kr(p.amountToPay.value):'Anges inte');
-    row('Pristyp',p.priceType==='fast'?'Fast pris':p.priceType==='ungefarligt'?'Uppskattat':p.priceType==='lopande'?'Löpande räkning':'Framgår inte');
-    var c=el('div',{class:'card',style:'margin:0'},el('h3',{style:'margin-top:0',text:of.label}),d);
-    if(of.readability!=='bra')c.appendChild(el('p',{class:'warnbox',text:of.readability==='svar'?'Mycket svårläst – bekräfta beloppen.':'Delar var svårlästa – kontrollera beloppen.'}));
-    pg.appendChild(c);
-  });host.appendChild(pg);
-  // omfattning
-  host.appendChild(el('h3',{text:'Omfattning – vad står i offerterna?'}));
-  host.appendChild(el('p',{class:'hint',text:'”Ingår” och ”Ingår inte” visas bara när offerten uttryckligen säger det, med hänvisning. Annars: ”Framgår inte”.'}));
-  var sc=el('div',{class:'card'}),more=el('details',{},el('summary',{text:'Fler punkter (villkor och övrig omfattning)'})),moreN=0;
-  R.scopeMatrix.forEach(function(m){
-    var cells=el('div',{class:'cells'});
-    m.cells.forEach(function(c,i){var cell=el('div',{class:'cell '+c.status},el('b',{text:L[i]}),el('span',{text:STATUS[c.status]}));var rf=ref(c);if(rf)cell.appendChild(el('small',{text:rf}));cells.appendChild(cell)});
-    var rowEl=el('div',{class:'scope'},el('b',{text:m.label+(m.kind==='skiljer'?'  · skiljer':m.kind==='oklart_for_nagon'?'  · oklart i någon':'')}),cells);
-    // Kärnposter och allt som skiljer visas direkt; resten ligger under en hopfällbar rubrik.
-    if(m.core||m.kind==='skiljer'||m.kind==='oklart_for_nagon')sc.appendChild(rowEl);else{more.appendChild(rowEl);moreN++}
-  });if(moreN)sc.appendChild(more);host.appendChild(sc);
-  // skillnader
-  if(R.differences.length){host.appendChild(el('h3',{text:'Skillnader, viktigast först'}));var dl=el('ul',{class:'tight'});R.differences.slice(0,12).forEach(function(d){dl.appendChild(el('li',{text:d.text}))});host.appendChild(dl)}
-  // frågor
+  // 2. Sortera efter (en liten meny) + kolumner
+  var srt=el('div',{class:'sortbar noprint'});
+  var sl=el('label',{for:'sortby',text:'Sortera efter'});var sel=el('select',{id:'sortby'});
+  SORTS.forEach(function(x){var op=el('option',{value:x.v,text:x.t});
+    if(x.v==='price'&&!rk.shown){op.disabled=true;op.textContent=x.t+' (ej jämförbart)'}
+    if(x.v==='rating'){op.disabled=true;op.textContent=x.t+' (inte tillgängligt)'}
+    sel.appendChild(op)});
+  srt.appendChild(sl);srt.appendChild(sel);
+  var sn=el('p',{class:'hint',id:'sortnote',role:'status','aria-live':'polite'});
+  srt.appendChild(sn);host.appendChild(srt);
+  var gridHost=el('div',{id:'cmpgrid'});host.appendChild(gridHost);
+  var pick=el('div',{class:'pickbar noprint',id:'pickbar'});host.appendChild(pick);
+  var NOTE={upload:'',price:'Sorterat efter lägst jämförbart pris (samma moms- och ROT-bas, samma omfattning). Det är ingen rekommendation.',fewopen:'Sorterat efter minst antal uppgifter att reda ut på en fast uppsättning poster. Få oklarheter betyder inte att hantverkaren är bäst.',mostopen:'Sorterat efter flest uppgifter att reda ut. Offerter som inte går att bedöma säkert står sist.',rating:''};
+  var shown=[0,1];
+  function draw(){
+    var mode=sel.value;gridHost.textContent='';
+    var g=buildGrid(R,mode);gridHost.appendChild(g);
+    sn.textContent=(NOTE[mode]||'')+(mode==='fewopen'||mode==='mostopen'?' Lika värden delar placering. Offerter som inte går att bedöma säkert har ingen placering.':'');
+    drawPick();applyCols();srcCompactAll();
+  }
+  function applyCols(){ // smal skärm: två offerter åt gången (valda i listorna), aldrig fyra krympta kolumner
+    var tbl=gridHost.querySelector('table.cmp');if(!tbl)return;
+    var narrow=window.matchMedia('(max-width:720px)').matches&&n>2;
+    tbl.setAttribute('data-narrow',narrow?'1':'0');
+    tbl.querySelectorAll('[data-col]').forEach(function(c){var k=Number(c.getAttribute('data-col'));c.classList.toggle('colhide',narrow&&shown.indexOf(k)<0)});
+  }
+  function drawPick(){
+    pick.textContent='';if(n<=2)return;
+    pick.appendChild(el('p',{class:'hint',text:'På smal skärm visas två offerter åt gången. Välj vilka du vill jämföra:'}));
+    [0,1].forEach(function(slot){var s2=el('select',{'aria-label':'Offert '+(slot+1)+' att visa'});R.offers.forEach(function(of,k){var op=el('option',{value:String(k),text:of.label});if(k===shown[slot])op.selected=true;s2.appendChild(op)});
+      s2.addEventListener('change',function(){var v=Number(s2.value);shown[slot]=v;if(shown[0]===shown[1])shown[1-slot]=(v+1)%n;drawPick();applyCols()});pick.appendChild(s2)});
+  }
+  sel.addEventListener('change',draw);
+  window.addEventListener('resize',applyCols);
+  draw();
+  // 3. Frågor per offert (kompakt, hopfällt)
   host.appendChild(el('h3',{text:'Frågor att ställa till varje hantverkare'}));
   R.questions.forEach(function(q){
     var det=el('details',{},el('summary',{text:q.label+' ('+q.questions.length+' frågor)'}));
@@ -454,16 +558,31 @@ function renderReport(R,o){
     if(!q.questions.length)det.appendChild(el('p',{class:'hint',text:'Inga särskilda frågor utifrån jämförelsen.'}));
     host.appendChild(det);
   });
-  // datakort
-  host.appendChild(el('h3',{text:'Omdömen om företagen'}));
-  var srcrep=el('div',{id:'srcrepwrap'},el('p',{class:'hint',text:'Visas inte i den här versionen. Offertjämförelsen ovan är komplett utan dem.'}));host.appendChild(srcrep);
+  // 4. EN sammanhållen fördjupning: jämförbarhet, skillnader, fler punkter, metod, begränsningar, källor
+  var more=el('details',{id:'more',class:'morebox'},el('summary',{text:'Visa mer: jämförbarhet, skillnader, metod och omdömen'}));
+  var ds=R.decisionSheet;
+  more.appendChild(el('h3',{text:'Jämförbarhet'}));more.appendChild(el('p',{text:R.comparability.reasons.join(' ')}));
+  if(!rk.shown){var ur=el('ul',{class:'tight'});rk.reasons.forEach(function(t){ur.appendChild(el('li',{text:t}))});more.appendChild(ur)}
+  else (rk.reasons||[]).forEach(function(t){more.appendChild(el('p',{class:'hint',text:t}))});
+  if(rk.shown&&rk.basis)more.appendChild(el('p',{class:'hint',text:'Pris jämförs: '+rk.basis+'.'}));
+  if(ds.canCompareNow.length){more.appendChild(el('h3',{text:'Det här går att jämföra nu'}));var u=el('ul',{class:'tight'});ds.canCompareNow.forEach(function(t){u.appendChild(el('li',{text:t}))});more.appendChild(u)}
+  if(ds.mustClarify.length){more.appendChild(el('h3',{text:'Det här behöver du få klarlagt innan du väljer'}));var u2=el('ul',{class:'tight'});ds.mustClarify.forEach(function(t){u2.appendChild(el('li',{text:t.text}))});more.appendChild(u2)}
+  if(R.differences.length){more.appendChild(el('h3',{text:'Skillnader, viktigast först'}));var dl2=el('ul',{class:'tight'});R.differences.slice(0,12).forEach(function(d){dl2.appendChild(el('li',{text:d.text}))});more.appendChild(dl2)}
+  var rest=R.scopeMatrix.filter(function(m){return ['material','arbete','resor','bortforsling','rivning','startdatum','tidplan','betalningsplan','ata','garanti','forsakring','fskatt'].indexOf(m.id)<0});
+  if(rest.length){more.appendChild(el('h3',{text:'Fler punkter (övrig omfattning och villkor)'}));rest.forEach(function(m){
+    var cells=el('div',{class:'cells'});m.cells.forEach(function(c,i){var cell=el('div',{class:'cell '+c.status},el('b',{text:L[i]}),el('span',{text:STATUS[c.status]}));var rf=ref(c);if(rf)cell.appendChild(el('small',{text:rf}));cells.appendChild(cell)});
+    more.appendChild(el('div',{class:'scope'},el('b',{text:m.label+(m.kind==='skiljer'?'  · skiljer':m.kind==='oklart_for_nagon'?'  · oklart i någon':'')}),cells))})}
+  more.appendChild(el('h3',{text:'Omdömen om företagen'}));
+  var srcrep=el('div',{id:'srcrepwrap'},el('p',{class:'hint',text:'Visas inte i den här versionen. Offertjämförelsen ovan är komplett utan dem.'}));more.appendChild(srcrep);
+  more.appendChild(el('h3',{text:'Gränser och metod'}));
+  var dis=el('ul',{class:'tight'});R.disclaimers.forEach(function(t){dis.appendChild(el('li',{text:t}))});more.appendChild(dis);
+  host.appendChild(more);
   if(srcActive())srcStart(srcrep,'report');
   // kvitto
   var rc=R.receipt,rd=el('dl');
   [['Ordernummer',rc.orderNo],['Produkt',rc.product],['Belopp',kr(rc.amountOre/100)+' inkl. moms'],['Varav moms ('+rc.vatPct+' %)',(rc.vatOre/100).toFixed(2).replace('.',',')+' kr'],['Betald',rc.paidAt?new Date(rc.paidAt).toLocaleString('sv-SE'):'—'],['Betalningsreferens','…'+(rc.paymentRef||'')],['Säljare',rc.seller]].forEach(function(r){rd.appendChild(el('dt',{text:r[0]}));rd.appendChild(el('dd',{text:r[1]}))});
   host.appendChild(el('h3',{text:'Kvitto'}));host.appendChild(el('div',{class:'card'},rd,el('p',{class:'hint',text:rc.vatNote+' '+rc.sellerNote})));
   // förbehåll + åtgärder
-  var dis=el('ul',{class:'tight'});R.disclaimers.forEach(function(t){dis.appendChild(el('li',{text:t}))});host.appendChild(el('div',{class:'warnbox'},dis));
   var act=el('div',{class:'noprint',style:'display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'});
   var pb=el('button',{type:'button',class:'btn ghost',text:'Skriv ut / spara som PDF'});pb.addEventListener('click',function(){window.print()});
   var jb=el('button',{type:'button',class:'btn ghost',text:'Ladda ner (JSON)'});jb.addEventListener('click',function(){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(R,null,2)],{type:'application/json'}));a.download='jamforelse-'+rc.orderNo+'.json';a.click()});
@@ -604,6 +723,25 @@ function gmpBuildSearch(query,onSelect){
   s.addEventListener('gmp-select',function(ev){var id=ev&&ev.place&&ev.place.id;if(typeof id==='string'&&/^[A-Za-z0-9_-]{20,200}$/.test(id))onSelect(id)});
   return s;
 }
+var SRCTP={};
+function srcCompactAll(){
+  var v=SRC.view,c=srcCfg();
+  document.querySelectorAll('.srcline[data-src-offer]').forEach(function(nd){
+    nd.textContent='';
+    if(!v||!v.firms||!c)return;
+    var k=Number(nd.getAttribute('data-src-offer')),f=null;
+    v.firms.forEach(function(x){if(!f&&x.offers.indexOf(k)>=0)f=x});
+    if(!f)return;
+    var parts=[];
+    if(c.google.state!=='ej_aktiverad')parts.push('Google');
+    if(c.trustpilot.state!=='ej_aktiverad')parts.push(SRCTP[f.id]||'Trustpilot');
+    if(!parts.length)return;
+    nd.appendChild(el('span',{text:'Omdömen: '+parts.join(' · ')}));
+    var b=el('button',{type:'button',class:'linkbtn',text:'Visa omdömen'});
+    b.addEventListener('click',function(){var m=$('more');if(m)m.open=true;var card=document.querySelector('#rep .srcfirm[data-firm="'+f.id+'"]');if(card){card.scrollIntoView({block:'start'});var h=card.querySelector('h4');if(h){h.setAttribute('tabindex','-1');h.focus()}}});
+    nd.appendChild(document.createTextNode(' '));nd.appendChild(b);
+  });
+}
 function srcCov(view){var cv=$('srccov');if(cv&&view&&view.coverage){cv.textContent='';(view.coverage.lines||[]).forEach(function(l){cv.appendChild(el('li',{text:l}))})}}
 function srcFirmCard(f,mode){
   var c=srcCfg();
@@ -723,6 +861,7 @@ function srcTp(out,f,j){
   if(j.outcome==='fel'){out.appendChild(el('p',{class:'warnbox',text:'Trustpilot svarade inte just nu. Det betyder inte att omdömen saknas – försök igen om en stund.'}));return}
   if(j.outcome==='kostnadsstopp'){out.appendChild(el('p',{class:'warnbox',text:'Visningen är stoppad av kostnadsskäl just nu. Det betyder inte att omdömen saknas.'}));return}
   var c=j.card;if(!c)return;
+  if(c.trustScore!==null&&c.totalReviews!==null){SRCTP[f.id]='Trustpilot '+String(c.trustScore).replace('.',',')+' av 5 ('+c.totalReviews+' omdömen)';srcCompactAll()}
   var head='Källa: Trustpilot ('+f.name+(f.city?', '+f.city:'')+').';
   out.appendChild(el('p',{class:'hint',text:head+(c.trustScore!==null?' Trustpilots totalbetyg: '+String(c.trustScore).replace('.',',')+' av 5':'')+(c.totalReviews!==null?' ('+c.totalReviews+' omdömen).':'.')}));
   if(c.latestState==='inga_omdomen'){out.appendChild(el('p',{class:'hint',text:'Trustpilot har inga omdömen för firman. Få eller inga omdömen är tunt underlag – inte ett dåligt företag.'}))}
@@ -742,6 +881,7 @@ function srcRender(view,mode){
   host.textContent='';
   (view.firms||[]).forEach(function(f){host.appendChild(srcFirmCard(f,mode))});
   if(mode==='report'&&!view.firms.length)host.appendChild(el('p',{class:'hint',text:'Du angav inga firmor för källvisning.'}));
+  if(mode==='report')srcCompactAll();
   var cv=$('srccov');if(cv&&mode==='offer'){cv.textContent='';(view.coverage&&view.coverage.lines||[]).forEach(function(l){cv.appendChild(el('li',{text:l}))})}
 }
 function srcForm(){

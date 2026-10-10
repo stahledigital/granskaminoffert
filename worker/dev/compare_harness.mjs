@@ -41,11 +41,25 @@ export function fakeRead(text) {
   const rot = /före rot/i.test(t) || /före rot/i.test(rest);
   spec.extracted = { totalBeforeRotSek: num && rot ? num : null, totalSumSek: num && !rot ? num : null, totalVatBasis: /exkl/i.test(rest) ? "exkl" : /inkl/i.test(rest) ? "inkl" : null, vatMode: /exkl/i.test(rest) ? "exkl" : /inkl/i.test(rest) ? "inkl" : "ej_angivet", priceType: /löpande/i.test(t) ? "lopande" : /ca\.?|ungefär/i.test(t) ? "ungefarligt" : "fast", jobType: /badrum/i.test(t) ? "badrum" : /tak/i.test(t) ? "tak" : "annat" };
   if (num && !rot && /inkl|exkl/i.test(rest)) { spec.extracted.totalSumSek = num; }
+  // Utställaridentitet (D11): första raden "Offert …, <Firma>"; valfria rader "Org.nr: …", "Adress: …", "Tel: …", "Webb: …", "Ort: …".
+  const first = lines.find((l) => l.trim()) || "";
+  const nm = first.match(/^Offert[^,]*,\s*(.+)$/i);
+  const pick = (re) => { const l = lines.find((x) => re.test(x)); const mm = l && l.match(re); return mm ? mm[1].trim() : null; };
+  spec.issuer = { name: nm ? nm[1].trim() : null, orgnr: pick(/org\.?\s*nr[:\s]+([\d-]+)/i), address: pick(/adress[:\s]+(.+)$/i), city: pick(/ort[:\s]+(.+)$/i), phone: pick(/tel(?:efon)?[:\s]+(.+)$/i), web: pick(/webb[:\s]+(\S+)/i), unreadable: /oläsligt företag/i.test(t) };
   return spec;
 }
 const EXTRACT_DEFAULT = { jobType: "badrum", trades: [], hourlyRateSek: null, hours: null, laborSumSek: null, materialSumSek: null, travelSumSek: null, travelVisits: null, materialMarkupPct: null, rotAmountSek: null, rotRatePct: null, rotPersons: null, rotOnMaterialOrTravel: null, priceType: "fast", vatMode: "ej_angivet", totalSumSek: null, totalIncludesVat: null, totalBeforeRotSek: null, amountToPaySek: null, totalVatBasis: null, propertyType: "smahus", totalContract: null, quoteDate: null, plannedPaymentDate: null, customerType: "privatperson", workDescription: "Renovering", county: null, areaM2: null, unitCount: null, otherSumSek: null };
+const IFLD = (v, ref = "brevhuvud") => (v === null || v === undefined ? { status: "framgar_inte", value: null, page: null, ref: null } : { status: "framgar", value: v, page: 1, ref });
+function issuerInput(spec) {
+  if (spec.issuerRaw) return spec.issuerRaw;
+  const i = spec.issuer;
+  if (!i) return { name: IFLD("Testfirma AB"), orgnr: IFLD("556016-0680"), address: IFLD("Storgatan 1"), city: IFLD("Växjö"), phone: IFLD("0470-123456"), web: IFLD(null), role: "utforare", legalForm: "bolag" };
+  const u = i.unreadable ? { status: "ej_lasbar", value: null, page: null, ref: null } : null;
+  return { name: u || IFLD(i.name), orgnr: u || IFLD(i.orgnr), address: IFLD(i.address), city: IFLD(i.city), phone: IFLD(i.phone), web: IFLD(i.web), role: "utforare", legalForm: "bolag" };
+}
 function offerInput(spec) {
   return {
+    issuer: issuerInput(spec),
     extracted: { ...EXTRACT_DEFAULT, ...(spec.extracted || {}) },
     scope: Object.entries(spec.scope || {}).map(([id, status]) => ({ id, status, page: status === "framgar_inte" ? null : 1, ref: status === "framgar_inte" ? null : "rad om " + id })),
     facts: [{ id: "total", page: 1, ref: "Summa" }], readability: { level: spec.readability || "bra" }, instructionsInDocument: !!spec.inj,

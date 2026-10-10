@@ -82,7 +82,7 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       await page.waitForSelector("#rep:not(.hidden)", { timeout: 30000 });
       assert.ok(await noSideScroll(page), "ingen sidoscroll i rapporten");
       const txt = await page.textContent("#rep");
-      assert.match(txt, /Vi rangordnar inte/); // omfattningen skiljer → ingen "billigast vinner"
+      assert.match(txt, /Ingen offert pekas ut som billigast/); // omfattningen skiljer → ingen "billigast vinner"
       assert.match(txt, /Framgår inte/);
       assert.match(txt, /Ingår inte/);
       assert.match(txt, /Kvitto/); assert.match(txt, /9,80 kr/);
@@ -460,7 +460,7 @@ test("källor: köp med täckning, rapporten bär inga omdömen men visar källp
     await page.waitForURL("https://checkout.stripe.test/**"); await page.click("#pay");
     await page.waitForURL(h.base + "/jamfor/**");
     await page.waitForSelector("#rep:not(.hidden)", { timeout: 30000 });
-    await page.waitForSelector("#rep .srcfirm[data-firm]", { timeout: 15000 });
+    await page.waitForSelector("#rep .srcfirm[data-firm]", { state: "attached", timeout: 15000 });
     assert.match(await page.textContent("#rep"), /Omdömen visas separat från rapporten/);
     assert.ok(await noSideScroll(page));
     // JSON-nedladdningens innehåll = rapporten: inga källor eller omdömen
@@ -787,4 +787,136 @@ test("Newest: attribut OCH property sätts före montering och verifieras; ignor
       assert.equal(r.ord, ignored ? "okand" : "newest"); assert.equal(r.note, ignored);
     } finally { await ctx.close(); await h.close(); }
   }
+});
+
+// ---------- D11: offert först (kolumner/rader), Sortera efter, identitet, Visa mer ----------
+const fx = (o) => "FIXTURE:" + JSON.stringify(o);
+const SC = (more = {}) => ({ rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar", ...more });
+const EX = (kr, more = {}) => ({ totalBeforeRotSek: kr, totalVatBasis: "inkl", vatMode: "inkl", ...more });
+const ID_OK = (name, extra = {}) => ({ name, orgnr: "556016-0680", address: "Storgatan 1", city: "Växjö", phone: "0470-123456", web: null, ...extra });
+async function payToReport(page, h, texts) {
+  await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)");
+  await fillAndCheck(page, texts);
+  await page.fill("#email", "kund@example.test"); await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
+  await page.waitForURL("https://checkout.stripe.test/**"); await page.click("#pay"); await page.waitForURL(h.base + "/jamfor/**");
+  await page.waitForSelector("#rep:not(.hidden) table.cmp", { timeout: 40000 });
+}
+const colOrder = (page) => page.$$eval("table.cmp thead th[data-col]", (n) => n.map((x) => x.querySelector(".oh").textContent));
+const visibleCols = (page) => page.$$eval("table.cmp thead th[data-col]", (n) => n.filter((x) => x.offsetParent !== null).map((x) => x.querySelector(".oh").textContent));
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`offertvy (${name}): kolumner/rader, uppgifter att reda ut, Sortera efter med delad placering och ej bedömbara sist, inga falska vinnare/bockar`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors } = await newPage(h, w, hgt);
+    try {
+      await payToReport(page, h, [
+        fx({ extracted: EX(100000), scope: SC({ startdatum: "ingar" }), issuer: ID_OK("Byggfirma AB") }),
+        fx({ extracted: EX(90000), scope: SC({ startdatum: "ingar" }), issuer: { name: "Bygg B", orgnr: null, address: null, city: null, phone: null, web: null } }),
+        fx({ extracted: EX(120000), scope: SC({ startdatum: "ingar" }), issuer: ID_OK("C-snickeri") }),
+        fx({ extracted: EX(95000), scope: SC({ startdatum: "ingar" }), issuer: ID_OK("Firma D"), readability: "svar" }),
+      ]);
+      assert.ok(await noSideScroll(page), "ingen sidoscroll i offertvyn");
+      assert.deepEqual(await colOrder(page), ["Byggfirma AB", "Bygg B", "C-snickeri", "Firma D"]); // neutral start = uppladdningsordning
+      const oc = await page.$$eval("table.cmp thead th[data-col] .oc", (n) => n.map((x) => x.textContent));
+      assert.match(oc[0], /^\d+ uppgifter att reda ut$/); assert.equal(oc[0], oc[2]); // samma fasta uppsättning, samma värde
+      assert.equal(Number(oc[1].match(/\d+/)[0]), Number(oc[0].match(/\d+/)[0]) + 2, "saknad identitet (orgnr, kontakt) räknas i offertens oklarheter");
+      assert.match(oc[3], /Går inte att bedöma säkert/); // mycket svårläst: aldrig 0/sämst
+      // identitetsrader: ✓ endast när det framgår, ? med text när det inte gör det
+      const idRows = await page.$$eval("table.cmp tbody tr", (rows) => rows.filter((r) => /Organisationsnummer|Företagsnamn|Adress eller telefon/.test(r.querySelector("th").textContent)).map((r) => [r.querySelector("th").textContent, [...r.querySelectorAll("td")].map((c) => c.textContent)]));
+      const orgRow = idRows.find((r) => /Organisationsnummer/.test(r[0]));
+      assert.match(orgRow[1][0], /✓ Framgår/); assert.match(orgRow[1][1], /\? Framgår inte/);
+      // Sortera efter: meny med exakt dessa val; pris och betyg avstängda när de inte får användas
+      const opts = await page.$$eval("#sortby option", (o) => o.map((x) => [x.value, x.disabled, x.textContent]));
+      assert.deepEqual(opts.map((o) => o[0]), ["upload", "price", "fewopen", "mostopen", "rating"]);
+      assert.equal(opts[1][1], true); assert.match(opts[1][2], /ej jämförbart/); // Firma D svårläst ⇒ priserna inte jämförbara
+      assert.equal(opts[4][1], true); assert.match(opts[4][2], /inte tillgängligt/);
+      await page.selectOption("#sortby", "fewopen");
+      assert.deepEqual(await colOrder(page), ["Byggfirma AB", "C-snickeri", "Bygg B", "Firma D"]); // lika värden delar placering och behåller uppladdningsordning, ej bedömbar sist
+      const ranks = await page.$$eval("table.cmp thead th[data-col] .rk", (n) => n.map((x) => x.textContent));
+      assert.deepEqual(ranks, ["Plats 1 (delad)", "Plats 1 (delad)", "Plats 3", "Ej bedömbart"]);
+      assert.match(await page.textContent("#sortnote"), /Få oklarheter betyder inte att hantverkaren är bäst/);
+      await page.selectOption("#sortby", "mostopen");
+      assert.deepEqual(await colOrder(page), ["Bygg B", "Byggfirma AB", "C-snickeri", "Firma D"]);
+      await page.selectOption("#sortby", "upload");
+      assert.deepEqual(await colOrder(page), ["Byggfirma AB", "Bygg B", "C-snickeri", "Firma D"]);
+      // sortering flyttar hela kolumnen: firmaraden följer med
+      await page.selectOption("#sortby", "mostopen");
+      const firstTh = await page.textContent("table.cmp thead th[data-col]:first-of-type");
+      assert.match(firstTh, /Plats 1Bygg BBygg B8 uppgifter att reda ut/); // rubrik, firma och oklarheter följer kolumnen
+      // ingen dold totalvinnare / bäst-claim
+      const all = await page.textContent("#rep");
+      assert.doesNotMatch(all, /bäst överlag|bästa hantverkare|vinnare|rekommenderar/i);
+      // fördjupningen är hopfälld och sammanhållen; långa förklaringar ligger inte i huvudytan
+      assert.equal(await page.evaluate(() => document.querySelector("#more").open), false);
+      assert.match(await page.textContent("#more summary"), /Visa mer/);
+      assert.equal(await page.locator("#rep details#more >> text=Omdömen om företagen").count(), 1);
+      await page.click("#more summary");
+      assert.match(await page.textContent("#more"), /Väsentliga företagsuppgifter framgår inte av Bygg B/);
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_12_offertkolumner.png`), fullPage: true });
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
+test("Sortera efter lägst jämförbart pris (desktop): bara när jämförbart; lika belopp = delad placering utan falsk billigast; ingen total", async () => {
+  const h = await startHarness();
+  const { ctx, page } = await newPage(h, 1280, 900);
+  try {
+    await payToReport(page, h, [fx({ extracted: EX(120000), scope: SC(), issuer: ID_OK("Byggfirma AB") }), fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Bygg B") }), fx({ extracted: EX(110000), scope: SC(), issuer: ID_OK("C-snickeri") })]);
+    assert.equal(await page.locator("#sortby option[value=price]").isDisabled(), false);
+    await page.selectOption("#sortby", "price");
+    assert.deepEqual(await colOrder(page), ["Bygg B", "C-snickeri", "Byggfirma AB"]);
+    assert.deepEqual(await page.$$eval("table.cmp thead th[data-col] .rk", (n) => n.map((x) => x.textContent)), ["Plats 1", "Plats 2", "Plats 3"]);
+    assert.equal(await page.locator(".lowtag").count(), 1); assert.match(await page.textContent("th[data-col] .lowtag >> nth=0"), /Lägst jämförbart pris/);
+    assert.match(await page.textContent("#sortnote"), /Det är ingen rekommendation/);
+    assert.match(await page.textContent('[data-ranking="ja"]'), /Lägst angivet belopp: Bygg B/);
+  } finally { await ctx.close(); await h.close(); }
+  const h2 = await startHarness();
+  const c2 = await newPage(h2, 1280, 900);
+  try {
+    await payToReport(c2.page, h2, [fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Byggfirma AB") }), fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Bygg B") })]);
+    await c2.page.selectOption("#sortby", "price");
+    assert.deepEqual(await c2.page.$$eval("table.cmp thead th[data-col] .rk", (n) => n.map((x) => x.textContent)), ["Plats 1 (delad)", "Plats 1 (delad)"]);
+    assert.equal(await c2.page.locator(".lowtag").count(), 0, "lika belopp: ingen billigast-markering");
+  } finally { await c2.ctx.close(); await h2.close(); }
+});
+
+test("smal skärm: två offerter åt gången med val, aldrig fyra krympta kolumner; bred skärm: alla fyra; ingen sidoscroll", async () => {
+  const h = await startHarness();
+  const { ctx, page } = await newPage(h, 390, 844);
+  try {
+    await payToReport(page, h, ["Offert A, Firma A\nTotalt 100 000 kr inkl. moms före ROT", "Offert B, Firma B\nTotalt 110 000 kr inkl. moms före ROT", "Offert C, Firma C\nTotalt 120 000 kr inkl. moms före ROT", "Offert D, Firma D\nTotalt 130 000 kr inkl. moms före ROT"]);
+    assert.deepEqual(await visibleCols(page), ["Byggfirma AB", "Bygg B"]);
+    assert.ok(await noSideScroll(page));
+    await page.selectOption('#pickbar select[aria-label="Offert 2 att visa"]', "3");
+    assert.deepEqual(await visibleCols(page), ["Byggfirma AB", "Firma D"]);
+    await page.selectOption('#pickbar select[aria-label="Offert 1 att visa"]', "3"); // samma offert i båda platserna går inte
+    const v = await visibleCols(page); assert.equal(new Set(v).size, 2);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.waitForFunction(() => document.querySelectorAll("table.cmp thead th[data-col]:not(.colhide)").length === 4);
+    assert.equal((await visibleCols(page)).length, 4);
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("identitetsfall i vyn: oläsligt ≠ saknas; osäker utställare kräver kort kontroll; filialer slås inte ihop; webb/omdömen saknas är ingen brist", async () => {
+  const h = await startHarness();
+  const { ctx, page } = await newPage(h, 1280, 900);
+  try {
+    await payToReport(page, h, [
+      fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Byggfirma AB") }),
+      fx({ extracted: EX(101000), scope: SC(), issuer: { name: null, orgnr: null, address: "Storgatan 1", city: "Växjö", phone: null, web: null, unreadable: true } }),
+      fx({ extracted: EX(102000), scope: SC(), issuer: ID_OK("Byggfirma AB", { orgnr: "556000-0167" }) }),
+    ]);
+    const heads = await page.$$eval("table.cmp thead th[data-col] .firm", (n) => n.map((x) => x.textContent));
+    assert.match(heads[0], /Byggfirma AB · Växjö/); assert.match(heads[1], /kunde inte avläsas säkert/);
+    const orgRow = await page.$$eval("table.cmp tbody tr", (rows) => { const r = rows.find((x) => /Organisationsnummer/.test(x.querySelector("th").textContent)); return [...r.querySelectorAll("td")].map((c) => c.textContent); });
+    assert.match(orgRow[0], /✓ Framgår/); assert.match(orgRow[1], /Kunde inte avläsas säkert/); assert.doesNotMatch(orgRow[1], /Framgår inte/);
+    await page.click("#more summary");
+    const more = await page.textContent("#more");
+    assert.match(more, /kunde inte avläsas säkert \(företagsnamn, organisationsnummer\)/);
+    assert.match(more, /samma företagsnamn men olika organisationsnummer/); // filial/koncernbolag: visas som olika, inte ihopslagna
+    // ingen identitetsbrist för Byggfirma AB (webb saknas, inga omdömen): bara oklarheter i andra poster
+    const q = await page.textContent("#rep details:has(summary:has-text('Byggfirma AB'))");
+    assert.doesNotMatch(q, /företagsnamn|organisationsnummer/i);
+  } finally { await ctx.close(); await h.close(); }
 });
