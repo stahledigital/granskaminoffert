@@ -130,3 +130,49 @@ test("atomisk arbetsclaim: två samtidiga alarm ger bara en körning", async () 
     assert.equal(f.log.anthropic.filter((r) => r.tools[0].name === "submit_offer").length, 2);
   } finally { f.restore(); }
 });
+
+// ---- Root-QA P1-punkt 8 (rootfacit): uttryckliga omfattningsskillnader stoppar rangordning ----
+test("P1-8a: lika jobType=tak, alla core ingår, 100 000/120 000 men 100 m² mot 120 m² → ingen rangordning, belopp visas, olika omfattning klarläggs", () => {
+  const c = compareOffers([
+    off({ jobType: "tak", areaM2: 100, totalBeforeRotSek: 100000 }),
+    off({ jobType: "tak", areaM2: 120, totalBeforeRotSek: 120000 }),
+  ], L(2));
+  assert.equal(c.ranking.shown, false);
+  assert.equal(c.ranking.lowest, undefined);
+  assert.notEqual(c.comparability.sameProject, "ok");
+  assert.ok(c.differences.some((d) => d.id === "proj:yta"));
+  assert.match(c.ranking.reasons.join(" "), /yta|omfattning/i);
+  assert.equal(c.offers[0].price.normalized.incVat, 100000); // beloppen visas fortfarande
+  assert.equal(c.offers[1].price.normalized.incVat, 120000);
+  assert.ok(c.comparability.reasons.join(" ").includes("klarläggas"));
+});
+
+test("P1-8b: lika 100 m²/core men skydd=ingår inte i A och ingår i B → skillnaden identifieras OCH rangordning stoppas", () => {
+  const c = compareOffers([
+    off({ jobType: "tak", areaM2: 100, totalBeforeRotSek: 100000 }, { ...ALL, skydd: "ingar_inte" }),
+    off({ jobType: "tak", areaM2: 100, totalBeforeRotSek: 110000 }, { ...ALL, skydd: "ingar" }),
+  ], L(2));
+  assert.ok(c.differences.some((d) => d.id === "scope:skydd" && d.category === "omfattning"));
+  assert.equal(c.ranking.shown, false); assert.equal(c.ranking.lowest, undefined);
+  assert.match(c.ranking.reasons.join(" "), /skydd/i);
+  assert.match(c.ranking.reasons.join(" "), /billigast/);
+});
+
+test("P1-8c: villkorsskillnad (garanti) stoppar inte rangordningen men visas separat", () => {
+  const c = compareOffers([
+    off({ areaM2: 100, totalBeforeRotSek: 100000 }, { ...ALL, garanti: "ingar_inte" }),
+    off({ areaM2: 100, totalBeforeRotSek: 110000 }, { ...ALL, garanti: "ingar" }),
+  ], L(2));
+  assert.equal(c.ranking.shown, true);
+  assert.ok(c.differences.some((d) => d.id === "scope:garanti" && d.category === "villkor"));
+});
+
+test("P1-8d: likvärdig kontroll – samma yta (±2 % avrundning) och lika omfattning → rangordning visas", () => {
+  const c = compareOffers([off({ areaM2: 100, totalBeforeRotSek: 100000 }), off({ areaM2: 101, totalBeforeRotSek: 108000 })], L(2));
+  assert.equal(c.ranking.shown, true); assert.equal(c.ranking.lowest.index, 0);
+});
+
+test("P1-8e: okänd yta i en offert blockerar inte, men olika yta i andra par gör det", () => {
+  const c = compareOffers([off({ areaM2: null }), off({ areaM2: 100, totalBeforeRotSek: 105000 }), off({ areaM2: 140, totalBeforeRotSek: 150000 })], L(3));
+  assert.equal(c.ranking.shown, false);
+});

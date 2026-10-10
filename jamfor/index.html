@@ -87,9 +87,10 @@ footer{margin-top:36px;font-size:13px;color:var(--ink2)}
   <div class="seg" role="group" aria-label="Antal offerter"><button type="button" data-n="2" aria-pressed="true">2</button><button type="button" data-n="3" aria-pressed="false">3</button><button type="button" data-n="4" aria-pressed="false">4</button></div>
   <div id="slots"></div>
   <p class="hint" id="limits"></p>
-  <label class="chk"><input type="checkbox" id="samejob"><span>Jag bekräftar att offerterna gäller <b>samma jobb</b>. Annars blir jämförelsen missvisande.</span></label>
+  <label class="chk"><input type="checkbox" id="samejob"><span id="t-samejob">Jag bekräftar att offerterna gäller samma jobb. Annars blir jämförelsen missvisande.</span></label>
   <button type="button" class="btn acc block" id="check">Kontrollera offerterna</button>
   <p class="hint">Kontrollen kostar ingenting. Du betalar först efter att du sett vad som kommer med.</p>
+  <p class="hint" id="coverage1"></p>
 </section>
 
 <!-- STEG 2-3 -->
@@ -99,14 +100,16 @@ footer{margin-top:36px;font-size:13px;color:var(--ink2)}
   <div id="docs" aria-live="polite"></div>
   <div id="offer" class="card acc hidden">
     <div class="price">49 kr <small>inklusive moms (varav <span id="vat">9,80</span> kr moms) · engångsköp</small></div>
+    <p id="draftnote" class="warnbox hidden"><b>Utkast.</b> Villkors- och samtyckestexterna är inte slutgiltiga. Skarp betalning är avstängd tills de är fastställda.</p>
+    <p id="coverage" class="hint"></p>
     <h3>Det här får du</h3>
-    <ul class="tight"><li>Jämförelse av <span id="nn">2</span> offerter: omfattning, pris, moms och ROT, med hänvisning till var i dokumentet uppgiften står.</li><li>Tydligt markerat det som <b>inte framgår</b> – det betyder inte att det saknas.</li><li>Frågor att ställa till varje hantverkare, och ett kvitto.</li></ul>
+    <ul class="tight" id="copy-gets"></ul>
     <h3>Det här får du inte</h3>
-    <ul class="tight"><li>Ingen bedömning av hantverkare, kvalitet eller om priset är rimligt.</li><li>Ingen rekommendation om vem du ska välja. Lägst belopp visas bara när offerterna går att jämföra, och säger inget om kvalitet.</li><li>Inte juridisk rådgivning.</li></ul>
+    <ul class="tight" id="copy-getsnot"></ul>
     <h3>Så går det till</h3>
-    <ul class="tight"><li>Efter betalning startar jämförelsen direkt och tar oftast några minuter. Du kan stänga fliken – du får tillbaka resultatet via en länk som visas här.</li><li>Offerterna skickas till Anthropic (Claude) för avläsning. Inga namn eller offerttexter går till betalleverantören.</li><li>Dina filer och resultatet raderas efter 24 timmar, eller direkt när du själv raderar.</li><li>Går något fel och du inte får ditt resultat ska du få pengarna tillbaka. Du anger ingen e-post för detta; kontakta oss med ordernumret.</li></ul>
-    <label class="chk"><input type="checkbox" id="terms"><span>Jag har läst och godkänner <a href="/jamfor/villkor/" target="_blank" rel="noopener">villkoren och integritetsinformationen</a>.</span></label>
-    <label class="chk"><input type="checkbox" id="immediate"><span>Jag vill att jämförelsen <b>startar direkt</b> efter betalning och förstår att ångerrätten därmed kan gå förlorad när tjänsten är levererad.</span></label>
+    <ul class="tight" id="copy-how"></ul>
+    <label class="chk"><input type="checkbox" id="terms"><span id="t-terms"></span> <a href="/jamfor/villkor/" target="_blank" rel="noopener">Läs villkoren</a></label>
+    <label class="chk"><input type="checkbox" id="immediate"><span id="t-immediate"></span></label>
     <button type="button" class="btn acc block" id="pay">Betala 49 kr</button>
     <p class="hint">Betalningen sker hos Stripe. Du lämnar sidan och kommer tillbaka hit.</p>
   </div>
@@ -171,7 +174,16 @@ async function init(){
   }
   $('vat').textContent=(Math.round(cfg.offer.priceOre*cfg.offer.vatPct/(100+cfg.offer.vatPct))/100).toFixed(2).replace('.',',');
   $('limits').textContent='Varje fil får vara högst '+Math.round(cfg.limits.maxFileBytes/1e6)+' MB (PDF, foto eller text), PDF högst ca '+cfg.limits.maxPdfPagesPerDoc+' sidor. Tillsammans högst '+Math.round(cfg.limits.maxTotalBytes/1e6)+' MB. Ta gärna bara sidorna med pris och villkor.';
+  fillCopy(cfg);
   buildSlots();show('s1',true);
+}
+function fillList(id,items){var u=$(id);u.textContent='';(items||[]).forEach(function(t){u.appendChild(el('li',{text:t}))})}
+function fillCopy(cfg){
+  var c=cfg.offerCopy||{},t=(cfg.consent&&cfg.consent.texts)||{};
+  fillList('copy-gets',c.gets);fillList('copy-getsnot',c.getsNot);fillList('copy-how',c.how);
+  $('t-terms').textContent=t.terms||'';$('t-immediate').textContent=t.immediate||'';if(t.sameJob)$('t-samejob').textContent=t.sameJob;
+  $('coverage').textContent=$('coverage1').textContent=(cfg.dataCoverage&&cfg.dataCoverage.text)||'';
+  show('draftnote',!!(cfg.consent&&cfg.consent.draft));
 }
 function readRecovery(){
   var p=new URLSearchParams(location.hash.replace(/^#/,''));var o=p.get('o'),t=p.get('t');
@@ -231,7 +243,7 @@ $('check').addEventListener('click',async function(){
       if(u.status===200){tag.className='tag ok';tag.textContent='Klar ('+(u.json.doc.pages?u.json.doc.pages+' sidor, ':'')+Math.max(1,Math.round(u.json.doc.bytes/1024))+' kB)'}
       else{tag.className='tag bad';tag.textContent=(u.json&&u.json.error)||'Gick inte';allOk=false}
     }
-    if(allOk){show('offer',true);$('nn').textContent=String(state.n);$('offer').scrollIntoView({block:'start'})}
+    if(allOk){show('offer',true);$('offer').scrollIntoView({block:'start'})}
     else{err('Någon fil gick inte att ta emot. Gå tillbaka och byt ut den, så kontrollerar vi igen.');
       var back=el('button',{type:'button',class:'btn ghost',text:'Börja om'});back.addEventListener('click',function(){store('jamfor_order',null);location.reload()});$('docs').appendChild(back)}
   }catch(e){err('Något gick fel. Försök igen.')}
@@ -243,12 +255,15 @@ $('pay').addEventListener('click',async function(){
   if(!$('terms').checked||!$('immediate').checked){err('Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
   var b=$('pay');b.disabled=true;b.textContent='Öppnar betalning…';
   try{
-    var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:{terms:true,immediateDelivery:true}}});
+    var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:acceptBody()}});
     if(r.status===200&&r.json.url){location.href=r.json.url;return}
+    if(r.json&&r.json.consentChanged){try{state.cfg=(await api('GET','/compare/config')).json;fillCopy(state.cfg);$('terms').checked=false;$('immediate').checked=false}catch(e){}}
     err((r.json&&r.json.error)||'Betalningen kunde inte startas. Du har inte debiterats.');
   }catch(e){err('Betalningen kunde inte startas. Du har inte debiterats.')}
   b.disabled=false;b.textContent='Betala 49 kr';
 });
+
+function acceptBody(){var c=(state.cfg&&state.cfg.consent)||{};return {terms:true,immediateDelivery:true,consentHash:c.hash,consentVersion:c.version}}
 
 // ---------- återupptagning och väntan ----------
 function recoveryLink(){return location.origin+location.pathname+'#o='+encodeURIComponent(state.order.id)+'&t='+encodeURIComponent(state.order.token)}
@@ -284,16 +299,40 @@ async function tick(cancelled){
     if(rr.status===410){box.appendChild(el('p',{text:'Rapporten har gått ut och är raderad.'}));}
     else{box.appendChild(el('p',{text:'Rapporten är klar men kunde inte hämtas just nu.'}));next=4000}
   }else if(o.status==='failed'){
-    box.appendChild(el('div',{class:'err',text:'Jämförelsen kunde inte slutföras. Du ska få pengarna tillbaka'+(o.refund&&o.refund.state==='done'?' – återbetalning är gjord.':'.')}));
-    box.appendChild(el('p',{text:'Ordernummer: '+o.id.slice(2,10).toUpperCase()+(o.refund&&o.refund.state==='needed'?'. Kontakta oss med ordernumret om pengarna inte kommit tillbaka inom några dagar.':'')}));
+    var rs=o.refund&&o.refund.state;
+    var rt={done:' Återbetalningen är genomförd hos betalleverantören.',pending:' Återbetalningen är begärd och väntar på att slutföras hos betalleverantören – den är inte klar än.',requested:' Återbetalningen begärs just nu.',action_required:' Återbetalningen kräver en åtgärd som vi måste ta hand om.',failed:' Återbetalningen gick inte igenom automatiskt och måste göras för hand.',needed:' Återbetalningen görs för hand.',none:''}[rs];
+    box.appendChild(el('div',{class:'err',text:'Jämförelsen kunde inte slutföras. Du ska få pengarna tillbaka.'+(rt===undefined?'':rt)}));
+    box.appendChild(el('p',{text:'Ordernummer: '+o.id.slice(2,10).toUpperCase()+(rs&&rs!=='done'?'. Kontakta oss med ordernumret om pengarna inte kommit tillbaka inom några dagar.':'')}));
+    if(rs==='pending'||rs==='action_required'||rs==='requested')next=15000;
   }else if(o.status==='deleted'){box.appendChild(el('p',{text:'Jämförelsen är raderad.'}));store('jamfor_order',null)}
   if(next)state.timer=setTimeout(tick,next);
 }
 function setStatus(t,bad){var b=$('statusbox');b.textContent='';b.appendChild(el('p',{text:t}));if(bad)b.appendChild(restartBtn())}
 function restartBtn(){var b=el('button',{type:'button',class:'btn ghost',text:'Börja om'});b.addEventListener('click',function(){store('jamfor_order',null);location.href=location.pathname});return b}
 async function retryPay(){
-  var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:{terms:true,immediateDelivery:true}}});
-  if(r.status===200&&r.json.url)location.href=r.json.url;else err((r.json&&r.json.error)||'Betalningen kunde inte startas.');
+  // Inget samtycke skickas i det tysta: servern återanvänder bara ett samtycke som kunden redan gett till SAMMA text (hash).
+  var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token});
+  if(r.status===200&&r.json.url){location.href=r.json.url;return}
+  if(r.json&&r.json.needAccept){return consentAgain(r.json.error)}
+  err((r.json&&r.json.error)||'Betalningen kunde inte startas.');
+}
+async function consentAgain(msg){
+  try{state.cfg=(await api('GET','/compare/config')).json}catch(e){}
+  var cfg=state.cfg||{},t=(cfg.consent&&cfg.consent.texts)||{},box=$('statusbox');box.textContent='';
+  box.appendChild(el('p',{text:msg||'Läs och godkänn villkoren igen innan du betalar.'}));
+  if(cfg.consent&&cfg.consent.draft)box.appendChild(el('p',{class:'warnbox',text:'Utkast: villkorstexterna är inte slutgiltiga.'}));
+  function chk(id,text){var l=el('label',{class:'chk'});l.appendChild(el('input',{type:'checkbox',id:id}));l.appendChild(el('span',{text:text}));return l}
+  box.appendChild(chk('terms2',t.terms||''));box.appendChild(chk('immediate2',t.immediate||''));
+  var b=el('button',{type:'button',class:'btn acc',id:'pay2',text:'Godkänn och gå till betalning'});
+  b.addEventListener('click',async function(){
+    err('');
+    if(!$('terms2').checked||!$('immediate2').checked){err('Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
+    b.disabled=true;
+    var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:acceptBody()}});
+    if(r.status===200&&r.json.url){location.href=r.json.url;return}
+    b.disabled=false;err((r.json&&r.json.error)||'Betalningen kunde inte startas. Du har inte debiterats.');
+  });
+  box.appendChild(b);
 }
 
 // ---------- rapport ----------

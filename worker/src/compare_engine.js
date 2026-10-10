@@ -12,6 +12,7 @@
 import { SCOPE_CATALOG } from "./compare_extract.js";
 import { cleanText } from "./compare_util.js";
 
+const AREA_ROUNDING = 1.02;
 const VAT = 1.25; // kalkylantagande vid omräkning mellan inkl och exkl moms; visas i rapporten
 const CORE = ["rivning", "bortforsling", "material", "arbete", "resor"];
 const JOB_LABEL = {
@@ -123,9 +124,10 @@ export function compareOffers(rawOffers, labels) {
     add({ id: "proj:oklart", weight: 70, category: "projekt", offers: jobUnknown, text: "Det framgår inte av alla offerter vilket arbete de gäller." });
   }
   const areas = offers.map((o) => o.project.areaM2).filter((v) => v !== null && v > 0);
-  if (areas.length >= 2 && Math.max(...areas) / Math.min(...areas) > 1.25) {
+  // Uttryckligt olika yta är olika omfattning: ingen tolerans som döljer 100 m² mot 120 m² (bara avrundning ≤ 2 % släpps).
+  if (areas.length >= 2 && Math.max(...areas) / Math.min(...areas) > AREA_ROUNDING) {
     if (cmp.sameProject === "ok") cmp.sameProject = "begransad";
-    cmp.reasons.push("Offerterna anger olika ytor, så belopp per offert är inte direkt jämförbara.");
+    cmp.reasons.push("Offerterna anger olika ytor, så belopp per offert är inte direkt jämförbara. Olika omfattning måste klarläggas innan beloppen kan jämföras.");
     add({ id: "proj:yta", weight: 88, category: "projekt", offers: offers.map((o) => o.index), text: "Offerterna anger olika ytor." });
   }
   const units = offers.map((o) => o.project.unitCount).filter((v) => v !== null);
@@ -194,6 +196,9 @@ export function compareOffers(rawOffers, labels) {
   if (priceTypeMix) blockers.push("Pristyp är inte densamma (eller inte angiven) i alla offerter.");
   if (cmp.sameProject !== "ok") blockers.push("Det är inte säkert att offerterna gäller samma arbete eller omfattning.");
   const coreDiff = matrix.filter((m) => m.core && (m.kind === "skiljer" || m.kind === "oklart_for_nagon"));
+  // ALLA uttryckliga omfattningsskillnader (ingår mot ingår inte, i valfri omfattningspost) stoppar prisrangordning; villkorsskillnader visas separat.
+  const scopeDiff = matrix.filter((m) => m.group === "omfattning" && m.kind === "skiljer" && !m.core);
+  if (scopeDiff.length) blockers.push(`Omfattningen skiljer sig uttryckligen i: ${scopeDiff.map((m) => lower(m.label)).join(", ")}. Olika omfattning måste klarläggas innan beloppen kan jämföras – ingen offert pekas ut som billigast.`);
   if (coreDiff.length) blockers.push(`Omfattningen skiljer sig eller är oklar i: ${coreDiff.map((m) => lower(m.label)).join(", ")}.`);
   if (offers.some((o) => o.readability === "svar")) blockers.push("En offert var mycket svår att läsa av.");
   // Om offerterna inte säger något om de flesta kärnposterna går det inte att veta vad priset omfattar.

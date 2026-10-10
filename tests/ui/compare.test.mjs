@@ -113,7 +113,10 @@ test("avbruten betalning, dröjande webhook, återupptagning via länk och 2 off
     await page.waitForURL("https://checkout.stripe.test/**");
     await page.click("#paylate");
     await page.waitForURL(h.base + "/jamfor/**");
-    // stäng fliken-scenario: ny sida utan lagrad order, bara återställningslänken
+    // stäng fliken-scenario: ny sida utan lagrad order, bara återställningslänken.
+    // Vänta på den faktiska länken (tick fyller #reclink asynkront efter navigeringen), inga sleeps.
+    await page.waitForSelector("#recovery:not(.hidden)");
+    await page.waitForFunction(() => /#o=o_[0-9a-f]{32}&t=/.test((document.querySelector("#reclink") || {}).textContent || ""));
     const link = await page.textContent("#reclink");
     assert.match(link, /#o=o_[0-9a-f]{32}&t=/);
     const p2 = await ctx.newPage();
@@ -125,6 +128,46 @@ test("avbruten betalning, dröjande webhook, återupptagning via länk och 2 off
     assert.ok(await noSideScroll(p2));
     await p2.screenshot({ path: join(EVIDENCE, "jamfor_mobil390_2offerter.png"), fullPage: true });
     assert.equal(h.stats.anthropic >= 2, true);
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("före köp: datatäckning (inga omdömen) och utkastmärkning syns; texterna kommer från servern; 'betala igen' återger inte tyst samtycke som kunden inte sett", async () => {
+  const h = await startHarness({});
+  const { ctx, page, errors } = await newPage(h, 390, 844);
+  try {
+    await page.goto(h.base + "/jamfor/");
+    await page.waitForSelector("#s1:not(.hidden)");
+    assert.match(await page.textContent("#coverage1"), /Omdömen om företagen ingår inte/);
+    await fillAndCheck(page, [OFFERS[0], "Offert badrum\nRivning och bortforsling ingår. Material och arbete ingår. Resor ingår.\nTotalt 120 000 kr inkl. moms före ROT"]);
+    const offer = await page.textContent("#offer");
+    assert.match(offer, /Inga omdömen om företagen/);
+    assert.match(offer, /tjänsten visar inga senaste omdömen/);
+    assert.ok(await page.isVisible("#draftnote"), "utkastmärkning");
+    assert.match(await page.textContent("#t-terms"), /utkast/i);
+    assert.ok(await noSideScroll(page));
+    await page.screenshot({ path: join(EVIDENCE, "jamfor_mobil390_erbjudande_utkast.png"), fullPage: true });
+    await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
+    await page.waitForURL("https://checkout.stripe.test/**");
+    await page.click("#cancel");
+    await page.waitForURL(h.base + "/jamfor/**");
+    await page.waitForSelector("text=Betalningen avbröts");
+    // Servern säger att samtycket inte längre gäller (texten har ändrats): sidan visar texterna igen och kräver nya kryss.
+    let calls = 0;
+    await page.route("**/compare/orders/*/checkout", async (route) => {
+      const req = route.request();
+      if (!req.postData() && calls++ === 0) return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Läs och godkänn villkoren igen innan du betalar.", needAccept: true }) });
+      return route.continue();
+    });
+    await page.click("text=Gå till betalning igen");
+    await page.waitForSelector("#terms2");
+    assert.match(await page.textContent("#statusbox"), /Läs och godkänn villkoren igen/);
+    assert.equal(await page.isChecked("#terms2"), false); assert.equal(await page.isChecked("#immediate2"), false);
+    await page.click("#pay2");
+    assert.match(await page.textContent("#err"), /Godkänn villkoren/);
+    await page.check("#terms2"); await page.check("#immediate2"); await page.click("#pay2");
+    await page.waitForURL("https://checkout.stripe.test/**");
+    assert.ok(h.stats.stripeCreate >= 1);
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); await h.close(); }
 });

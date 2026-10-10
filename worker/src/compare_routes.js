@@ -7,13 +7,13 @@
 // Betalningsbevis kommer bara från signerad webhook eller serveravstämning mot Stripe – returadressen
 // (success_url) bevisar ingenting.
 
-import { OFFER, LIMITS, compareEnabled, paymentsMode, budgetConfig, returnUrl, acceptingOrders } from "./compare_config.js";
+import { OFFER, LIMITS, compareEnabled, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, OFFER_COPY, DATA_COVERAGE } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
 import { buildExtractRequest } from "./compare_extract.js";
 import { offerLabels } from "./compare_engine.js";
-import { createCheckoutSession, retrieveSession, verifyWebhook } from "./compare_stripe.js";
+import { createCheckoutSession, retrieveSession, retrieveRefund, verifyWebhook } from "./compare_stripe.js";
 import * as budget from "./compare_budget.js";
 
 const MAX_BODY_CHARS = 11_600_000; // 8 MB binärt ≈ 10,7 MB base64
@@ -71,7 +71,9 @@ async function readJson(request, maxChars) {
   try { return { value: JSON.parse(raw) }; } catch { return { bad: true }; }
 }
 
-function publicConfig(env, allowedOrigins) {
+async function consentHash() { return sha256Hex(JSON.stringify(consentSnapshot())); }
+
+async function publicConfig(env, allowedOrigins) {
   const enabled = compareEnabled(env);
   return {
     enabled,
@@ -82,6 +84,11 @@ function publicConfig(env, allowedOrigins) {
       maxFileBytes: LIMITS.maxFileBytes, maxTotalBytes: LIMITS.maxTotalBytes, maxTextChars: LIMITS.maxTextChars,
       maxPdfPagesPerDoc: LIMITS.maxPdfPagesPerDoc, maxPdfPagesTotal: LIMITS.maxPdfPagesTotal,
     },
+    // Det kunden ska se och godkänna kommer från servern; hashen bindes till ordern vid köp.
+    offerCopy: OFFER_COPY,
+    consent: { version: CONSENT.version, draft: CONSENT.draft, hash: await consentHash(), texts: CONSENT.texts },
+    dataCoverage: DATA_COVERAGE,
+    draft: CONSENT.draft,
     dataCards: false, // datakort är avstängda tills åtkomst, villkor och budget är verifierade
     refund: env.COMPARE_AUTO_REFUND === "1" ? "auto" : "manual",
   };
@@ -110,6 +117,15 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (!v.ok) return reply({ error: "ogiltig signatur" }, 400);
     const ev = v.event;
     const obj = ev.data && ev.data.object;
+    if (ev.type === "refund.updated" || ev.type === "refund.failed" || ev.type === "charge.refund.updated") {
+      const rid = obj && obj.metadata && typeof obj.metadata.order_id === "string" ? obj.metadata.order_id : "";
+      if (!ORDER_ID_RE.test(rid) || !obj || obj.object !== "refund") return reply({ ok: true, ignored: "ingen_order" });
+      try {
+        const r = await orderCall(env, rid, "/refund-update", { refund: { id: obj.id, status: obj.status }, now: Date.now() });
+        if (r.status >= 500) return reply({ ok: false }, 500);
+        return reply({ ok: true });
+      } catch { return reply({ ok: false }, 500); }
+    }
     const orderId = obj && typeof obj.client_reference_id === "string" ? obj.client_reference_id : "";
     if (!ORDER_ID_RE.test(orderId)) return reply({ ok: true, ignored: "ingen_order" });
     try {
@@ -133,7 +149,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   }
 
   // ---- Config (öppen, ingen hemlighet) ----
-  if (path === "/compare/config" && request.method === "GET") return reply(publicConfig(env, allowedOrigins));
+  if (path === "/compare/config" && request.method === "GET") return reply(await publicConfig(env, allowedOrigins));
 
   if (!compareEnabled(env) || !bindingsOk(env)) return closed();
 
@@ -198,6 +214,15 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
         if (g2.status === 200) order = g2.json.order;
       }
     }
+    if (g.json.refundCheck && g.json.refundCheck.refundId && mode) {
+      await orderCall(env, id, "/refund-update", { mark: true, now: Date.now() });
+      try {
+        const rf = await retrieveRefund(env, g.json.refundCheck.refundId);
+        await orderCall(env, id, "/refund-update", { refund: rf, now: Date.now() });
+      } catch { /* nästa avläsning försöker igen */ }
+      const g3 = await orderCall(env, id, "/get", { tokenHash, now: Date.now() });
+      if (g3.status === 200) order = g3.json.order;
+    }
     return reply({ ok: true, order, pollMs: LIMITS.statusPollMinMs });
   }
 
@@ -223,15 +248,27 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   if (sub === "checkout" && request.method === "POST") {
     const mode = paymentsMode(env);
     if (!mode || !acceptingOrders(env, allowedOrigins)) return closed();
-    // Villkor och uttryckligt samtycke till direkt leverans lämnas vid köpet, inte vid kontrollen.
+    // Samtycke är bundet till version + hash av exakt de texter/priser servern visar. Med body: kunden har just sett
+    // och kryssat texterna. Utan body ("betala igen"): bara ett redan givet samtycke med SAMMA hash återanvänds –
+    // annars ber vi kunden läsa och godkänna igen.
+    const snap = consentSnapshot();
+    const hash = await consentHash();
     const bodyIn = await readJson(request, 2_000);
-    const acc = (bodyIn.value && bodyIn.value.accept) || {};
-    if (acc.terms !== true || acc.immediateDelivery !== true) return reply({ error: "Du behöver godkänna villkoren och att leveransen startar direkt.", needAccept: true }, 400);
-    const ac = await orderCall(env, id, "/accept", { tokenHash, accept: { terms: true, immediateDelivery: true }, now: Date.now() });
-    if (ac.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
-    if (ac.status !== 200) return reply({ error: "Ordern kan inte betalas i det här läget." }, 409);
-    const begin = await orderCall(env, id, "/checkout-begin", { tokenHash, now: Date.now() });
+    const acc = bodyIn.value && bodyIn.value.accept;
+    if (acc) {
+      if (acc.terms !== true || acc.immediateDelivery !== true || typeof acc.consentHash !== "string") return reply({ error: "Du behöver godkänna villkoren och att leveransen startar direkt.", needAccept: true }, 400);
+      if (acc.consentHash !== hash || acc.consentVersion !== snap.consentVersion) return reply({ error: "Villkoren eller erbjudandet har ändrats sedan du läste dem. Läs och godkänn igen.", needAccept: true, consentChanged: true }, 409);
+      const ac = await orderCall(env, id, "/accept", { tokenHash, accept: { terms: true, immediateDelivery: true, consentHash: hash, consentVersion: snap.consentVersion, draft: snap.draft, offerVersion: snap.offerVersion, priceOre: snap.priceOre, currency: snap.currency }, now: Date.now() });
+      if (ac.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
+      if (ac.status !== 200) return reply({ error: "Ordern kan inte betalas i det här läget." }, 409);
+    } else {
+      const st = await orderCall(env, id, "/consent-status", { tokenHash, consentHash: hash, now: Date.now() });
+      if (st.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
+      if (!st.json.same) return reply({ error: "Läs och godkänn villkoren igen innan du betalar.", needAccept: true }, 400);
+    }
+    const begin = await orderCall(env, id, "/checkout-begin", { tokenHash, consentHash: hash, now: Date.now() });
     if (begin.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
+    if (begin.status === 409 && begin.json.error === "samtycke_andrat") return reply({ error: "Läs och godkänn villkoren igen innan du betalar.", needAccept: true }, 409);
     if (begin.status === 409) return reply({ error: "Ordern kan inte betalas i det här läget.", reason: begin.json.error }, 409);
     if (begin.status !== 200) return reply({ error: "Tillfälligt fel." }, 503);
     if (begin.json.reuse) return reply({ ok: true, url: begin.json.reuse.url });
@@ -302,16 +339,21 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
         return reply({ error: "Jämförelsen kan inte genomföras just nu. Försök igen senare." }, 503);
       }
     }
-    const key = `cmpdoc:${id}:${idx}`;
+    // Oföränderlig nyckel (innehållets hash): en sen uppladdning kan aldrig skriva över eller radera en låst originalfil.
+    // Vilken nyckel som gäller avgörs enbart av orderns manifest (DO /doc).
+    const key = `cmpdoc:${id}:${idx}:${sha.slice(0, 40)}`;
     try { await env.REVIEWS_KV.put(key, JSON.stringify(doc), { expirationTtl: LIMITS.orderTtlSec }); } catch { return reply({ error: "Det gick inte att spara filen just nu." }, 503); }
     const r = await orderCall(env, id, "/doc", { tokenHash, meta: { idx, kind, bytes, tokens, pages, sha256: sha, key }, estimate: complete ? { worstMicro: estimateMicro } : null, now: Date.now() });
     if (r.status !== 200 || !r.json.ok) {
-      try { await env.REVIEWS_KV.delete(key); } catch { /* TTL */ }
+      // Radera bara den egna nya nyckeln, och aldrig en nyckel som manifestet använder (keep).
+      if (r.json && r.json.keep !== key && r.status !== 500 && r.status !== 503) { try { await env.REVIEWS_KV.delete(key); } catch { /* TTL */ } }
+      else if (r.status === 500 || r.status === 503) { /* oklart utfall: lämna nyckeln, TTL städar */ }
       if (r.status === 409 && r.json.error === "dubblett") return reply({ error: "Du har lagt in samma fil två gånger." }, 409);
       if (r.status === 413) return reply({ error: "Filerna är tillsammans för stora. Ta bara sidorna med pris och villkor." }, 413);
       if (r.status === 409) return reply({ error: "Ordern är låst." }, 409);
       return reply({ error: "Det gick inte att ta emot filen." }, r.status === 404 ? 404 : 503);
     }
+    if (r.json.replaced && r.json.replaced !== key) { try { await env.REVIEWS_KV.delete(r.json.replaced); } catch { /* TTL */ } }
     return reply({ ok: true, order: r.json.order, doc: { idx, kind, bytes, tokens, pages } });
   }
 

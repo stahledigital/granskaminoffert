@@ -1,5 +1,8 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1b – D04 rättning efter root-QA (KANDIDAT – AV, ej släppt; ovanpå commit 2de6569)
+- Gemensam kostnadsgate (AV som standard) för `/review` och `/explain`; alarm vid uttömda försök ⇒ failed; oföränderliga dokumentnycklar + manifest (sen PUT kan inte radera låst original); återbetalning bara `done` vid Stripe `succeeded` (+ avstämning/webhook); checkout-intent frusen per försök; samtycke bundet till version/hash med tydligt UTKASTläge (live stängd); datatäckning “inga omdömen” före köp; ytskillnad utan tolerans och alla omfattningsskillnader stoppar rangordning; UI-testets väntvillkor. Se `worker/COMPARE.md`.
+
 ## jamfor-v1 – Jämför mina offerter (D04 KANDIDAT – AV, ej släppt; bas = tree 0b19faef (bacbb6a))
 - Ny betald tjänst bakom flagga **AV**: jämför 2–4 offerter för 49 kr inkl. moms (engångsköp). Se `worker/COMPARE.md`. `/review` och befintliga sidor är oförändrade (`index.js` har bara export/route-koppling bakom `COMPARE_ENABLED`).
 - Serverpris, hostad Stripe Checkout (adapter), signerad webhook, idempotens, kontroll av belopp/valuta/order, atomisk arbetsclaim (DO + lease) och atomisk kostnadsreservation (DO, µUSD) utan standardtak (fail closed). Jämförelsemotor som aldrig rangordnar när omfattningen är okänd eller olika. Datakort finns bara som avstängd offlinemodul.

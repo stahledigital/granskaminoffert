@@ -11,6 +11,7 @@ import { MODELS, buildAnthropicRequest, computeCost, modelInfo } from "./models.
 import { ANTHROPIC_URL, ANTHROPIC_VERSION } from "./provider.js";
 import { aiGate } from "./org_probe.js";
 import { reserveBudget, settleBudget, releaseBudget, budgetAvailable } from "./explain_budget.js";
+import { gateEnabled, gateReserve, gateSettle, gateUnknown, gateRelease } from "./cost_gate.js";
 
 export const EXPLAIN_VERSION = "explain-v2";
 export const EXPLAIN_MODEL = "claude-sonnet-5-5";
@@ -173,8 +174,16 @@ export async function handleExplain(request, env, ctx, { tratt = () => {}, fetch
   // Konfigurerade värden får bara SÄNKA taken; allt över standard eller ogiltigt nekar.
   if (!Number.isSafeInteger(dayLimit) || dayLimit < 0 || dayLimit > DAY_LIMIT || !Number.isSafeInteger(capMicro) || capMicro < 0 || capMicro > MONTH_CAP_MICRO) return fb("konfig");
   if (!budgetAvailable(env)) return fb("ingen_budget");
+  // Gemensam kostnadsgate (AV som standard, COST_GATE="1"): samma atomära tak som /review och betalda jämförelser.
+  let gateKey = null, gateMicro = 0;
+  if (gateEnabled(env)) {
+    gateMicro = Math.ceil(worstMicro);
+    gateKey = `exp:${crypto.randomUUID()}`;
+    const g = await gateReserve(env, { key: gateKey, micro: gateMicro });
+    if (!g.ok) return fb(`gate_${g.reason}`);
+  }
   const res = await reserveBudget(env, { month, day, ipKey, micro: worstMicro, capMicro, dayLimit, ipLimit: IP_LIMIT });
-  if (!res.ok) return fb(`budget_${res.reason}`);
+  if (!res.ok) { if (gateKey) await gateRelease(env, { key: gateKey }); return fb(`budget_${res.reason}`); }
 
   let respJson;
   try {
@@ -187,15 +196,18 @@ export async function handleExplain(request, env, ctx, { tratt = () => {}, fetch
     if (!resp.ok) {
       // Ett svar utan 2xx har inte debiterats: reservationen frigörs.
       await releaseBudget(env, { month, day, ipKey, micro: worstMicro });
+      if (gateKey) await gateRelease(env, { key: gateKey });
       return fb("ai_fel");
     }
     respJson = await resp.json();
   } catch {
     // Okänt om anropet nådde fram och debiterades: reservationen (värsta fallet) får ligga kvar.
+    if (gateKey) await gateUnknown(env, { key: gateKey, worstMicro: gateMicro });
     return fb("ai_oklart");
   }
 
   const cost = computeCost(model, respJson && respJson.usage);
+  if (gateKey) await gateSettle(env, { key: gateKey, model, usage: respJson && respJson.usage, worstMicro: gateMicro });
   // Uppmätt kostnad ersätter reservationen. Okänd kostnad: värsta fallet ligger kvar.
   if (cost.status === "känd" && cost.usd !== null) {
     await settleBudget(env, { month, micro: worstMicro, actual: Math.ceil(cost.usd * 1e6) });

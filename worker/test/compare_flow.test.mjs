@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheckout, paidSession, webhook, ORIGIN } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheckout, paidSession, webhook, docKeys, consentOf, ORIGIN } from "./helpers/compare_env.mjs";
 
 const S = (total, scope = {}, extracted = {}) => ({ extracted: { totalBeforeRotSek: total, totalVatBasis: "inkl", ...extracted }, scope });
 const ALLSCOPE = { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" };
@@ -39,7 +39,8 @@ test("serverpris: priset i config och i Stripe-anropet är 4900 öre SEK; klient
     const { orderId, token } = c.json;
     await upload(env, orderId, token, 0, S(100000, ALLSCOPE));
     await upload(env, orderId, token, 1, S(110000, ALLSCOPE));
-    const co = await api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { priceOre: 1, amount: 1, accept: { terms: true, immediateDelivery: true } } });
+    const cs = await consentOf(env);
+    const co = await api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { priceOre: 1, amount: 1, accept: { terms: true, immediateDelivery: true, consentHash: cs.hash, consentVersion: cs.version } } });
     assert.equal(co.status, 200);
     assert.equal(f.log.stripeCreate.length, 1);
     const p = new URLSearchParams(f.log.stripeCreate[0].body);
@@ -86,7 +87,7 @@ test("hela flödet med 3 offerter: obetald ger ingen generation, betald leverera
     const riv = rep.scopeMatrix.find((m) => m.id === "rivning");
     assert.equal(riv.cells[2].status, "framgar_inte"); assert.equal(riv.cells[2].ref, "");
     // Rådata raderad efter leverans
-    for (let i = 0; i < 3; i++) assert.equal(await env.REVIEWS_KV.get(`cmpdoc:${orderId}:${i}`), null);
+    assert.deepEqual(docKeys(env, orderId), []);
     // Kostnad avräknad, inget kvar reserverat
     const stub = env.COMPARE_BUDGET.get("jamfor-budget");
     assert.ok(stub);

@@ -61,6 +61,7 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
   await E.build({ entryPoints: [fileURLToPath(new URL("../src/index.js", import.meta.url))], bundle: true, format: "esm", target: "es2022", keepNames: true, charset: "ascii", outfile: out, logLevel: "silent" });
 
   const sessions = new Map(); // id -> session + urls
+  const idemSeen = new Map();
   const stats = { anthropic: 0, stripeCreate: 0, webhooks: 0, refunds: 0 };
   const ctl = { anthropicDelayMs, failAnthropic: 0 };
   let port = 0;
@@ -135,14 +136,22 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
       if (u.hostname === "api.stripe.com" && u.pathname === "/v1/checkout/sessions" && req.method === "POST") {
         stats.stripeCreate++;
         const p = new URLSearchParams(body);
+        // Som Stripe: samma idempotensnyckel med andra parametrar nekas; samma parametrar ger samma session.
+        const idem = req.headers.get("idempotency-key");
+        if (idem && idemSeen.has(idem)) {
+          const prev = idemSeen.get(idem);
+          if (prev.body !== body) return Response.json({ error: { type: "idempotency_error", code: "idempotency_key_in_use" } }, { status: 400 });
+          return Response.json(prev.obj);
+        }
         const id = "cs_test_dev" + String(sessions.size + 1).padStart(7, "0");
-        const obj = { id, object: "checkout.session", url: `https://checkout.stripe.test/c/${id}`, expires_at: Math.floor(Date.now() / 1000) + 3600, mode: "payment", livemode: false, client_reference_id: p.get("client_reference_id"), currency: "sek", amount_total: Number(p.get("line_items[0][price_data][unit_amount]")), status: "open", payment_status: "unpaid", payment_intent: null, metadata: { order_id: p.get("metadata[order_id]") } };
+        const obj = { id, object: "checkout.session", url: `https://checkout.stripe.test/c/${id}`, expires_at: Number(p.get("expires_at")), mode: "payment", livemode: false, client_reference_id: p.get("client_reference_id"), currency: "sek", amount_total: Number(p.get("line_items[0][price_data][unit_amount]")), status: "open", payment_status: "unpaid", payment_intent: null, metadata: { order_id: p.get("metadata[order_id]") } };
+        if (idem) idemSeen.set(idem, { body, obj });
         sessions.set(id, { obj, success: p.get("success_url").replace("{CHECKOUT_SESSION_ID}", id), cancel: p.get("cancel_url") });
         return Response.json(obj);
       }
       const g = u.hostname === "api.stripe.com" && u.pathname.match(/^\/v1\/checkout\/sessions\/(cs_\w+)$/);
       if (g) { const s = sessions.get(g[1]); return s ? Response.json(s.obj) : Response.json({ error: { code: "resource_missing" } }, { status: 404 }); }
-      if (u.hostname === "api.stripe.com" && u.pathname === "/v1/refunds") { stats.refunds++; return Response.json({ id: "re_dev_1", status: "succeeded" }); }
+      if (u.hostname === "api.stripe.com" && u.pathname === "/v1/refunds") { stats.refunds++; return Response.json({ id: "re_dev_1", object: "refund", status: "succeeded" }); }
       return new Response("blockerad", { status: 502 });
     },
   });

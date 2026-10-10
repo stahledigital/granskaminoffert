@@ -17,6 +17,48 @@ export const OFFER = Object.freeze({
   retentionHours: 24,
 });
 
+// Erbjudandetext och samtycke ägs av servern så att det kunden SER är exakt det som bindes till ordern
+// (versions- och hashbindning). Slutlig juridisk text väntar kommersiella spåret: tills dess är
+// CONSENT.draft = true, vilket stänger LIVE-betalning (bara testläge tillåts) och märks i gränssnittet.
+export const OFFER_COPY = Object.freeze({
+  gets: [
+    "Jämförelse av dina offerter: omfattning, pris, moms och ROT, med hänvisning till var i dokumentet uppgiften står.",
+    "Tydligt markerat det som inte framgår – det betyder inte att det saknas.",
+    "Frågor att ställa till varje hantverkare, och ett kvitto.",
+  ],
+  getsNot: [
+    "Ingen bedömning av hantverkare, kvalitet eller om priset är rimligt.",
+    "Ingen rekommendation om vem du ska välja. Lägst belopp visas bara när offerterna går att jämföra, och säger inget om kvalitet.",
+    "Inga omdömen om företagen. Varken Google, Trustpilot eller andra källor ingår i den här versionen, och tjänsten visar inga senaste omdömen.",
+    "Inte juridisk rådgivning.",
+  ],
+  how: [
+    "Efter betalning startar jämförelsen direkt och tar oftast några minuter. Du kan stänga fliken – du får tillbaka resultatet via en länk som visas här.",
+    "Offerterna skickas till Anthropic (Claude) för avläsning. Inga namn eller offerttexter går till betalleverantören.",
+    "Dina filer och resultatet raderas efter 24 timmar, eller direkt när du själv raderar.",
+    "Går något fel och du inte får ditt resultat ska du få pengarna tillbaka. Du anger ingen e-post för detta; kontakta oss med ordernumret.",
+  ],
+});
+export const CONSENT = Object.freeze({
+  version: "samtycke-utkast-1",
+  draft: true,
+  texts: Object.freeze({
+    sameJob: "Jag bekräftar att offerterna gäller samma jobb. Annars blir jämförelsen missvisande.",
+    terms: "Jag har läst och godkänner villkoren och integritetsinformationen (utkast – slutlig text är inte fastställd).",
+    immediate: "Jag vill att jämförelsen startar direkt efter betalning och förstår att ångerrätten därmed kan gå förlorad när tjänsten är levererad.",
+  }),
+});
+export const DATA_COVERAGE = Object.freeze({ reviews: false, text: "Omdömen om företagen ingår inte i den här versionen." });
+
+// Det kunden accepterar: pris, produkt, erbjudandetext och samtyckestexter. Hashen bindes till ordern.
+export function consentSnapshot() {
+  return {
+    consentVersion: CONSENT.version, draft: CONSENT.draft,
+    offerVersion: OFFER.version, priceOre: OFFER.priceOre, currency: OFFER.currency, vatPct: OFFER.vatPct,
+    copy: OFFER_COPY, texts: CONSENT.texts, dataCoverage: DATA_COVERAGE,
+  };
+}
+
 // Tekniska gränser (INTE ett budgetbeslut). Före betalning tydliga för kunden.
 export const LIMITS = Object.freeze({
   maxFileBytes: 8_000_000, // som /review
@@ -87,7 +129,10 @@ export function refundMode(env) {
 }
 
 export function acceptingOrders(env, allowedOrigins) {
-  return compareEnabled(env) && paymentsMode(env) !== null && budgetConfig(env).ok && returnUrl(env, allowedOrigins) !== null;
+  const mode = compareEnabled(env) ? paymentsMode(env) : null;
+  if (mode === null) return false;
+  if (mode === "live" && CONSENT.draft) return false; // utkasttext: ingen skarp betalning
+  return budgetConfig(env).ok && returnUrl(env, allowedOrigins) !== null;
 }
 
 // Moms ur ett belopp som redan innehåller moms (öre). Kalkylantagande, märks så i kvittot.

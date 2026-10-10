@@ -11,7 +11,7 @@
 import REFERENCE from "./reference.json" with { type: "json" };
 import { runRules, checkNormalAddons, compareToBands, findForbidden, scrubForbidden } from "./rules.js";
 import { sanitizeExtracted, sanitizeReview, FIELD_LABELS } from "./sanitize.js";
-import { DEFAULT_MODEL, modelInfo, buildAnthropicRequest, computeCost } from "./models.js";
+import { DEFAULT_MODEL, modelInfo, buildAnthropicRequest, computeCost, worstCaseUsd } from "./models.js";
 import { reserve, quotaMode, parseLimit, QuotaCounter } from "./quota.js";
 import { sniffFile, countInputTokens, DEFAULT_INPUT_TOKEN_LIMIT } from "./limits.js";
 
@@ -22,6 +22,8 @@ export { CompareOrders } from "./compare_orders.js";
 export { CompareBudget } from "./compare_budget.js";
 import { handleCompare } from "./compare_routes.js";
 import { compareEnabled } from "./compare_config.js";
+import { gateEnabled, gateReserve, gateSettle, gateUnknown, gateRelease } from "./cost_gate.js";
+import { usdToMicro } from "./compare_budget.js";
 import { probeCreditOrg, creditExpired } from "./org_probe.js";
 import { handleExplain, explainCors, explainOrigins } from "./explain.js";
 
@@ -663,6 +665,18 @@ async function handleReview(request, env, ctx, allowedOrigins) {
     return jsonResponse({ error: "Tjänsten har nått sitt dagliga tak för granskningar. Försök igen imorgon." }, 429, headers);
   }
 
+  // Gemensam kostnadsgate (AV som standard, COST_GATE="1"): reservation före anropet, annars inget anrop.
+  let gateKey = null, gateMicro = 0;
+  if (gateEnabled(env)) {
+    const estTokens = inputTokens !== null ? inputTokens : Math.ceil(String(text || "").length / 2) + 3000;
+    const worst = worstCaseUsd(model, estTokens + 600);
+    if (worst === null) return unavailable();
+    gateMicro = usdToMicro(worst);
+    gateKey = `rev:${debugId}`;
+    const g = await gateReserve(env, { key: gateKey, micro: gateMicro });
+    if (!g.ok) return unavailable();
+  }
+
   let review, usage, rawStatus, errorDetail;
   try {
     const resp = await fetch(ANTHROPIC_URL, {
@@ -679,11 +693,14 @@ async function handleReview(request, env, ctx, allowedOrigins) {
     const respJson = await resp.json();
     if (!resp.ok) {
       errorDetail = respJson;
+      if (gateKey) { await gateRelease(env, { key: gateKey }); gateKey = null; } // HTTP-fel debiteras inte
       throw new Error(`Anthropic API ${resp.status}: ${JSON.stringify(respJson).slice(0, 500)}`);
     }
     usage = respJson.usage;
+    if (gateKey) { await gateSettle(env, { key: gateKey, model, usage, worstMicro: gateMicro }); gateKey = null; }
     review = sanitizeReview(readReview(respJson));
   } catch (e) {
+    if (gateKey) { await gateUnknown(env, { key: gateKey, worstMicro: gateMicro }); gateKey = null; } // nät-/tidsfel: oklar användning
     ctx.waitUntil(
       kvPut(
         env,

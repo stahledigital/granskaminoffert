@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheckout, paidSession, webhook } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheckout, paidSession, webhook, docKeys } from "./helpers/compare_env.mjs";
 import * as budget from "../src/compare_budget.js";
 
 const S = (total, scope = {}) => ({ extracted: { totalBeforeRotSek: total, totalVatBasis: "inkl" }, scope });
@@ -71,7 +71,7 @@ test("pipeline: ihållande fel → misslyckad leverans, återbetalning 'needed' 
     const st = await status(env, orderId, token);
     assert.equal(st.status, "failed"); assert.equal(st.refund.state, "needed"); assert.equal(st.refund.mode, "manual");
     assert.equal(f.log.refunds.length, 0); // ingen riktig återbetalning i manuellt läge
-    assert.equal(await env.REVIEWS_KV.get(`cmpdoc:${orderId}:0`), null);
+    assert.deepEqual(docKeys(env, orderId), []);
     assert.equal((await api(env, "GET", `/compare/orders/${orderId}/report`, { token })).status, 409);
   } finally { f.restore(); }
 });

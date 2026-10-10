@@ -88,7 +88,8 @@ test("workerd: betalning → riktigt DO-alarm → leverans; dubbel webhook ger i
       const u = await call(mf, "PUT", `/compare/orders/${orderId}/docs/${i}`, { token, body: { kind: "text", text: offerText(specs[i]) } });
       assert.equal(u.status, 200, await u.clone().text());
     }
-    const co = await (await call(mf, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { accept: { terms: true, immediateDelivery: true } } })).json();
+    const cfg = (await (await call(mf, "GET", "/compare/config")).json()).consent;
+    const co = await (await call(mf, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { accept: { terms: true, immediateDelivery: true, consentHash: cfg.hash, consentVersion: cfg.version } } })).json();
     assert.match(co.url, /checkout\.stripe\.test/);
     const done = { ...[...sessions.values()][0], status: "complete", payment_status: "paid", payment_intent: "pi_test_0000000001" };
     const raw = JSON.stringify({ id: "evt_rt1", type: "checkout.session.completed", data: { object: done } });

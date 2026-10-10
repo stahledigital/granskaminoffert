@@ -92,10 +92,11 @@ export function fixtureResponse(spec) {
 
 // ---- fetch-attrapp (Anthropic + Stripe) ----
 export function installFetch(opts = {}) {
-  const log = { anthropic: [], count: [], stripeCreate: [], stripeGet: [], refunds: [] };
+  const log = { anthropic: [], count: [], stripeCreate: [], stripeGet: [], refunds: [], refundGets: [] };
+  const refundsByIdem = new Map();
   const sessions = new Map(); // id -> session-objekt som Stripe skulle returnera
   const byIdem = new Map();
-  const ctl = { failNext: [], timeoutNext: 0, countTokens: 3000, usage: { input_tokens: 3000, output_tokens: 800 }, noUsage: false, synthIds: null, ...opts };
+  const ctl = { failNext: [], timeoutNext: 0, countTokens: 3000, usage: { input_tokens: 3000, output_tokens: 800 }, noUsage: false, synthIds: null, refundStatus: "succeeded", refundObj: null, ...opts };
   const real = globalThis.fetch;
   let n = 0;
   globalThis.fetch = async (input, init = {}) => {
@@ -121,16 +122,32 @@ export function installFetch(opts = {}) {
     if (url === "https://api.stripe.com/v1/checkout/sessions" && init.method === "POST") {
       const idem = init.headers && init.headers["idempotency-key"];
       log.stripeCreate.push({ body, idem });
-      if (idem && byIdem.has(idem)) return Response.json(byIdem.get(idem));
+      if (idem && byIdem.has(idem)) {
+        const prev = byIdem.get(idem);
+        // Stripe: samma nyckel med ANDRA parametrar nekas (docs.stripe.com/api/idempotent_requests).
+        if (prev.body !== body) return Response.json({ error: { type: "idempotency_error", code: "idempotency_key_in_use" } }, { status: 400 });
+        return Response.json(prev.session);
+      }
       const id = "cs_test_" + String(++n).padStart(10, "0");
       const p = new URLSearchParams(body);
-      const s = { id, object: "checkout.session", url: `https://checkout.stripe.test/c/${id}`, expires_at: Math.floor(Date.now() / 1000) + 3600, mode: "payment", livemode: false, client_reference_id: p.get("client_reference_id"), currency: "sek", amount_total: Number(p.get("line_items[0][price_data][unit_amount]")), status: "open", payment_status: "unpaid", payment_intent: null, metadata: { order_id: p.get("metadata[order_id]") } };
-      sessions.set(id, s); if (idem) byIdem.set(idem, s);
+      const s = { id, object: "checkout.session", url: `https://checkout.stripe.test/c/${id}`, expires_at: Number(p.get("expires_at")), mode: "payment", livemode: false, client_reference_id: p.get("client_reference_id"), currency: "sek", amount_total: Number(p.get("line_items[0][price_data][unit_amount]")), status: "open", payment_status: "unpaid", payment_intent: null, metadata: { order_id: p.get("metadata[order_id]") } };
+      sessions.set(id, s); if (idem) byIdem.set(idem, { body, session: s });
       return Response.json(s);
     }
     const g = url.match(/^https:\/\/api\.stripe\.com\/v1\/checkout\/sessions\/(cs_[A-Za-z0-9_]+)$/);
     if (g) { log.stripeGet.push(g[1]); const s = sessions.get(g[1]); return s ? Response.json(s) : Response.json({ error: { code: "resource_missing" } }, { status: 404 }); }
-    if (url === "https://api.stripe.com/v1/refunds") { log.refunds.push(body); return Response.json({ id: "re_test_0001", status: "succeeded" }); }
+    if (url === "https://api.stripe.com/v1/refunds" && init.method === "POST") {
+      log.refunds.push(body);
+      if (ctl.refundFail) return Response.json({ error: { code: "x" } }, { status: 500 });
+      const idem = init.headers && init.headers["idempotency-key"];
+      if (idem && refundsByIdem.has(idem)) return Response.json(refundsByIdem.get(idem));
+      const r = { id: ctl.refundNoId ? undefined : "re_test_0001", object: "refund", status: ctl.refundStatus, metadata: { order_id: new URLSearchParams(body).get("metadata[order_id]") } };
+      if (idem) refundsByIdem.set(idem, r);
+      ctl.refundObj = r;
+      return Response.json(r);
+    }
+    const rg = url.match(/^https:\/\/api\.stripe\.com\/v1\/refunds\/(re_[A-Za-z0-9_]+)$/);
+    if (rg) { log.refundGets.push(rg[1]); return ctl.refundObj ? Response.json(ctl.refundObj) : Response.json({ error: { code: "resource_missing" } }, { status: 404 }); }
     throw new Error("oväntat externt anrop: " + url);
   };
   return { log, ctl, sessions, restore: () => { globalThis.fetch = real; } };
@@ -161,7 +178,13 @@ export async function readyOrder(env, specs) {
   for (let i = 0; i < specs.length; i++) { const u = await upload(env, orderId, token, i, specs[i]); if (u.status !== 200) throw new Error("upload " + u.status + JSON.stringify(u.json)); }
   return { orderId, token };
 }
-export async function startCheckout(env, orderId, token, accept = { terms: true, immediateDelivery: true }) { return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { accept } }); }
+export async function consentOf(env) { const c = await api(env, "GET", "/compare/config"); return c.json.consent; }
+// accept: undefined = kunden kryssar nuvarande texter (hash från servern); null = ingen body ("betala igen"); objekt = som angivet.
+export async function startCheckout(env, orderId, token, accept) {
+  if (accept === null) return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token });
+  if (accept === undefined) { const c = await consentOf(env); accept = { terms: true, immediateDelivery: true, consentHash: c.hash, consentVersion: c.version }; }
+  return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { accept } });
+}
 
 export function paidSession(sess, over = {}) {
   return { ...sess, status: "complete", payment_status: "paid", payment_intent: "pi_test_0000000001", ...over };
@@ -173,3 +196,4 @@ export async function webhook(env, type, session, { id = "evt_" + Math.random().
   return api(env, "POST", "/compare/webhook", { raw, origin: "", headers: { "stripe-signature": sig, "content-type": "application/json" } });
 }
 export const sha = sha256Hex;
+export const docKeys = (env, orderId) => [...env.REVIEWS_KV.m.keys()].filter((k) => k.startsWith(`cmpdoc:${orderId}:`));

@@ -93,7 +93,7 @@ async function run({ env, io, store, model: modelOverride }) {
     if (have && have.cacheKey === cacheKey) continue;
 
     if (!(await store.heartbeat())) return { state: "lost" };
-    const stored = await io.kv.get(`cmpdoc:${order.id}:${idx}`, "json");
+    const stored = await io.kv.get(meta.key, "json");
     if (!stored) return { state: "failed", reason: "dokument_saknas" };
     const request = buildExtractRequest({ model, doc: stored });
 

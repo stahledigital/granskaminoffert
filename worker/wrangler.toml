@@ -101,5 +101,6 @@ new_sqlite_classes = ["ExplainBudget"]
 #   [[migrations]]
 #   tag = "v3"
 #   new_sqlite_classes = ["CompareOrders", "CompareBudget"]
+# Gemensam kostnadsgate för /review och /explain (AV som standard): COST_GATE="1" + COMPARE_MONTH_CAP_MICRO + COMPARE_FREE_CAP_MICRO (människosatta, se COMPARE.md). Inget sätts här.
 # OBS: koden exporterar redan klasserna, men utan bindningarna ovan och COMPARE_ENABLED="1" gör /compare ingenting (503).
 # Valfritt: [[ratelimits]] name = "COMPARE_RL" namespace_id = "1004" simple = { limit = 6, period = 60 }

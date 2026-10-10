@@ -43,8 +43,12 @@ async function stripeFetch(env, path, { method = "GET", body, idempotencyKey, fe
 }
 
 // Skapar hostad Checkout-session. Priset kommer från OFFER (serverkod), aldrig från anropet.
-export async function createCheckoutSession(env, order, { returnUrl, now = Date.now(), fetchImpl } = {}) {
-  const expiresAt = Math.floor(now / 1000) + 3600; // Stripes minimum är 30 min
+// Idempotensnyckel och kropp är bundna till ett FÖRSÖK (order.attempt) med FRUSEN utgångstid
+// (order.expiresAtSec, bestäms av orderobjektet vid försökets start, inte av klockan här): samma försök
+// ger alltid exakt samma parametrar, så Stripes parametermatchning aldrig slår fel. En verkligt utgången
+// session får nästa försöksnummer och därmed ny nyckel.
+export async function createCheckoutSession(env, order, { returnUrl, fetchImpl } = {}) {
+  if (!Number.isInteger(order.attempt) || order.attempt < 1 || !Number.isInteger(order.expiresAtSec)) throw new Error("stripe: försök saknas");
   const sep = returnUrl.includes("?") ? "&" : "?";
   const body = {
     mode: "payment",
@@ -52,7 +56,7 @@ export async function createCheckoutSession(env, order, { returnUrl, now = Date.
     client_reference_id: order.id,
     success_url: `${returnUrl}${sep}order=${order.id}&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${returnUrl}${sep}order=${order.id}&avbruten=1`,
-    expires_at: expiresAt,
+    expires_at: order.expiresAtSec,
     line_items: [{
       quantity: 1,
       price_data: {
@@ -64,9 +68,9 @@ export async function createCheckoutSession(env, order, { returnUrl, now = Date.
     metadata: { order_id: order.id, offer: OFFER.version },
     payment_intent_data: { metadata: { order_id: order.id, offer: OFFER.version } },
   };
-  const s = await stripeFetch(env, "/checkout/sessions", { method: "POST", body, idempotencyKey: `checkout:${order.id}`, fetchImpl });
+  const s = await stripeFetch(env, "/checkout/sessions", { method: "POST", body, idempotencyKey: `checkout:${order.id}:${order.attempt}`, fetchImpl });
   if (!s || typeof s.id !== "string" || typeof s.url !== "string" || !/^https:\/\//.test(s.url)) throw new Error("stripe: ogiltig session");
-  return { id: s.id, url: s.url, expiresAt: Number.isFinite(s.expires_at) ? s.expires_at * 1000 : expiresAt * 1000 };
+  return { id: s.id, url: s.url, expiresAt: Number.isFinite(s.expires_at) ? s.expires_at * 1000 : order.expiresAtSec * 1000 };
 }
 
 export async function retrieveSession(env, sessionId, { fetchImpl } = {}) {
@@ -74,9 +78,28 @@ export async function retrieveSession(env, sessionId, { fetchImpl } = {}) {
   return stripeFetch(env, `/checkout/sessions/${sessionId}`, { fetchImpl });
 }
 
+// Stripe-återbetalningens status (docs.stripe.com/api/refunds/object): pending | requires_action |
+// succeeded | failed | canceled. ENDAST succeeded är slutförd. Okänd/saknad status = oklar.
+export function refundOutcome(status) {
+  switch (status) {
+    case "succeeded": return "done";
+    case "pending": return "pending";
+    case "requires_action": return "action_required";
+    case "failed":
+    case "canceled": return "failed";
+    default: return "unknown";
+  }
+}
+
 export async function refundPayment(env, { paymentIntentId, orderId, fetchImpl }) {
   if (!/^pi_[A-Za-z0-9_]{8,}$/.test(String(paymentIntentId))) throw new Error("ogiltigt betalnings-id");
   const r = await stripeFetch(env, "/refunds", { method: "POST", body: { payment_intent: paymentIntentId, reason: "requested_by_customer", metadata: { order_id: orderId } }, idempotencyKey: `refund:${orderId}`, fetchImpl });
+  return { id: r && typeof r.id === "string" && /^re_[A-Za-z0-9_]+$/.test(r.id) ? r.id : null, status: r && r.status };
+}
+
+export async function retrieveRefund(env, refundId, { fetchImpl } = {}) {
+  if (!/^re_[A-Za-z0-9_]+$/.test(String(refundId))) throw new Error("ogiltigt återbetalnings-id");
+  const r = await stripeFetch(env, `/refunds/${refundId}`, { fetchImpl });
   return { id: r && r.id, status: r && r.status };
 }
 
