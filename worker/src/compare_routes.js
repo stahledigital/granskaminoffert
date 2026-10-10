@@ -16,7 +16,7 @@ import { offerLabels } from "./compare_engine.js";
 import { validEmail, parseWithdrawToken } from "./compare_ledger.js";
 import { timingSafeEqual } from "./compare_util.js";
 import { createCheckoutSession, retrieveSession, retrieveRefund, verifyWebhook } from "./compare_stripe.js";
-import { sourcesConfig, publicSourcesConfig, googleCandidates, nativeSearchGate, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
+import { sourcesConfig, publicSourcesConfig, googleCandidates, nativeSearchGate, reserveMount, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
 import * as budget from "./compare_budget.js";
 
 const MAX_BODY_CHARS = 11_600_000; // 8 MB binärt ≈ 10,7 MB base64
@@ -269,7 +269,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   }
 
   // ---- D07: källor för senaste omdömen (avstängda om inte COMPARE_REVIEWS + COMPARE_REVIEWS_VERIFIED) ----
-  const sm = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})\/sources(?:\/(firms|google\/search|google\/confirm|google\/render|trustpilot\/search|trustpilot\/confirm|trustpilot\/latest|unconfirm))?$/);
+  const sm = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})\/sources(?:\/(firms|google\/search|google\/mount|google\/confirm|google\/render|trustpilot\/search|trustpilot\/confirm|trustpilot\/latest|unconfirm))?$/);
   if (sm) {
     const oid = sm[1], ssub = sm[2] || "";
     const tok = request.headers.get("x-order-token") || "";
@@ -314,6 +314,16 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
       const rec = await op({ type: "record_search", firmId: firm.id, provider: "google", outcome: r.outcome, candidateIds: r.candidates.map((c) => c.id) });
       const e = out(rec); if (e) return e;
       return reply({ ok: true, outcome: r.outcome, candidates: r.candidates, sources: rec.json.sources });
+    }
+    if (ssub === "google/mount" && request.method === "POST") {
+      if (!cfgS.google.on) return reply({ error: "Googles omdömen visas inte i den här versionen." }, 503);
+      const kind = bv.kind === "search" || bv.kind === "details" ? bv.kind : null;
+      if (!kind || typeof bv.mountId !== "string") return reply({ error: "Ogiltig förfrågan." }, 400);
+      const res = await reserveMount(env, cfgS, { kind, mountId: bv.mountId, firmId: firm.id, op });
+      if (res.httpStatus === 404) return reply({ error: "Ordern hittades inte." }, 404);
+      if (res.outcome === "ogiltig") return reply({ error: "Ogiltig förfrågan." }, 400);
+      if (res.outcome === "fel") return reply({ error: "Tillfälligt fel." }, 503);
+      return reply({ ok: true, allowed: res.allowed, outcome: res.outcome, kind });
     }
     if (ssub === "google/render" && request.method === "POST") {
       if (!cfgS.google.on) return reply({ error: "Googles omdömen visas inte i den här versionen." }, 503);

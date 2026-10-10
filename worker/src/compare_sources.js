@@ -15,13 +15,13 @@
 
 import { sha256Hex, cleanText } from "./compare_util.js";
 import { reviewsActive } from "./compare_config.js";
-import { countToday } from "./compare_budget.js";
+import { countToday, countTodayAll } from "./compare_budget.js";
 
 export const STATUS = Object.freeze({
   OFF: "ej_aktiverad", WAIT: "vantar_foretagsval", AMBIG: "tvetydig", LOADING: "laddar",
   OK: "tillganglig", EMPTY: "verifierat_tomt", ERROR: "kallfel", COST: "kostnadsstopp",
 });
-export const LIM = Object.freeze({ maxFirms: 4, searchesPerFirm: 2, providerRequestsPerOrder: 8, viewsPerOrder: 120, maxCandidates: 5, tpCacheMs: 24 * 3600_000, fetchTimeoutMs: 8000 });
+export const LIM = Object.freeze({ maxFirms: 4, searchesPerFirm: 2, providerRequestsPerOrder: 8, viewsPerOrder: 120, maxCandidates: 5, mountsPerOrder: Object.freeze({ search: 6, details: 12 }), tpCacheMs: 24 * 3600_000, fetchTimeoutMs: 8000 });
 export const SOURCE_NAMES = Object.freeze({ google: "Google", trustpilot: "Trustpilot" });
 
 // ---------- konfiguration ----------
@@ -39,7 +39,7 @@ export function sourcesConfig(env) {
   const tpOn = active && env.TRUSTPILOT_DISPLAY === "1" && !!tpBase && typeof env.TRUSTPILOT_API_KEY === "string" && env.TRUSTPILOT_API_KEY.length >= 8 && typeof env.TRUSTPILOT_AUTH_HEADER === "string" && /^[A-Za-z][A-Za-z0-9-]{1,40}$/.test(env.TRUSTPILOT_AUTH_HEADER);
   return {
     active,
-    google: { on: googleOn, mapsKey: googleOn ? gKey : null, search: searchOn, select: googleOn ? (searchOn ? "server" : "native") : null, searchDayCap: dayCap(env && env.COMPARE_SOURCES_SEARCH_DAY_CAP) },
+    google: { on: googleOn, mapsKey: googleOn ? gKey : null, search: searchOn, select: googleOn ? (searchOn ? "server" : "native") : null, searchDayCap: dayCap(env && env.COMPARE_SOURCES_SEARCH_DAY_CAP), mountDayCap: dayCap(env && env.COMPARE_SOURCES_MOUNT_DAY_CAP), detailsDayCap: dayCap(env && env.COMPARE_SOURCES_DETAILS_DAY_CAP) },
     trustpilot: { on: tpOn, base: tpBase, fetchDayCap: dayCap(env && env.COMPARE_TP_DAY_CAP), cacheMs: Math.min(LIM.tpCacheMs, dayCap(env && env.COMPARE_TP_CACHE_MIN) ? dayCap(env.COMPARE_TP_CACHE_MIN) * 60_000 : LIM.tpCacheMs) },
   };
 }
@@ -105,7 +105,7 @@ export async function buildFirms(inputs) {
   return { firms: out };
 }
 const freshFirm = (f) => ({ id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict, google: { candidateIds: [], searches: 0, searchOutcome: null, placeId: null, confirmedAt: null, via: null, renderOutcome: null }, trustpilot: { candidateIds: [], searches: 0, searchOutcome: null, buId: null, confirmedAt: null } });
-export const emptySources = () => ({ firms: [], providerRequests: 0, views: 0 });
+export const emptySources = () => ({ firms: [], providerRequests: 0, views: 0, mounts: { search: 0, details: 0, ids: {} } });
 
 // ---------- tillståndsmaskin per firma/källa ----------
 export function providerState(cfg, firm, provider) {
@@ -162,6 +162,23 @@ export function coverageSummary(cfg, viewFirms) {
 // ---------- tillståndsändringar (rena; DO sparar) ----------
 export async function applyOp(cfg, st, op) {
   const s = { ...emptySources(), ...st, firms: (st.firms || []).map((f) => JSON.parse(JSON.stringify(f))) };
+  s.mounts = JSON.parse(JSON.stringify((st && st.mounts) || emptySources().mounts));
+  // Per-order-reservation av Googles billbara komponentinstanser. Varje mountId gäller EN instans en gång: en upprepad/återspelad reservation
+  // ger aldrig ny tillåtelse (klienten måste be om en ny mountId för varje ny instans: preview, valbyte, återöppning, retry).
+  if (op.type === "reserve_mount") {
+    if (!(op.kind === "search" || op.kind === "details") || !/^[A-Za-z0-9_-]{16,64}$/.test(String(op.mountId || ""))) return { error: "mount_op" };
+    if (!s.firms.some((f) => f.id === op.firmId)) return { error: "mount_firma" };
+    if (s.mounts.ids[op.mountId]) return { error: "mount_dup" };
+    if (s.mounts[op.kind] >= LIM.mountsPerOrder[op.kind]) return { error: "mount_gransen" };
+    s.mounts[op.kind] += 1; s.mounts.ids[op.mountId] = { kind: op.kind, at: op.now, state: "reserved" };
+    return { state: s };
+  }
+  if (op.type === "release_mount") { // global reservation nekades efter att ordern reserverat: ge tillbaka platsen, men mountId förblir förbrukat
+    const m = s.mounts.ids[String(op.mountId || "")];
+    if (!m || m.state !== "reserved") return { error: "mount_op" };
+    s.mounts[m.kind] = Math.max(0, s.mounts[m.kind] - 1); m.state = "released";
+    return { state: s };
+  }
   if (op.type === "set_firms") {
     const r = await buildFirms(op.firms);
     if (r.error) return { error: r.error };
@@ -213,11 +230,26 @@ export async function applyOp(cfg, st, op) {
 // ---------- Google: native UI Kit-sök (webbläsaren) ----------
 // Webbläsaren kör Googles eget sökelement (gmp-place-search). Servern äger BARA kostnadsgrinden: dygnstak (människosatt, annars kostnadsstopp) och
 // per-firma/per-order-gränser räknas INNAN kunden får starta sökningen. Inget företagsdata passerar servern i den här vägen.
-export async function nativeSearchGate(env, cfg, { now = new Date() } = {}) {
+export async function nativeSearchGate(env, cfg) {
+  // Räknar INTE längre själv: varje billbar sökinstans reserveras separat via reserveMount (kind "search"). Här visas bara om vägen alls är öppen
+  // (människosatta tak finns). Saknas taken är allt stängt (default 0).
   if (!cfg.google.on || cfg.google.search) return { outcome: "fel" };
-  if (!cfg.google.searchDayCap) return { outcome: "kostnadsstopp" };
-  const c = await countToday(env, { name: "gsearch", limit: cfg.google.searchDayCap, now });
-  return c.ok ? { outcome: "nativ" } : { outcome: "kostnadsstopp" };
+  if (!cfg.google.searchDayCap || !cfg.google.mountDayCap) return { outcome: "kostnadsstopp" };
+  return { outcome: "nativ" };
+}
+// Atomär reservation FÖRE varje billbar Search-/AdvancedDetails-instans i webbläsaren (även preview, valbyte, återöppning, retry/remount).
+// Ordning: (1) per-order (orderns DO, atomärt) → (2) gemensamt dygnstak + tak per SKU i EN alles-eller-inget-räkning → misslyckas (2) lämnas (1) tillbaka.
+// Saknat människosatt tak (gemensamt eller för SKU:n) ⇒ nekas utan att något räknas. Idempotens: samma mountId ger aldrig ny tillåtelse.
+export async function reserveMount(env, cfg, { kind, mountId, firmId, op, now = new Date() }) {
+  const skuCap = kind === "search" ? cfg.google.searchDayCap : cfg.google.detailsDayCap;
+  if (!cfg.google.on || !cfg.google.mountDayCap || !skuCap) return { allowed: false, outcome: "kostnadsstopp" };
+  const r = await op({ type: "reserve_mount", firmId, kind, mountId });
+  if (r.status === 400 && r.json && r.json.error === "mount_dup") return { allowed: false, outcome: "redan_anvand" };
+  if (r.status === 400 && r.json && r.json.error === "mount_gransen") return { allowed: false, outcome: "gransen_for_ordern" };
+  if (r.status !== 200 || !r.json || !r.json.ok) return { allowed: false, outcome: r.status === 400 ? "ogiltig" : "fel", httpStatus: r.status };
+  const c = await countTodayAll(env, { items: [{ name: "gmount", limit: cfg.google.mountDayCap }, { name: "gmount-" + kind, limit: skuCap }], now });
+  if (!c.ok) { await op({ type: "release_mount", mountId }); return { allowed: false, outcome: "kostnadsstopp" }; }
+  return { allowed: true, outcome: "reserverad", sources: r.json.sources };
 }
 
 // ---------- Google: kandidatsökning (server; kräver extra mänsklig verifieringsflagga, se sourcesConfig) ----------

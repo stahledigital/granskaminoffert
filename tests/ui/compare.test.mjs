@@ -333,7 +333,7 @@ test("villkorssidan renderar serverns fullständiga villkorstext (säljare, pris
 
 // ---------------- D07: källor för senaste originalomdömen (Google UI Kit mount/unmount, Trustpilot via servern) ----------------
 // Allt är attrapper med SYNTETISKA data. Offlineloadern bevisar vår konfiguration/timeout/cleanup – INTE Googles liveutfall.
-const SRC_VARS = { COMPARE_REVIEWS: "1", COMPARE_REVIEWS_VERIFIED: "1", GOOGLE_UI_KIT: "1", GOOGLE_MAPS_BROWSER_KEY: "AIzaSyTESTONLYsyntheticKey_0123456789ab", COMPARE_SOURCES_SEARCH_DAY_CAP: "50", TRUSTPILOT_DISPLAY: "1", TRUSTPILOT_API_BASE: "https://tp.example.test", TRUSTPILOT_API_KEY: "synthetic-tp-key", TRUSTPILOT_AUTH_HEADER: "apikey", COMPARE_TP_DAY_CAP: "50" };
+const SRC_VARS = { COMPARE_REVIEWS: "1", COMPARE_REVIEWS_VERIFIED: "1", GOOGLE_UI_KIT: "1", GOOGLE_MAPS_BROWSER_KEY: "AIzaSyTESTONLYsyntheticKey_0123456789ab", COMPARE_SOURCES_SEARCH_DAY_CAP: "50", COMPARE_SOURCES_MOUNT_DAY_CAP: "100", COMPARE_SOURCES_DETAILS_DAY_CAP: "50", TRUSTPILOT_DISPLAY: "1", TRUSTPILOT_API_BASE: "https://tp.example.test", TRUSTPILOT_API_KEY: "synthetic-tp-key", TRUSTPILOT_AUTH_HEADER: "apikey", COMPARE_TP_DAY_CAP: "50" };
 const SRC_SERVER_VARS = { ...SRC_VARS, GOOGLE_CANDIDATES: "1", GOOGLE_PLACES_API_SEARCH_VERIFIED: "1", GOOGLE_PLACES_SERVER_KEY: "synthetic-server-key-0123456789" };
 const PID = "ChIJ" + "a".repeat(24);
 function seedSources(h) {
@@ -357,8 +357,8 @@ const gmpDouble = () => {
     const plain = (n) => customElements.define(n, class extends HTMLElement {});
     ["gmp-place-details-place-request", "gmp-place-name", "gmp-place-address", "gmp-place-rating", "gmp-place-website", "gmp-place-reviews", "gmp-place-attribution", "gmp-place-all-content", "gmp-place-text-search-request"].forEach(plain);
     const fire = (el, ok, extra) => { const m = window.__GMP_MODE; if (m === "ok") setTimeout(() => { Object.assign(el, extra || {}); el.dispatchEvent(new Event("gmp-load")); }, 20); else if (m === "error") setTimeout(() => el.dispatchEvent(new Event("gmp-error")), 20); };
-    customElements.define("gmp-advanced-place-details", class extends HTMLElement { connectedCallback() { fire(this); } });
-    customElements.define("gmp-place-search", class extends HTMLElement { connectedCallback() { const rq = this.querySelector("gmp-place-text-search-request"); window.__searchTexts.push(rq && rq.textQuery); fire(this, true, { places: window.__SEARCH_PLACES }); } });
+    customElements.define("gmp-advanced-place-details", class extends HTMLElement { connectedCallback() { window.__inst = (window.__inst || 0) + 1; fire(this); } });
+    customElements.define("gmp-place-search", class extends HTMLElement { connectedCallback() { window.__inst = (window.__inst || 0) + 1; const rq = this.querySelector("gmp-place-text-search-request"); window.__searchTexts.push(rq && rq.textQuery); fire(this, true, { places: window.__SEARCH_PLACES }); } });
     return {};
   };
 };
@@ -620,3 +620,76 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
     } finally { await ctx.close(); await h.close(); }
   });
 }
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`Googlereservation (${name}): varje billbar instans (sök, preview, valbyte, återöppning, retry) kräver ny serverreservation; nekad reservation skapar ingen instans`, async () => {
+    const h = await startHarness({ vars: { ...SRC_VARS, COMPARE_SOURCES_MOUNT_DAY_CAP: "5", COMPARE_SOURCES_DETAILS_DAY_CAP: "3", COMPARE_SOURCES_SEARCH_DAY_CAP: "5" } }); seedSources(h);
+    const { ctx, page, errors } = await newPage(h, w, hgt);
+    await page.addInitScript(gmpDouble);
+    const mountReqs = []; page.on("request", (r) => { if (/\/google\/mount$/.test(r.url()) && r.method() === "POST") mountReqs.push(JSON.parse(r.postData() || "{}")); });
+    const PID2 = "ChIJ" + "b".repeat(24);
+    const inst = () => page.evaluate(() => window.__inst || 0);
+    try {
+      await toOfferStep(page, h);
+      await page.fill("#sc0", "Malmö"); await page.fill("#sd0", "byggfirma.se"); await page.fill("#sc1", "Lund");
+      await page.click("#srcgo"); await page.waitForSelector(".srcfirm[data-firm]");
+      const f0 = page.locator(".srcfirm[data-firm]").nth(0);
+      await page.evaluate((ids) => { window.__SEARCH_PLACES = ids.map((id) => ({ id })); }, [PID, PID2]);
+      await f0.locator('[data-src="google"] button:has-text("Sök firman hos Google")').click();
+      await page.waitForSelector("gmp-place-search", { state: "attached" });
+      assert.equal(await inst(), 1); assert.deepEqual(mountReqs.map((r) => r.kind), ["search"]);
+      await gmpSelect(page, PID); await page.waitForSelector("gmp-advanced-place-details", { state: "attached" });
+      assert.equal(await inst(), 2); assert.deepEqual(mountReqs.map((r) => r.kind), ["search", "details"]);
+      await page.waitForFunction(() => !document.querySelector('[data-src="google"] [data-confirm="native"]').disabled);
+      await gmpSelect(page, PID2); // valbyte = ny preview = ny reservation
+      await page.waitForFunction(() => window.__inst === 3);
+      assert.deepEqual(mountReqs.map((r) => r.kind), ["search", "details", "details"]);
+      assert.equal(new Set(mountReqs.map((r) => r.mountId)).size, 3, "nytt mountId för varje instans");
+      await page.waitForFunction(() => !document.querySelector('[data-src="google"] [data-confirm="native"]').disabled);
+      await f0.locator('[data-src="google"] [data-confirm="native"]').click();
+      await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      // visa omdömen = tredje detaljinstansen (taket 3 nås)
+      await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      await page.waitForFunction(() => window.__inst === 4);
+      assert.equal(mountReqs.length, 4);
+      // stäng och öppna igen = fjärde detaljinstans: nekas av servern (tak 3), ingen instans skapas
+      await page.click('[data-src="google"] button:has-text("Dölj Googles omdömen")');
+      await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      await page.waitForSelector('[data-gmp-stop="kostnadsstopp"]');
+      assert.equal(mountReqs.length, 5); assert.equal(await inst(), 4, "ingen ny billbar instans efter nekad reservation");
+      assert.equal(await page.locator("gmp-advanced-place-details").count(), 0);
+      assert.match(await page.textContent('[data-gmp-stop]'), /pausade av kostnadsskäl.*inte att omdömen saknas/);
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_10_kallor_kostnadsstopp.png`), fullPage: true });
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
+test("Googlereservation: retry efter gmp-error är en NY reservation (nytt mountId), aldrig återanvänd tillåtelse", async () => {
+  const h = await startHarness({ vars: { ...SRC_VARS, COMPARE_SOURCES_MOUNT_DAY_CAP: "10", COMPARE_SOURCES_DETAILS_DAY_CAP: "10", COMPARE_SOURCES_SEARCH_DAY_CAP: "10" } }); seedSources(h);
+  const { ctx, page, errors } = await newPage(h, 390, 844);
+  await page.addInitScript(gmpDouble);
+  const reqs = []; page.on("request", (r) => { if (/\/google\/mount$/.test(r.url()) && r.method() === "POST") reqs.push(JSON.parse(r.postData() || "{}")); });
+  try {
+    await toOfferStep(page, h);
+    await page.fill("#sc0", "Malmö"); await page.fill("#sd0", "byggfirma.se"); await page.fill("#sc1", "Lund");
+    await page.click("#srcgo"); await page.waitForSelector(".srcfirm[data-firm]");
+    const f0 = page.locator(".srcfirm[data-firm]").nth(0);
+    await page.evaluate((id) => { window.__SEARCH_PLACES = [{ id }]; }, PID);
+    await f0.locator('[data-src="google"] button:has-text("Sök firman hos Google")').click();
+    await page.waitForSelector("gmp-place-search", { state: "attached" });
+    await gmpSelect(page, PID); await page.waitForFunction(() => !document.querySelector('[data-src="google"] [data-confirm="native"]').disabled);
+    await f0.locator('[data-src="google"] [data-confirm="native"]').click();
+    await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+    await page.evaluate(() => { window.__GMP_MODE = "error"; });
+    await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+    await page.waitForSelector('button:has-text("Försök igen")');
+    const before = reqs.length;
+    await page.click('button:has-text("Försök igen")');
+    await page.waitForFunction(() => window.__inst === 4);
+    assert.equal(reqs.length, before + 1, "retry ger exakt en ny reservation");
+    assert.equal(new Set(reqs.map((r) => r.mountId)).size, reqs.length, "inget mountId återanvänds");
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});

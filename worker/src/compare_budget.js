@@ -102,6 +102,19 @@ export class CompareBudget {
         await s.put(k, n + 1);
         return { body: { ok: true, n: n + 1 } };
       }
+      if (path === "/count-multi") {
+        // Alles-eller-inget: flera dygnsräknare (t.ex. gemensamt tak + tak per SKU) ökas i ETT anrop. Denna DO är enkeltrådad, så ingen annan
+        // reservation kan komma emellan; nekas någon räknare ändras ingen.
+        const { day, items } = b;
+        if (!okDay(day) || !Array.isArray(items) || items.length < 1 || items.length > 4) return { status: 400 };
+        const keys = [];
+        for (const it of items) { if (!it || !okPos(it.limit) || !okKey(it.name)) return { status: 400 }; keys.push(`c:${it.name}:${day}`); }
+        if (new Set(keys).size !== keys.length) return { status: 400 };
+        const ns = [];
+        for (let i = 0; i < keys.length; i++) { const n = (await s.get(keys[i])) || 0; if (!okInt(n)) throw new Error("ogiltig räknare"); if (n >= items[i].limit) return { body: { ok: false, reason: "dygn", name: items[i].name } }; ns.push(n); }
+        for (let i = 0; i < keys.length; i++) await s.put(keys[i], ns[i] + 1);
+        return { body: { ok: true } };
+      }
       if (path === "/ledger-index") {
         // Register över betalda ordrar per månad för bokföringsexport. Bara order-ID och tid, aldrig innehåll.
         const { orderId, month } = b;
@@ -185,6 +198,10 @@ export async function capacity(env, { caps, scope = "paid", now = new Date() }) 
 export async function countToday(env, { name, limit, now = new Date() }) {
   if (!budgetBindingAvailable(env)) return { ok: false };
   try { const j = await call(env, "/count", { name, limit, day: dayKey(now) }); return { ok: !!(j && j.ok) }; } catch { return { ok: false }; }
+}
+export async function countTodayAll(env, { items, now = new Date() }) {
+  if (!budgetBindingAvailable(env)) return { ok: false };
+  try { const j = await call(env, "/count-multi", { items, day: dayKey(now) }); return { ok: !!(j && j.ok) }; } catch { return { ok: false }; }
 }
 export async function stats(env, { now = new Date() } = {}) {
   const j = await call(env, "/stats", { month: monthKey(now) });

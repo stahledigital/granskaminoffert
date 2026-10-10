@@ -118,5 +118,6 @@ test("native sök utan människosatt dygnstak ⇒ kostnadsstopp (allowed:false);
     } finally { f.restore(); }
   };
   assert.deepEqual(await run({}), Array(3).fill(["kostnadsstopp", false, "kostnadsstopp"]));
-  assert.deepEqual((await run({ COMPARE_SOURCES_SEARCH_DAY_CAP: "2" })).map((r) => r[1]), [true, true, false]);
+  assert.deepEqual((await run({ COMPARE_SOURCES_SEARCH_DAY_CAP: "2" })).map((r) => r[1]), [true, true, true], "grinden räknar inte längre själv; varje billbar instans reserveras via /google/mount (compare_mounts.test.mjs)");
+  assert.deepEqual((await run({ COMPARE_SOURCES_MOUNT_DAY_CAP: undefined })).map((r) => r[0]), Array(3).fill("kostnadsstopp"), "utan gemensamt tak är vägen stängd");
 });

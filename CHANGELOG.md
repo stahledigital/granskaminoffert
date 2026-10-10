@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1h – D09 Google-mountreservation + hantverksavgränsning (KANDIDAT – AV, ej släppt; ovanpå D08b 7d6d2577)
+- Atomisk serverreservation (per order + gemensamt dygnstak + tak per SKU, default 0/fail closed) före varje Search-/AdvancedDetails-instans; nytt mountId per instans.
+- Jämförsidan: "Jämför 2–4 hantverkarofferter för samma arbete" + avgränsningsrad (material i hantverkarens offert omfattas; materialinköp/produkt/abonnemang stöds ännu inte).
+
 ## jamfor-v1g – D08b rättning efter root-QA 21:10 (KANDIDAT – AV, ej släppt; ovanpå D08 cbf439ff)
 - P1: avtalsbekräftelsen grindar arbetet (ingen räkning/generation/claim före godkänd transportkvittens; ärlig väntstatus; retry med samma ID; begränsad uttömning ⇒ `bekraftelse_ej_levererad` + återbetalning); mock-transport endast i test.
 - Säljarkrav: telefon obligatorisk för live, id-nummer ej AB-låst, ångerblankettblock i bekräftelsen (ingen blankettext).

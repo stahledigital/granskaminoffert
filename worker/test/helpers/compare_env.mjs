@@ -225,7 +225,7 @@ export const docKeys = (env, orderId) => [...env.REVIEWS_KV.m.keys()].filter((k)
 // ---- D07: källor (alla externa anrop är attrapper med SYNTETISKA data) ----
 export const REVIEW_VARS = { COMPARE_REVIEWS: "1", COMPARE_REVIEWS_VERIFIED: "1" };
 export const MAPS_KEY = "AIzaSyTESTONLYsyntheticKey_0123456789ab"; // syntetisk, ingen riktig nyckel
-export const GOOGLE_VARS = { GOOGLE_UI_KIT: "1", GOOGLE_MAPS_BROWSER_KEY: MAPS_KEY, GOOGLE_CANDIDATES: "1", GOOGLE_PLACES_API_SEARCH_VERIFIED: "1", GOOGLE_PLACES_SERVER_KEY: "synthetic-server-key-0123456789", COMPARE_SOURCES_SEARCH_DAY_CAP: "50" };
+export const GOOGLE_VARS = { GOOGLE_UI_KIT: "1", GOOGLE_MAPS_BROWSER_KEY: MAPS_KEY, GOOGLE_CANDIDATES: "1", GOOGLE_PLACES_API_SEARCH_VERIFIED: "1", GOOGLE_PLACES_SERVER_KEY: "synthetic-server-key-0123456789", COMPARE_SOURCES_SEARCH_DAY_CAP: "50", COMPARE_SOURCES_MOUNT_DAY_CAP: "100", COMPARE_SOURCES_DETAILS_DAY_CAP: "50" };
 export const TP_VARS = { TRUSTPILOT_DISPLAY: "1", TRUSTPILOT_API_BASE: "https://tp.example.test", TRUSTPILOT_API_KEY: "synthetic-tp-key", TRUSTPILOT_AUTH_HEADER: "apikey", COMPARE_TP_DAY_CAP: "50" };
 export const placeId = (c) => "ChIJ" + String(c).repeat(24);
 export const synthTpReviews = (n, over = {}) => ({ businessUnit: { trustScore: 4.3, numberOfReviews: { total: over.total ?? n } }, reviews: Array.from({ length: n }, (_, i) => ({ stars: 1 + (i % 5), title: "Syntetiskt omdöme " + (i + 1), text: "SYNTETISK TEXT " + (i + 1) + " – inte ett riktigt omdöme.", createdAt: `2026-09-${String(28 - i).padStart(2, "0")}T10:00:00Z`, link: `https://www.trustpilot.com/reviews/synth${i}` })) });
