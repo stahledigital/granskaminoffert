@@ -11,6 +11,7 @@
 
 import { SCOPE_CATALOG } from "./compare_extract.js";
 import { cleanText } from "./compare_util.js";
+import { openItems, identityGroups } from "./compare_identity.js";
 
 const AREA_ROUNDING = 1.02;
 const VAT = 1.25; // kalkylantagande vid omräkning mellan inkl och exkl moms; visas i rapporten
@@ -21,6 +22,7 @@ const JOB_LABEL = {
 };
 const PRICE_TYPE_LABEL = { fast: "Fast pris", ungefarligt: "Uppskattat pris", lopande: "Löpande räkning" };
 const PROP_LABEL = { smahus: "småhus", bostadsratt: "bostadsrätt", flerbostadshus: "flerbostadshus", annat: "annan bostadstyp" };
+const SCOPE_LABELS = Object.fromEntries(SCOPE_CATALOG.map((c) => [c.id, c.label]));
 const lower = (s) => s.charAt(0).toLowerCase() + s.slice(1);
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const round = (v) => Math.round(v);
@@ -105,7 +107,10 @@ export function compareOffers(rawOffers, labels) {
     price: priceOf(o.extracted),
     facts: o.facts,
     issues: o.issues,
+    identity: o.identity || null,
+    open: openItems({ ...o, price: priceOf(o.extracted) }, SCOPE_LABELS),
   }));
+  const identityInfo = identityGroups(offers.map((o) => o.identity));
   const diffs = [];
   const add = (d) => diffs.push(d);
 
@@ -189,6 +194,17 @@ export function compareOffers(rawOffers, labels) {
     if (o.instructionsInDocument) add({ id: `inj:${o.index}`, weight: 30, category: "avlasning", offers: [o.index], text: `${o.label} innehåller text som försöker styra läsningen. Den har ignorerats.` });
   }
 
+  // ---- Utställaridentitet (D11): dokumentets identifierbarhet, aldrig rykte/kredit/bedrägeri ----
+  const IDL = { name: "företagsnamn", orgnr: "organisationsnummer", kontakt: "adress eller telefon" };
+  for (const o of offers) {
+    const idn = o.identity;
+    if (!idn) continue;
+    if (idn.state === "saknas") add({ id: `ident:${o.index}`, weight: 76, category: "foretag", offers: [o.index], text: `Väsentliga företagsuppgifter framgår inte av ${o.label}: ${idn.missing.map((m) => IDL[m]).join(", ")}. Be hantverkaren om dem.` });
+    else if (idn.state === "ej_avlast") add({ id: `ident:${o.index}`, weight: 58, category: "foretag", offers: [o.index], text: `Företagsuppgifterna i ${o.label} kunde inte avläsas säkert (${(idn.unreadable.length ? idn.unreadable : idn.missing).map((m) => IDL[m]).join(", ")}). Det är inte samma sak som att de saknas – kontrollera mot originalet.` });
+    if (idn.role === "osaker" && idn.fields.name.status === "framgar") add({ id: `ident_roll:${o.index}`, weight: 55, category: "foretag", offers: [o.index], text: `Det är oklart om namnet i ${o.label} är företaget som ger offerten (och inte kund, underleverantör eller betalningsförmedlare).` });
+  }
+  for (const c of identityInfo.conflicts) add({ id: `ident_konflikt:${c.offers.join("_")}`, weight: 50, category: "foretag", offers: c.offers, text: c.reason === "samma_namn_olika_orgnr" ? `${offers[c.offers[0]].label} och ${offers[c.offers[1]].label} anger samma företagsnamn men olika organisationsnummer. De behandlas som olika företag (t.ex. filial eller koncernbolag) tills du bekräftar annat.` : `${offers[c.offers[0]].label} och ${offers[c.offers[1]].label} anger samma organisationsnummer men olika företagsnamn.` });
+
   // ---- Rangordning (bara när allt är jämförbart) ----
   const ranking = { shown: false, reasons: [] };
   const blockers = [];
@@ -242,6 +258,9 @@ export function compareOffers(rawOffers, labels) {
     if (o.price.priceType === "lopande" || o.price.priceType === "ungefarligt") push("price:typ", 84, `Offerten anger ${o.price.priceType === "lopande" ? "löpande räkning" : "ett uppskattat pris"}. Finns ett fast pris eller ett högsta belopp (takpris)?`, "Pristypen kan ändras under arbetet");
     const sc = o.price.sumCheck;
     if (sc && sc.state === "avviker") push("price:summa", 85, `Delposterna summerar till ${sc.partsSum} kr men totalen är ${sc.total} kr. Vad förklarar skillnaden?`, "Delposter och total stämmer inte");
+    if (o.identity && (o.identity.state === "saknas" || o.identity.state === "ej_avlast")) {
+      for (const m of [...o.identity.missing, ...o.identity.unreadable]) push(`ident:${m}`, 77, m === "name" ? "Vilket företag ger offerten? Företagsnamnet framgår inte säkert av offerten." : m === "orgnr" ? "Vilket organisationsnummer har företaget? Det framgår inte säkert av offerten." : "Vilken adress eller telefon har företaget? Det framgår inte säkert av offerten.", "Företagsuppgift saknas eller gick inte att läsa");
+    }
     if (o.readability !== "bra") push("read", 70, "Några belopp var svåra att läsa av. Kan du få en tydligare kopia, eller bekräfta beloppen med hantverkaren?", "Osäker avläsning");
     // Allmänna kontrollfrågor fyller upp till tre när offerten själv är oklar i dessa punkter.
     const gen = [["fskatt", "Har företaget F-skatt? Det anges inte i offerten."], ["forsakring", "Vilken försäkring gäller för arbetet? Det anges inte i offerten."], ["garanti", "Vilken garanti ges på arbetet? Det anges inte i offerten."], ["ata", "Hur hanteras ändrings- och tilläggsarbeten (ÄTA) och vad kostar de? Det anges inte i offerten."], ["betalningsplan", "Hur ser betalningsplanen ut? Det anges inte i offerten."], ["startdatum", "När kan arbetet starta? Det anges inte i offerten."]];
@@ -270,7 +289,7 @@ export function compareOffers(rawOffers, labels) {
   const mustClarify = diffs.filter((d) => d.weight >= 40).slice(0, 8).map((d) => ({ id: d.id, text: d.text }));
   if (commonUnknownCore.length) mustClarify.push({ id: "scope:gemensamt_oklart", text: `Inga av offerterna anger: ${commonUnknownCore.map(lower).join(", ")}. Det går därför inte att veta om det ingår.` });
 
-  return { offers, comparability: cmp, scopeMatrix: matrix, differences: diffs, ranking, questions, decisionSheet: { canCompareNow: canNow, mustClarify }, labels, count: n };
+  return { offers, identityGroups: identityInfo, comparability: cmp, scopeMatrix: matrix, differences: diffs, ranking, questions, decisionSheet: { canCompareNow: canNow, mustClarify }, labels, count: n };
 }
 
 // Fast text för en rubrik per pristyp (används av gränssnittet via rapporten).

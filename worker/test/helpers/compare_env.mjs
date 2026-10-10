@@ -91,10 +91,18 @@ export function makeEnv(extra = {}) {
 // ---- Fixtur: offerten är en text som bär modellens "svar" som JSON ----
 export function offerText(spec = {}) { return "FIXTURE:" + JSON.stringify(spec); }
 const EXTRACT_DEFAULT = { jobType: "badrum", trades: [], hourlyRateSek: null, hours: null, laborSumSek: null, materialSumSek: null, travelSumSek: null, travelVisits: null, materialMarkupPct: null, rotAmountSek: null, rotRatePct: null, rotPersons: null, rotOnMaterialOrTravel: null, priceType: "fast", vatMode: "inkl", totalSumSek: null, totalIncludesVat: null, totalBeforeRotSek: null, amountToPaySek: null, totalVatBasis: null, propertyType: "smahus", totalContract: null, quoteDate: null, plannedPaymentDate: null, customerType: "privatperson", workDescription: "Badrumsrenovering", county: null, areaM2: 6, unitCount: null, otherSumSek: null };
+const FLD = (value, ref = "sidfot") => (value === undefined || value === null ? { status: "framgar_inte", value: null, page: null, ref: null } : value === "?" ? { status: "ej_lasbar", value: null, page: null, ref: null } : { status: "framgar", value, page: 1, ref });
+// Standard: komplett utställare. spec.issuer: false = ingen identitet alls i svaret; {name:null,...} åsidosätter enskilda fält ("?" = ej läsbart).
+export function issuerFixture(o) {
+  if (o === false) return undefined;
+  const d = { name: "Testbygg AB", orgnr: "556016-0680", address: "Storgatan 1, 352 30 Växjö", city: "Växjö", phone: "0470-123456", web: "testbygg.example.se", role: "utforare", legalForm: "bolag", ...(o || {}) };
+  return { name: FLD(d.name), orgnr: FLD(d.orgnr), address: FLD(d.address), city: FLD(d.city), phone: FLD(d.phone), web: FLD(d.web), role: d.role, legalForm: d.legalForm };
+}
 export function fixtureResponse(spec) {
   const scope = Object.entries(spec.scope || {}).map(([id, status]) => ({ id, status, page: status === "framgar_inte" ? null : 1, ref: status === "framgar_inte" ? null : "rad " + id }));
   return {
     extracted: { ...EXTRACT_DEFAULT, ...(spec.extracted || {}) }, scope,
+    issuer: issuerFixture(spec.issuer),
     facts: spec.facts || [{ id: "total", page: 1, ref: "Summa" }],
     readability: { level: spec.readability || "bra" }, instructionsInDocument: !!spec.inj,
   };

@@ -12,8 +12,9 @@ import { sanitizeExtracted } from "./sanitize.js";
 import { cleanText } from "./compare_util.js";
 import { buildAnthropicRequest } from "./models.js";
 import { buildUserContent } from "./user_content.js";
+import { ISSUER_SCHEMA, sanitizeIssuer } from "./compare_identity.js";
 
-export const EXTRACT_VERSION = "avlasning-1";
+export const EXTRACT_VERSION = "avlasning-2"; // 2: + utställaridentitet (issuer)
 
 // Stängd lista. `group` styr om en skillnad gäller omfattning (påverkar prisjämförbarhet) eller villkor.
 export const SCOPE_CATALOG = Object.freeze([
@@ -47,9 +48,10 @@ export const SUBMIT_OFFER_TOOL = {
   input_schema: {
     type: "object",
     additionalProperties: false,
-    required: ["extracted", "scope", "facts", "readability", "instructionsInDocument"],
+    required: ["extracted", "issuer", "scope", "facts", "readability", "instructionsInDocument"],
     properties: {
       extracted: EXTRACTED_SCHEMA,
+      issuer: ISSUER_SCHEMA,
       scope: {
         type: "array",
         description: "Ett objekt per omfattnings-ID (alla ID ska finnas). status 'ingar' = offerten säger uttryckligen att det ingår; 'ingar_inte' = offerten säger uttryckligen att det INTE ingår eller är undantaget; 'framgar_inte' = offerten säger inget. Avsaknad av text betyder ALLTID 'framgar_inte', aldrig 'ingar_inte'. För 'ingar' och 'ingar_inte' ska page (sidnummer, annars null) och ref (kort hänvisning till raden/stycket, högst 100 tecken) anges.",
@@ -103,7 +105,9 @@ Du bedömer inte hantverkaren, företaget eller kvaliteten, och du jämför inte
 
 3) facts: var i dokumentet totalbelopp, moms, ROT, arbetskostnad, materialkostnad, tidplan och betalning står (page och ref), bara för uppgifter som finns.
 
-4) readability: bra, osaker (svårlästa delar eller osäkert avlästa belopp) eller svar (mycket svårläst). Var ärlig om osäkra siffror i foto eller PDF.
+4) issuer: uppgifter om FÖRETAGET SOM GER OFFERTEN (utföraren): namn, organisationsnummer, adress, ort, telefon, webb, med sida och rad. Ta aldrig kundens namn, adress eller organisationsnummer, inte underleverantörer och inte betalningsförmedlare (bank, Swish, faktureringsbolag). Står uppgiften inte i dokumentet: status framgar_inte. Syns den men går inte att läsa säkert: ej_lasbar. Hitta aldrig på och komplettera aldrig från minnet eller från andra källor. role=osaker om det är oklart om namnet är utföraren. Du bedömer inte företaget.
+
+5) readability: bra, osaker (svårlästa delar eller osäkert avlästa belopp) eller svar (mycket svårläst). Var ärlig om osäkra siffror i foto eller PDF.
 
 Orden "för dyrt", "överpris", "svart", "oseriöst" och "fusk" får aldrig förekomma i ditt svar. Du MÅSTE svara genom att anropa verktyget submit_offer. Skriv ingen annan text.`;
 }
@@ -167,6 +171,7 @@ export function sanitizeOffer(raw) {
   return {
     version: EXTRACT_VERSION,
     extracted,
+    identity: sanitizeIssuer(src.issuer, level),
     issues,
     scope,
     downgraded,

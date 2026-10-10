@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1k – D11-P2a utställaridentitet (KANDIDAT – AV, ej släppt; ovanpå D11-P1 8d8a57d3)
+- Avläsningen läser utställarens namn/orgnr/adress/ort/telefon/webb med belägg (EXTRACT avlasning-2); avläsningsfel skiljs från saknat; personnummerliknande orgnr ⇒ enskild firma, aldrig till recensionskällor.
+- "Uppgifter att reda ut" per offert på fast uppsättning (mycket svårläst ⇒ ej bedömbart, aldrig 0/sämst); saknad väsentlig företagsuppgift är offertbrist och ingår i fullständigheten; original bevaras.
+
 ## jamfor-v1j – D11-P1 Google-laddning och newest (KANDIDAT – AV, ej släppt; separat rättning ovanpå D10 8f2ed855)
 - SDK: en enda delad laddning (singleflight) med Googles callback som beredskap (inte script-onload); timeout avbryter bara väntan; Försök igen väntar in samma laddning, ny script endast efter verkligt nätfel och efter att den felande taggen tagits bort. Rättar root-realprovets onload-race och dubbel-load/Loader.provide-fel.
 - Newest: rank-preference="newest" (enda dokumenterade formen, Advanced Place Details) sätts före montering, property sätts om den finns, och vår egen konfiguration läses tillbaka. Bekräftas inte ordningen visas ärlig notis (Googles egen ordning) – ingen "senaste först"-claim. Rotens motexempel (Elajo 4 år före 3 år) är UNVERIFIED-orsak; ingen widgetavläsning/skrapning.
