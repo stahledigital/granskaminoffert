@@ -21,13 +21,13 @@ import { freeReserve, freeSettle, freeUnknown, freeRelease } from "./free_budget
 
 const SAFETY_TOKENS = 600; // marginal för verktygsschema/system som tokenräknaren redan ska ha tagit med
 
-class Stop extends Error {
+export class Stop extends Error {
   constructor(result) { super(result.reason || result.state); this.result = result; }
 }
 
 // Ett modellanrop med reservation → anrop → avräkning. Kastar Stop vid nekad budget/förlorad lease.
 // Returnerar { json } vid ok svar eller { error, charged } när anropet misslyckades.
-async function guardedCall({ env, io, key, orderId, scope, inputTokens, body, model, caps, signalMs = 90_000 }) {
+export async function guardedCall({ env, io, key, orderId, scope, inputTokens, body, model, caps, signalMs = 90_000 }) {
   const usd = worstCaseUsd(model, inputTokens);
   if (usd === null) throw new Stop({ state: "failed", reason: "okand_modell" });
   const micro = budget.usdToMicro(usd);

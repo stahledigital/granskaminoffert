@@ -1100,3 +1100,43 @@ test("D11-P2d-fix: sent Trustpilotsvar (inflight) efter identitetsbyte ignoreras
     assert.equal(await p2.page.$eval('#sortby option[value="rating"]', (o) => o.disabled), true, "en firma i två kolumner ≠ två firmor");
   } finally { await p2.ctx.close(); await h2.close(); }
 });
+
+test("D11 förköpsidentitet: AV ⇒ ingen knapp/anrop; PÅ ⇒ användarstartad läsning, firma föreslås ur offerten före köp, osäker kräver kort 'Stämmer', täckning före köp, inga omdömen påhittade", async () => {
+  // AV (standard): ingen knapp, inget anrop
+  const hOff = await startHarness({ vars: SRC_VARS }); seedSources(hOff);
+  const o1 = await newPage(hOff, 390, 844);
+  try {
+    await o1.page.goto(hOff.base + "/jamfor/"); await o1.page.waitForSelector("#s1:not(.hidden)");
+    await fillAndCheck(o1.page, [fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Byggfirma AB") }), fx({ extracted: EX(101000), scope: SC(), issuer: ID_OK("Syd Bygg AB", { orgnr: "556000-0167", city: null }) })]);
+    await o1.page.waitForSelector("#srcbox:not(.hidden)");
+    assert.equal(await o1.page.locator("#preid:not(.hidden)").count(), 0); assert.equal(hOff.stats.preid, 0);
+  } finally { await o1.ctx.close(); await hOff.close(); }
+  // PÅ
+  const h = await startHarness({ vars: { ...SRC_VARS, COMPARE_PREID: "1", COMPARE_PREID_VERIFIED: "1", COMPARE_PREID_ORDER_CAP_MICRO: "500000" } }); seedSources(h);
+  const { ctx, page } = await newPage(h, 390, 844);
+  try {
+    await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)");
+    await fillAndCheck(page, [fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Byggfirma AB") }), fx({ extracted: EX(101000), scope: SC(), issuer: ID_OK("Syd Bygg AB", { orgnr: "556000-0167", city: null }) })]);
+    await page.waitForSelector("#preid:not(.hidden) #preidgo");
+    assert.match(await page.textContent("#preid"), /Då skickas din offert till AI-leverantören/); assert.match(await page.textContent("#preid"), /Inget skickas om du inte trycker på knappen/);
+    assert.equal(h.stats.preid, 0, "inget skickas före klick");
+    assert.equal(await page.locator("#srcfirms .srcfirm").count(), 0, "ingen firma före läsning");
+    await page.click("#preidgo");
+    await page.waitForSelector('#srcfirms .srcfirm:has-text("Byggfirma AB")');
+    assert.equal(h.stats.preid, 2, "ETT anrop per offert");
+    assert.match(await page.textContent("#preid"), /Läste företagsuppgifter för 2 av 2 offerter/);
+    // osäker (ort saknas) ⇒ kort bekräftelse, inte automatiskt
+    const p1 = page.locator('#srcpropPre .srcprop[data-offer="1"]');
+    assert.match(await p1.textContent(), /Syd Bygg AB.*Stämmer det\?.*Orten framgår inte/s);
+    assert.equal(await page.locator("#srcfirms .srcfirm").count(), 1);
+    await p1.locator("button:has-text('Stämmer')").click();
+    await page.waitForSelector('#srcfirms .srcfirm:has-text("Syd Bygg AB")');
+    // täckning före köp visas utan påhittade betyg; inga stjärnor före köp
+    const cov = await page.textContent("#srccov"); assert.match(cov, /Byggfirma AB/);
+    assert.doesNotMatch(await page.textContent("#srcbox"), /★/);
+    // klick igen ⇒ cachat (inga fler anrop)
+    await page.click("#preidgo", { timeout: 1000 }).catch(() => {}); await page.waitForTimeout(300);
+    assert.equal(h.stats.preid, 2);
+    const hs = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert.ok(hs <= 0, "ingen sidoscroll");
+  } finally { await ctx.close(); await h.close(); }
+});

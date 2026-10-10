@@ -16,6 +16,8 @@ import { offerLabels } from "./compare_engine.js";
 import { validEmail, parseWithdrawToken } from "./compare_ledger.js";
 import { timingSafeEqual } from "./compare_util.js";
 import { createCheckoutSession, retrieveSession, retrieveRefund, verifyWebhook } from "./compare_stripe.js";
+import { preidConfig, buildPreidRequest, readPreid, sanitizePreid, preidProposals, PREID_NOTICE } from "./compare_preid.js";
+import { guardedCall, Stop } from "./compare_run.js";
 import { identityProposals, sourcesConfig, publicSourcesConfig, googleCandidates, nativeSearchGate, reserveMount, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
 import * as budget from "./compare_budget.js";
 
@@ -99,6 +101,7 @@ async function publicConfig(env, allowedOrigins) {
     retention: { classes: Object.fromEntries(Object.entries(RETENTION_CLASSES).map(([k, v]) => [k, v.hours ? `${v.hours} h` : "policy ej fastställd"])), policyOk: retentionPolicy(env).ok },
     dataCards: false, // gamla datakortsmodulen (datacard.js) är oanvänd; källor styrs av `sources`
     sources: publicSourcesConfig(env),
+    preid: preidConfig(env).on ? { on: true, ...PREID_NOTICE } : { on: false },
     refund: env.COMPARE_AUTO_REFUND === "1" ? "auto" : "manual",
     payment: { methods: pm.swish ? ["card", "swish"] : ["card"], swish: pm.swish, swishNote: pm.swish ? SWISH_NOTE : null },
   };
@@ -270,6 +273,54 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     return reply({ ok: true, orderId: id, token, order: r.json.order }, 201);
   }
 
+  // ---- D11 förköpsidentitet: POST /compare/orders/:id/preid {idx} – EN AI-läsning av utställaren per offert, användarstartad, reserverad i gemensamma potten ----
+  const pidm = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})\/preid$/);
+  if (pidm && request.method === "POST") {
+    const oid = pidm[1];
+    const tok = request.headers.get("x-order-token") || "";
+    if (!TOKEN_RE.test(tok)) return reply({ error: "Ordern hittades inte." }, 404);
+    if (!originOk) return reply({ error: "Otillåten källa." }, 403);
+    if (!bindingsOk(env)) return closed();
+    const pc = preidConfig(env);
+    if (!pc.on) return reply({ error: "Förköpsläsningen är inte öppen." }, 503);
+    const th = await sha256Hex(tok);
+    const body = await readJson(request, 500);
+    const idx = body.value && body.value.idx;
+    if (body.tooLarge || body.bad || !Number.isInteger(idx) || idx < 0 || idx > 3) return reply({ error: "Ogiltig förfrågan." }, 400);
+    const bc = budgetConfig(env);
+    if (!bc.ok || !env.ANTHROPIC_API_KEY) return reply({ error: "Läsningen är inte tillgänglig just nu." }, 503);
+    const proposalsOf = async () => {
+      const g = await orderCall(env, oid, "/preid-get", { tokenHash: th, now: Date.now() });
+      if (g.status !== 200 || !g.json.ok) return null;
+      return preidProposals(g.json.docCount, g.json.records);
+    };
+    const cl = await orderCall(env, oid, "/preid-claim", { tokenHash: th, idx, now: Date.now() });
+    if (cl.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
+    if (cl.status === 409) return reply({ error: cl.json && cl.json.error === "pagar" ? "Läsningen pågår redan." : "Ordern kan inte läsas av just nu." }, 409);
+    if (cl.status === 429) return reply({ error: "Gränsen för förköpsläsning är nådd för den här offerten." }, 429);
+    if (cl.status !== 200 || !cl.json.ok) return reply({ error: "Ogiltig förfrågan." }, cl.status === 400 ? 400 : 502);
+    if (cl.json.cached) return reply({ ok: true, proposals: await proposalsOf() });
+    const put = (identity) => orderCall(env, oid, "/preid-put", { tokenHash: th, idx, attempt: cl.json.attempt, identity, now: Date.now() });
+    const doc = await env.REVIEWS_KV.get(cl.json.doc.key, "json");
+    if (!doc) { await put(null); return reply({ error: "Offerten finns inte kvar. Ladda upp den igen." }, 410); }
+    const model = pc.model;
+    const request2 = buildPreidRequest({ model, doc });
+    let res;
+    try {
+      res = await guardedCall({ env, io: { fetch: (u, i) => fetch(u, i), now: () => Date.now() }, key: `pid:${oid}:${idx}:${cl.json.attempt}`, orderId: oid, scope: "paid", inputTokens: cl.json.doc.tokens + 600, body: request2, model, caps: { joint: bc.month, scope: bc.paid, order: Math.min(bc.order, pc.capMicro) }, signalMs: 45_000 });
+    } catch (e) {
+      await put(null);
+      if (e instanceof Stop) return reply({ error: "Läsningen är pausad just nu (kostnadsgräns). Det påverkar inte din jämförelse." }, 503);
+      throw e;
+    }
+    if (res.error) { await put(null); return reply({ error: "Läsningen misslyckades just nu. Försök igen om en stund." }, 502); }
+    let identity = null;
+    try { identity = sanitizePreid(readPreid(res.json)); } catch { identity = null; }
+    await put(identity);
+    if (!identity) return reply({ error: "Företagsuppgifterna kunde inte läsas ur offerten." }, 502);
+    return reply({ ok: true, proposals: await proposalsOf() });
+  }
+
   // ---- D07: källor för senaste omdömen (avstängda om inte COMPARE_REVIEWS + COMPARE_REVIEWS_VERIFIED) ----
   const sm = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})\/sources(?:\/(firms|google\/search|google\/mount|google\/confirm|google\/render|trustpilot\/search|trustpilot\/confirm|trustpilot\/latest|unconfirm|identity))?$/);
   if (sm) {
@@ -296,6 +347,10 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
       const ea = out(auth); if (ea) return ea;
       const gi = await orderCall(env, oid, "/internal", { now: Date.now() });
       const oo = gi.status === 200 && gi.json.order;
+      if (oo && ["ready", "awaiting_payment"].includes(oo.status) && preidConfig(env).on) { // förköp: förslag ur redan lästa utställaruppgifter (inget nytt anrop)
+        const g = await orderCall(env, oid, "/preid-get", { tokenHash: th, now: Date.now() });
+        if (g.status === 200 && g.json.ok) return reply({ ok: true, proposals: preidProposals(g.json.docCount, g.json.records), stage: "forkop", read: Object.values(g.json.records).filter((r) => r.state === "done").length });
+      }
       if (!oo || oo.status !== "delivered" || !oo.reportKey) return reply({ error: "Rapporten är inte klar.", status: oo ? oo.status : null }, 409);
       const rep = await env.REVIEWS_KV.get(oo.reportKey, "json");
       if (!rep) return reply({ error: "Rapporten har gått ut och är raderad.", expired: true }, 410);

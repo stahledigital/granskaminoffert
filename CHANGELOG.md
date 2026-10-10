@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1p – D11 förköpsidentitet/täckning före köp (KANDIDAT – AV, ej släppt; ovanpå P2d-fix 8930b381)
+- Ny modul compare_preid.js + DO-ops (preid-claim/put/get) + `POST /compare/orders/:id/preid` + UI-knapp (användarstartad, servertext UTKAST). ETT litet identitetsanrop per offert (verktyg submit_issuer), reserverat i den gemensamma potten via guardedCall (exporterad), engångs per dokument (sha256), högst 2 försök, claim mot parallellt, radering med ordern.
+- AV som standard: COMPARE_PREID + COMPARE_PREID_VERIFIED + COMPARE_PREID_ORDER_CAP_MICRO krävs. Billig modell (claude-haiku-5-5) som standard; träffsäkerhet EJ TESTAT.
+- Förslag före köp med samma regler som efter köp (auto/Stämmer/enskild/saknas); GET /sources/identity ger förköpsförslag (stage "forkop") utan nytt anrop. Ingen automatisk Google-matchning.
+- Tester: worker 332/332 (nya compare_preid: av/på, pott, engångs, fel/försök, halt, ordertak, behörighet), UI: förköpsflöde.
+
 ## jamfor-v1o-fix1 – D11-P2d rättning: betygscachen bunden till firmans identitet (root-QA P1; KANDIDAT – AV)
 - Rotorsak: SRCTPD/SRCTPTRY var nycklade bara på firm.id; ändrad domän/namn/ort nollställde serverns Trustpilot-koppling men inte klientens betyg ⇒ ★ och betygssortering kvarstod.
 - Nu: cachen bär `sig` = id|namn|ort|domän|TP bekräftad|TP-revision (serverfält `trustpilot.rev`, ändras vid varje ny/borttagen koppling; ingen BU-id exponeras). Ogiltig sig / borttagen firma / avbekräftad koppling ⇒ posten gäller inte och rensas. Inflight-svar kontrolleras mot sig vid mottagandet (sent svar kastas, ny hämtning för ny identitet). Vald betygssortering faller tillbaka till uppladdningsordning när underlaget försvinner.

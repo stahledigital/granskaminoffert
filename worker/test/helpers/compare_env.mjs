@@ -146,6 +146,11 @@ export function installFetch(opts = {}) {
         const ids = ctl.synthIds || req.tools[0].input_schema.properties.priority_ids.items.enum.slice().reverse().slice(0, 3);
         return Response.json({ stop_reason: "tool_use", usage, content: [{ type: "tool_use", id: "t1", name: "submit_priority", input: { priority_ids: ids } }] });
       }
+      if (tool === "submit_issuer") { // D11 förköpsidentitet
+        const t0 = req.messages[0].content.map((b) => b.text || "").join(""); const i0 = t0.indexOf("FIXTURE:"), j0 = t0.indexOf("\n</offert>");
+        const sp = i0 >= 0 ? JSON.parse(t0.slice(i0 + 8, j0)) : {};
+        return Response.json({ stop_reason: "tool_use", usage, content: [{ type: "tool_use", id: "ti", name: "submit_issuer", input: { issuer: issuerFixture(sp.issuer) || issuerFixture({ name: null, orgnr: null, address: null, city: null, phone: null, web: null }), readability: { level: sp.readability || "bra" } } }] });
+      }
       const t = req.messages[0].content.map((b) => b.text || "").join("");
       const i = t.indexOf("FIXTURE:"), j = t.indexOf("\n</offert>");
       const spec = i >= 0 ? JSON.parse(t.slice(i + 8, j)) : {};

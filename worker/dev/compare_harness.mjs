@@ -76,7 +76,7 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
 
   const sessions = new Map(); // id -> session + urls
   const idemSeen = new Map();
-  const stats = { anthropic: 0, stripeCreate: 0, webhooks: 0, refunds: 0, google: 0, tp: 0 };
+  const stats = { preid: 0, anthropic: 0, stripeCreate: 0, webhooks: 0, refunds: 0, google: 0, tp: 0 };
   const ctl = { anthropicDelayMs, failAnthropic: 0 };
   let port = 0;
   const server = createServer(async (req, res) => {
@@ -146,6 +146,7 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
         const j = JSON.parse(body);
         if (j.tools[0].name === "submit_priority") return Response.json({ stop_reason: "tool_use", usage: { input_tokens: 500, output_tokens: 40 }, content: [{ type: "tool_use", id: "p", name: "submit_priority", input: { priority_ids: [] } }] });
         const text = j.messages[0].content.map((b) => b.text || "").join("");
+        if (j.tools[0].name === "submit_issuer") { stats.preid++; const sp0 = fakeRead(text); return Response.json({ stop_reason: "tool_use", usage: { input_tokens: 900, output_tokens: 120 }, content: [{ type: "tool_use", id: "i", name: "submit_issuer", input: { issuer: issuerInput(sp0), readability: { level: "bra" } } }] }); }
         const doc = j.messages[0].content.find((b) => b.type === "document" || b.type === "image");
         const spec = doc ? { extracted: { totalBeforeRotSek: 85000, totalVatBasis: "inkl", vatMode: "inkl" }, scope: { rivning: "ingar", material: "ingar", arbete: "ingar" }, readability: "osaker" } : fakeRead(text);
         return Response.json({ stop_reason: "tool_use", usage: { input_tokens: 2400, output_tokens: 650 }, content: [{ type: "tool_use", id: "t", name: "submit_offer", input: offerInput(spec) }] });

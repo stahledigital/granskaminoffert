@@ -23,6 +23,7 @@ import { stripLedger, validEmail, maskEmail, newWithdrawToken, withdrawSecretMat
 import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } from "./compare_stripe.js";
 import { runPipeline } from "./compare_run.js";
 import { sourcesConfig, applyOp, emptySources, sourcesView, LIM as SRC_LIM } from "./compare_sources.js";
+import { PREID_MAX_ATTEMPTS } from "./compare_preid.js";
 
 const MAX_EVENTS = 64;
 
@@ -190,6 +191,39 @@ export class CompareOrders {
       return { body: { ok: true, sources: sourcesView(sourcesConfig(this.env), r.state), state: r.state } };
     }
 
+    // ---- D11 förköpsidentitet: engångsläsning av utställaren per dokument (claim → anrop → put). Lagras som resten av ordern och raderas med den. ----
+    if (path === "/preid-claim" || path === "/preid-put" || path === "/preid-get") {
+      const gone = ["deleted", "expired", "failed"].includes(o.status) || o.contentDeleted || now > o.expiresAt;
+      if (gone) { await this.state.storage.delete("preid"); return { status: 409, body: { ok: false, error: "raderad" } }; }
+      const st = (await this.state.storage.get("preid")) || { rec: {}, total: 0 };
+      const docOf = (idx) => o.docs.find((d) => d.idx === idx && d.key) || null;
+      if (path === "/preid-get") {
+        const out = {};
+        for (const [k, r] of Object.entries(st.rec)) { const d = docOf(Number(k)); if (d && d.sha256 === r.sha) out[k] = { state: r.state, attempts: r.attempts, identity: r.state === "done" ? r.identity : null }; }
+        return { body: { ok: true, docCount: o.docCount, status: o.status, records: out } };
+      }
+      if (!["ready", "awaiting_payment"].includes(o.status) || o.docs.length !== o.docCount) return { status: 409, body: { ok: false, error: "status" } };
+      const idx = b.idx, d = Number.isInteger(idx) ? docOf(idx) : null;
+      if (!d) return { status: 400, body: { ok: false, error: "ogiltig" } };
+      let r = st.rec[idx];
+      if (r && r.sha !== d.sha256) { r = null; delete st.rec[idx]; } // dokumentet har bytts: gammal identitet gäller inte
+      if (path === "/preid-claim") {
+        if (r && r.state === "done") return { body: { ok: true, cached: true } };
+        if (r && r.state === "claimed" && now - r.claimedAt < 150_000) return { status: 409, body: { ok: false, error: "pagar" } };
+        const attempts = r ? r.attempts : 0;
+        if (attempts >= PREID_MAX_ATTEMPTS || st.total >= o.docCount * PREID_MAX_ATTEMPTS * 2) return { status: 429, body: { ok: false, error: "gransen" } };
+        st.rec[idx] = { sha: d.sha256, attempts: attempts + 1, state: "claimed", claimedAt: now, identity: null };
+        st.total += 1;
+        await this.state.storage.put("preid", st);
+        return { body: { ok: true, attempt: attempts + 1, doc: { key: d.key, tokens: d.tokens, sha256: d.sha256 } } };
+      }
+      // /preid-put
+      if (!r || r.state !== "claimed" || r.attempts !== b.attempt || r.sha !== d.sha256) return { status: 409, body: { ok: false, error: "okand_claim" } };
+      if (b.identity && typeof b.identity === "object") { r.state = "done"; r.identity = b.identity; } else { r.state = "open"; r.identity = null; }
+      await this.state.storage.put("preid", st);
+      return { body: { ok: true, state: r.state } };
+    }
+
     if (path === "/get") {
       const after = (o.status === "paid" || o.status === "running") ? async () => this._ensureAlarm(o, now) : undefined;
       const extras = await this._extras();
@@ -269,7 +303,7 @@ export class CompareOrders {
       const keys = [...new Set([...o.docs.map((d) => d.key).filter(Boolean), ...(o.purgeKeys || [])])].concat(o.reportKey ? [o.reportKey] : []);
       for (const k of keys) { try { await this.env.REVIEWS_KV.delete(k); } catch { /* TTL tar resten */ } }
       for (const d of Object.keys((o.work && o.work.steps && o.work.steps.ext) || {})) await this.state.storage.delete(`ext:${d}`);
-      await this.state.storage.delete("sources");
+      await this.state.storage.delete("sources"); await this.state.storage.delete("preid");
       o.docs = []; o.purgeKeys = []; o.reportKey = null; o.contentDeleted = true; o.estimate = null;
       if (["draft", "ready", "awaiting_payment", "expired"].includes(o.status)) o.status = "deleted";
       await this._save(o);
@@ -453,7 +487,7 @@ export class CompareOrders {
       o.status = "failed";
       o.work.error = r.state === "retry" ? "for_manga_forsok" : (r.reason || "fel");
       o.contentDeleted = true;
-      await this.state.storage.delete("sources");
+      await this.state.storage.delete("sources"); await this.state.storage.delete("preid");
       o.purgeKeys = [...new Set([...(o.purgeKeys || []), ...o.docs.map((d) => d.key).filter(Boolean)])];
       o.docs = o.docs.map((d) => ({ ...d, key: null }));
       refundCall = this._planRefund(o);
@@ -664,7 +698,7 @@ export class CompareOrders {
     }
     const ids = (o.work && o.work.steps && Object.keys(o.work.steps.ext)) || [];
     for (const i of ids) await this.state.storage.delete(`ext:${i}`);
-    await this.state.storage.delete("aux:priority");
+    await this.state.storage.delete("aux:priority"); await this.state.storage.delete("preid");
     // Kvarvarande nycklar behålls för ny rensning; TTL 24 h är reservvägen.
     await this._tx(async () => { const cur = await this._load(); if (cur) { cur.purgeKeys = failed; await this._save(cur); } });
   }

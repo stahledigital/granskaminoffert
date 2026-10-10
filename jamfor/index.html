@@ -146,6 +146,8 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
     <div id="srcbox" class="hidden" aria-labelledby="h-src">
       <h3 id="h-src">Omdömen om hantverkarna (valfritt)</h3>
       <p class="hint">Googles och Trustpilots egna omdömen, visade separat per firma med källans eget urval. De ingår inte i jämförelsen eller rapporten och är ingen bedömning av företaget. Vi bekräftar inte att en källa finns för just din firma – täckningen visas här innan du betalar.</p>
+      <div id="preid" class="hidden" aria-live="polite"></div>
+      <div id="srcpropPre" aria-live="polite"></div>
       <details id="srcmanual"><summary>Lägg till företag själv (valfritt)</summary><div id="srcform"></div></details><div id="srcfirms" aria-live="polite"></div>
       <ul class="tight" id="srccov"></ul>
     </div>
@@ -953,7 +955,7 @@ function srcForm(){
 function srcFirmRows(view){var rows=[];(view.firms||[]).forEach(function(f){f.offers.forEach(function(i){rows.push({offerIndex:i,name:f.name,city:f.city,domain:f.domain||'',origin:f.origin||'kund'})})});return rows}
 async function srcPutFirms(rows){
   var r=await srcApi('PUT','/firms',{firms:rows});
-  if(r.status===200){srcRender(r.json.sources,'report');srcPanel()}else err((r.json&&r.json.error)||'Gick inte att spara firmauppgifterna.');
+  if(r.status===200){srcRender(r.json.sources,SRC.mode==='offer'?'offer':'report');srcPanel()}else err((r.json&&r.json.error)||'Gick inte att spara firmauppgifterna.');
   return r;
 }
 // Kort formulär för att ändra/lägga till företag för en offert. Kundens egna uppgifter vinner över dokumentförslag.
@@ -981,7 +983,7 @@ function srcEditForm(after,offerIndex,pre){
 // Förslag ur dokumentidentiteten: auto läggs in direkt, osäkra kräver ett kort "Stämmer", övriga får en kort rad.
 var SRCPROP=null;
 function srcPanel(){
-  var host=$('srcprop');if(!host||!SRCPROP)return;host.textContent='';
+  var host=$(SRC.mode==='offer'?'srcpropPre':'srcprop');if(!host||!SRCPROP)return;host.textContent='';
   var have={};(SRC.view&&SRC.view.firms||[]).forEach(function(f){f.offers.forEach(function(i){have[i]=true})});
   SRCPROP.forEach(function(p){
     if(have[p.offerIndex])return;
@@ -1004,19 +1006,45 @@ function srcPanel(){
     host.appendChild(row);
   });
 }
+// Lägger in auto-förslag direkt (origin 'dokument'); osäkra får kort "Stämmer"-rad via srcPanel. Gäller både efter köp och förköpsläsning.
+async function srcApplyProposals(view,props){
+  SRCPROP=props||[];
+  var rows=srcFirmRows(view),have={};rows.forEach(function(x){have[x.offerIndex]=true});
+  var add=SRCPROP.filter(function(p){return p.state==='auto'&&!have[p.offerIndex]});
+  if(add.length){add.forEach(function(p){rows.push({offerIndex:p.offerIndex,name:p.name,city:p.city||'',domain:p.domain||'',origin:'dokument'})});await srcPutFirms(rows)}
+  else srcPanel();
+}
+// Förköpsläsning (D11): bara när servern slagit på den. Kunden startar själv; texten före knappen kommer från servern (UTKAST). Ett anrop per offert, engångs.
+function preidBlock(){
+  var c=state.cfg&&state.cfg.preid,host=$('preid');if(!host)return;host.textContent='';
+  if(!c||!c.on){host.classList.add('hidden');return}
+  host.classList.remove('hidden');
+  host.appendChild(el('p',{class:'hint',text:c.text+(c.draft?' (Utkast till text.)':'')}));
+  var out=el('p',{class:'hint',role:'status','data-preid-out':'1'});
+  var b=el('button',{type:'button',class:'btn ghost',id:'preidgo',text:c.button||'Läs av företagsuppgifter'});
+  b.addEventListener('click',async function(){
+    b.disabled=true;out.textContent='Läser företagsuppgifterna…';
+    var props=null,okN=0,fail=null;
+    for(var i=0;i<state.n;i++){
+      var r=await api('POST','/compare/orders/'+state.order.id+'/preid',{token:state.order.token,body:{idx:i}});
+      if(r.status===200&&r.json&&r.json.proposals){props=r.json.proposals;okN++}
+      else{fail=(r.json&&r.json.error)||'Gick inte.';if(r.status===503||r.status===404)break}
+    }
+    out.textContent=okN?('Läste företagsuppgifter för '+okN+' av '+state.n+' offerter.'+(fail?' '+fail:'')):(fail||'Gick inte.');
+    if(props&&SRC.view)await srcApplyProposals(SRC.view,props);
+    if(okN<state.n)b.disabled=false;
+  });
+  host.appendChild(b);host.appendChild(out);
+}
 async function srcStart(host,mode){
   if(!srcActive())return;
   try{
     var r=await srcApi('GET','');if(r.status!==200)return;
-    if(mode==='offer'){show('srcbox',true);if(state.slots&&state.slots.length)srcForm();srcRender(r.json.sources,'offer')}
+    if(mode==='offer'){show('srcbox',true);if(state.slots&&state.slots.length)srcForm();srcRender(r.json.sources,'offer');preidBlock()}
     else{host.textContent='';host.appendChild(el('p',{class:'hint',text:'Omdömen visas separat från rapporten, med källans eget urval. De ingår inte i jämförelsen och är ingen bedömning av företaget.'}));
       host.appendChild(el('div',{id:'srcprop','aria-live':'polite'}));
       var inner=el('div',{id:'srcrep'});host.appendChild(inner);srcRender(r.json.sources,'report');
-      var ir=await srcApi('GET','/identity');SRCPROP=(ir.status===200&&ir.json.proposals)||[];
-      var rows=srcFirmRows(r.json.sources),have={};rows.forEach(function(x){have[x.offerIndex]=true});
-      var add=SRCPROP.filter(function(p){return p.state==='auto'&&!have[p.offerIndex]});
-      if(add.length){add.forEach(function(p){rows.push({offerIndex:p.offerIndex,name:p.name,city:p.city||'',domain:p.domain||'',origin:'dokument'})});await srcPutFirms(rows)}
-      else srcPanel();
+      var ir=await srcApi('GET','/identity');await srcApplyProposals(r.json.sources,(ir.status===200&&ir.json.proposals)||[]);
     }
   }catch(e){}
 }
