@@ -1,8 +1,12 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1p-fix1 – förköpsidentitet: modell Sonnet 5.5, fail closed (KANDIDAT – AV; ovanpå 7ba27cf7)
+- Rättelse: standardmodellen claude-haiku-5-5 stred mot Anders beslutade Sonnet 5.5 för GMO. Nu är claude-sonnet-5-5 ENDA tillåtna modell för preid; `COMPARE_PREID_MODEL` med annat värde ⇒ funktionen AV (503, inget anrop). Inga Haiku-anrop har gjorts; allt är attrapper.
+- Kalkyl: värsta fall ≈ 0,066 USD/dokument (3 000 tokens in, 6 000 ut); ordertaket måste rymma ≥ ~0,27 USD för 4 dokument. Fortfarande samma gemensamma 20 USD-pott, ingen ny pott/reset, AV som standard.
+
 ## jamfor-v1p – D11 förköpsidentitet/täckning före köp (KANDIDAT – AV, ej släppt; ovanpå P2d-fix 8930b381)
 - Ny modul compare_preid.js + DO-ops (preid-claim/put/get) + `POST /compare/orders/:id/preid` + UI-knapp (användarstartad, servertext UTKAST). ETT litet identitetsanrop per offert (verktyg submit_issuer), reserverat i den gemensamma potten via guardedCall (exporterad), engångs per dokument (sha256), högst 2 försök, claim mot parallellt, radering med ordern.
-- AV som standard: COMPARE_PREID + COMPARE_PREID_VERIFIED + COMPARE_PREID_ORDER_CAP_MICRO krävs. Billig modell (claude-haiku-5-5) som standard; träffsäkerhet EJ TESTAT.
+- AV som standard: COMPARE_PREID + COMPARE_PREID_VERIFIED + COMPARE_PREID_ORDER_CAP_MICRO krävs. Modell: claude-sonnet-5-5 (se v1p-fix1); träffsäkerhet EJ TESTAT.
 - Förslag före köp med samma regler som efter köp (auto/Stämmer/enskild/saknas); GET /sources/identity ger förköpsförslag (stage "forkop") utan nytt anrop. Ingen automatisk Google-matchning.
 - Tester: worker 332/332 (nya compare_preid: av/på, pott, engångs, fel/försök, halt, ordertak, behörighet), UI: förköpsflöde.
 

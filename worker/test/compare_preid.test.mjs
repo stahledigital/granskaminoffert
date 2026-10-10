@@ -27,6 +27,26 @@ test("AV som standard: kräver COMPARE_PREID + VERIFIED + människosatt ordertak
   } finally { f.restore(); }
 });
 
+test("modell: bara claude-sonnet-5-5 (Anders beslut); annat modellval ⇒ AV (fail closed), inget Haikuanrop kan skapas", async () => {
+  assert.equal(preidConfig(makeEnv(ON)).model, "claude-sonnet-5-5");
+  assert.equal(preidConfig(makeEnv({ ...ON, COMPARE_PREID_MODEL: "claude-sonnet-5-5" })).on, true);
+  for (const m of ["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-4-5-20250929", "x"]) assert.equal(preidConfig(makeEnv({ ...ON, COMPARE_PREID_MODEL: m })).on, false, m);
+  const f = installFetch();
+  try {
+    const env = makeEnv({ ...ON, COMPARE_PREID_MODEL: "claude-haiku-5-5", ANTHROPIC_MODEL: "claude-haiku-5-5" });
+    const { orderId, token } = await readyOrder(env, [S(100000), S(110000)]);
+    assert.equal((await preid(env, orderId, token, 0)).status, 503); assert.equal(f.log.anthropic.length, 0);
+    assert.equal(JSON.stringify((await api(env, "GET", "/compare/config")).json.preid), '{"on":false}');
+  } finally { f.restore(); }
+});
+
+test("kalkyl för Sonnet 5.5: värsta fall per dokument ≈ indata×2 USD/MTok + 6000 utdata×10 USD/MTok; reservationen ryms många gånger i 20 USD-potten och i ordertaket", async () => {
+  const { worstCaseUsd } = await import("../src/models.js");
+  const w = worstCaseUsd("claude-sonnet-5-5", 3600); // 3000 tokens dokument + 600 marginal
+  assert.ok(Math.abs(w - (3600 / 1e6 * 2 + 6000 / 1e6 * 10)) < 1e-9); assert.ok(w < 0.07, String(w));
+  assert.ok(4 * w * 1e6 < 500000, "fyra dokument ryms i ordertaket 0,50 USD");
+});
+
 test("läser utställaren per offert: små anrop, ett per dokument, spårad reservation i EN gemensam pott, förslag auto/bekräfta/enskild", async () => {
   const f = installFetch();
   try {
@@ -35,7 +55,7 @@ test("läser utställaren per offert: små anrop, ett per dokument, spårad rese
     const r0 = await preid(env, orderId, token, 0); assert.equal(r0.status, 200, JSON.stringify(r0.json));
     await preid(env, orderId, token, 1); const r2 = await preid(env, orderId, token, 2);
     assert.equal(f.log.anthropic.length, 3);
-    for (const req of f.log.anthropic) { assert.equal(req.tools[0].name, "submit_issuer"); assert.equal(req.model, "claude-haiku-5-5"); assert.doesNotMatch(JSON.stringify(req.tools), /totalSum|scope/); }
+    for (const req of f.log.anthropic) { assert.equal(req.tools[0].name, "submit_issuer"); assert.equal(req.model, "claude-sonnet-5-5"); assert.doesNotMatch(JSON.stringify(req.tools), /totalSum|scope/); }
     const pr = r2.json.proposals;
     assert.equal(pr[0].state, "auto"); assert.equal(pr[0].name, "Byggfirma AB");
     assert.equal(pr[1].state, "bekrafta"); assert.equal(pr[1].reason, "ort_saknas");

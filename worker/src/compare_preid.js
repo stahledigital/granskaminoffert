@@ -12,7 +12,8 @@ import { identityProposals } from "./compare_sources.js";
 
 export const PREID_VERSION = "preid-1";
 export const PREID_MAX_ATTEMPTS = 2; // per dokument
-export const PREID_DEFAULT_MODEL = "claude-haiku-5-5";
+// Anders har beslutat Sonnet 5.5 för GMO: enda tillåtna modell. Annat modellval ⇒ funktionen är AV (fail closed) tills ett nytt uttryckligt mänskligt beslut ändrar konstanten.
+export const PREID_ALLOWED_MODEL = "claude-sonnet-5-5";
 
 export const PREID_TOOL = {
   name: "submit_issuer",
@@ -60,8 +61,9 @@ export function sanitizePreid(raw) {
 }
 
 export function preidModel(env) {
-  const m = (env && env.COMPARE_PREID_MODEL) || PREID_DEFAULT_MODEL; // billigaste modellen räcker för några fält; träffsäkerheten är EJ TESTAT (F2)
-  return modelInfo(m) ? m : null;
+  const m = env && env.COMPARE_PREID_MODEL;
+  if (m !== undefined && m !== null && m !== "" && m !== PREID_ALLOWED_MODEL) return null; // annat än beslutad modell ⇒ av
+  return modelInfo(PREID_ALLOWED_MODEL) ? PREID_ALLOWED_MODEL : null;
 }
 
 export function preidConfig(env) {
