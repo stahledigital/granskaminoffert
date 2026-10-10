@@ -146,7 +146,7 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
     <div id="srcbox" class="hidden" aria-labelledby="h-src">
       <h3 id="h-src">Omdömen om hantverkarna (valfritt)</h3>
       <p class="hint">Googles och Trustpilots egna omdömen, visade separat per firma med källans eget urval. De ingår inte i jämförelsen eller rapporten och är ingen bedömning av företaget. Vi bekräftar inte att en källa finns för just din firma – täckningen visas här innan du betalar.</p>
-      <div id="srcform"></div><div id="srcfirms" aria-live="polite"></div>
+      <details id="srcmanual"><summary>Lägg till företag själv (valfritt)</summary><div id="srcform"></div></details><div id="srcfirms" aria-live="polite"></div>
       <ul class="tight" id="srccov"></ul>
     </div>
     <label for="email" style="display:block;font-weight:600;margin:12px 0 4px">E-postadress för avtalsbekräftelsen</label>
@@ -743,12 +743,14 @@ function srcCompactAll(){
   });
 }
 function srcCov(view){var cv=$('srccov');if(cv&&view&&view.coverage){cv.textContent='';(view.coverage.lines||[]).forEach(function(l){cv.appendChild(el('li',{text:l}))})}}
+function srcInter(m){return m==='offer'||m==='report'}
 function srcFirmCard(f,mode){
   var c=srcCfg();
   var card=el('div',{class:'srcfirm','data-firm':f.id});
   card.appendChild(el('h4',{text:f.name+(f.city?' ('+f.city+')':'')}));
   if(f.conflict)card.appendChild(el('p',{class:'warnbox',text:'Samma namn och ort men olika webbplatser ('+(f.domain||'ingen angiven')+'). Bekräfta källorna för just den här firman.'}));
-  card.appendChild(el('p',{class:'hint',text:'Gäller '+f.offers.map(function(i){return 'offert '+(i+1)}).join(' och ')}));
+  card.appendChild(el('p',{class:'hint',text:'Gäller '+f.offers.map(function(i){return 'offert '+(i+1)}).join(' och ')+(mode==='report'&&f.origin==='dokument'?' · läst ur offerten':'')}));
+  if(mode==='report'){var chg=el('button',{type:'button',class:'linkbtn',text:'Ändra företag'});chg.addEventListener('click',function(){srcEditForm(card,f.offers[0],{name:f.name,city:f.city,domain:f.domain})});card.appendChild(chg)}
   // ---- Google ----
   if(c.google.state!=='ej_aktiverad'){
     var g=el('div',{class:'srcrow','data-src':'google'},el('b',{text:'Google'}),el('div',{class:'st',text:f.google.text}));
@@ -760,10 +762,10 @@ function srcFirmCard(f,mode){
         box.classList.remove('hidden');open.textContent='Dölj Googles omdömen';gmpMount(f,box);
       });
       g.appendChild(open);
-      if(mode==='offer'){var ch=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:'Fel firma? Byt'});ch.addEventListener('click',async function(){gmpUnmount(f.id);var r=await srcApi('POST','/unconfirm',{firmId:f.id,provider:'google'});if(r.status===200)srcRender(r.json.sources,mode)});g.appendChild(ch)}
+      if(srcInter(mode)){var ch=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:'Fel firma? Byt'});ch.addEventListener('click',async function(){gmpUnmount(f.id);var r=await srcApi('POST','/unconfirm',{firmId:f.id,provider:'google'});if(r.status===200)srcRender(r.json.sources,mode)});g.appendChild(ch)}
       g.appendChild(el('p',{class:'hint',text:'Källa: Google ('+f.name+(f.city?', '+f.city:'')+'). Visas av Google med Googles eget urval, datum och attribution – vi ändrar eller sparar inget.'}));
       g.appendChild(box);
-    }else if(mode==='offer'&&f.google.state!=='kostnadsstopp'){
+    }else if(srcInter(mode)&&f.google.state!=='kostnadsstopp'){
       var holder=el('div',{class:'cands'});
       if(c.google.search){
         var sb=el('button',{type:'button',class:'btn ghost',text:'Sök firman hos Google'});if(f.google.searchesLeft<=0)sb.disabled=true;
@@ -825,8 +827,8 @@ function srcFirmCard(f,mode){
         srcTp(out,f,r.json);
       });
       t.appendChild(lb);
-      if(mode==='offer'){var ct=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:'Fel firma? Byt'});ct.addEventListener('click',async function(){var r=await srcApi('POST','/unconfirm',{firmId:f.id,provider:'trustpilot'});if(r.status===200)srcRender(r.json.sources,mode)});t.appendChild(ct)}
-    }else if(mode==='offer'&&f.trustpilot.state!=='kostnadsstopp'){
+      if(srcInter(mode)){var ct=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:'Fel firma? Byt'});ct.addEventListener('click',async function(){var r=await srcApi('POST','/unconfirm',{firmId:f.id,provider:'trustpilot'});if(r.status===200)srcRender(r.json.sources,mode)});t.appendChild(ct)}
+    }else if(srcInter(mode)&&f.trustpilot.state!=='kostnadsstopp'){
       if(!f.domain)t.appendChild(el('p',{class:'hint',text:'Ange firmans webbplats ovan för att söka hos Trustpilot.'}));
       else{
         var ts=el('button',{type:'button',class:'btn ghost',text:'Sök firman hos Trustpilot'});if(f.trustpilot.searchesLeft<=0)ts.disabled=true;
@@ -852,7 +854,7 @@ function srcCands(host,f,prov,list,outcome){
   btn.addEventListener('click',async function(){
     if(!chosen)return;btn.disabled=true;
     var r=prov==='google'?await srcApi('POST','/google/confirm',{firmId:f.id,placeId:chosen,via:'candidate'}):await srcApi('POST','/trustpilot/confirm',{firmId:f.id,buId:chosen});
-    if(r.status===200)srcRender(r.json.sources,'offer');else{err((r.json&&r.json.error)||'Gick inte.');btn.disabled=false}
+    if(r.status===200)srcRender(r.json.sources,SRC.mode||'offer');else{err((r.json&&r.json.error)||'Gick inte.');btn.disabled=false}
   });
   host.appendChild(btn);
 }
@@ -876,7 +878,7 @@ function srcTp(out,f,j){
   if(c.sourceUrl)out.appendChild(el('a',{href:c.sourceUrl,target:'_blank',rel:'noopener noreferrer',text:'Trustpilot-sidan för firman'}));
 }
 function srcRender(view,mode){
-  SRC.view=view;gmpUnmountAll();
+  SRC.view=view;SRC.mode=mode;gmpUnmountAll();
   var host=mode==='report'?$('srcrep'):$('srcfirms');if(!host)return;
   host.textContent='';
   (view.firms||[]).forEach(function(f){host.appendChild(srcFirmCard(f,mode))});
@@ -902,13 +904,75 @@ function srcForm(){
   });
   f.appendChild(b);
 }
+// Firmor ur sourcesview -> PUT-rader (en rad per offert), så att befintliga val bevaras vid komplettering.
+function srcFirmRows(view){var rows=[];(view.firms||[]).forEach(function(f){f.offers.forEach(function(i){rows.push({offerIndex:i,name:f.name,city:f.city,domain:f.domain||'',origin:f.origin||'kund'})})});return rows}
+async function srcPutFirms(rows){
+  var r=await srcApi('PUT','/firms',{firms:rows});
+  if(r.status===200){srcRender(r.json.sources,'report');srcPanel()}else err((r.json&&r.json.error)||'Gick inte att spara firmauppgifterna.');
+  return r;
+}
+// Kort formulär för att ändra/lägga till företag för en offert. Kundens egna uppgifter vinner över dokumentförslag.
+function srcEditForm(after,offerIndex,pre){
+  var old=document.querySelector('#rep .srcedit[data-offer="'+offerIndex+'"]');if(old){old.remove()}
+  var w=el('div',{class:'srcedit','data-offer':String(offerIndex)});
+  var n=el('input',{type:'text',maxlength:'80',autocomplete:'off',id:'se-n'+offerIndex,value:(pre&&pre.name)||''});
+  var c=el('input',{type:'text',maxlength:'50',autocomplete:'off',id:'se-c'+offerIndex,value:(pre&&pre.city)||''});
+  var d=el('input',{type:'text',maxlength:'80',autocomplete:'off',id:'se-d'+offerIndex,value:(pre&&pre.domain)||''});
+  w.appendChild(el('label',{class:'t','for':'se-n'+offerIndex,text:'Företagsnamn (offert '+(offerIndex+1)+')'}));w.appendChild(n);
+  w.appendChild(el('label',{class:'t','for':'se-c'+offerIndex,text:'Ort'}));w.appendChild(c);
+  w.appendChild(el('label',{class:'t','for':'se-d'+offerIndex,text:'Webbplats (valfritt)'}));w.appendChild(d);
+  var ok=el('button',{type:'button',class:'btn acc',text:'Spara företag'});
+  ok.addEventListener('click',async function(){
+    var nm=(n.value||'').trim();if(!nm){err('Skriv företagets namn.');return}
+    ok.disabled=true;
+    var rows=srcFirmRows(SRC.view).filter(function(x){return x.offerIndex!==offerIndex});
+    rows.push({offerIndex:offerIndex,name:nm,city:(c.value||'').trim(),domain:(d.value||'').trim(),origin:'kund'});
+    var r=await srcPutFirms(rows);if(r.status!==200)ok.disabled=false;
+  });
+  var cn=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:'Avbryt'});cn.addEventListener('click',function(){w.remove()});
+  w.appendChild(ok);w.appendChild(cn);
+  after.appendChild(w);n.focus();
+}
+// Förslag ur dokumentidentiteten: auto läggs in direkt, osäkra kräver ett kort "Stämmer", övriga får en kort rad.
+var SRCPROP=null;
+function srcPanel(){
+  var host=$('srcprop');if(!host||!SRCPROP)return;host.textContent='';
+  var have={};(SRC.view&&SRC.view.firms||[]).forEach(function(f){f.offers.forEach(function(i){have[i]=true})});
+  SRCPROP.forEach(function(p){
+    if(have[p.offerIndex])return;
+    var row=el('div',{class:'srcprop','data-offer':String(p.offerIndex)});
+    var lab='Offert '+(p.offerIndex+1);
+    if(p.state==='bekrafta'){
+      var why={ofullstandig:'Uppgifterna i offerten är ofullständiga.',osaker_roll:'Det är oklart om det är utföraren som avses.',liknande_namn:'Namnet liknar ett annat företag i jämförelsen.',ort_saknas:'Orten framgår inte.'}[p.reason]||'';
+      row.appendChild(el('p',{text:lab+': företaget verkar vara '+p.name+(p.city?' ('+p.city+')':'')+'. Stämmer det? '+why}));
+      var y=el('button',{type:'button',class:'btn acc',text:'Stämmer'});
+      y.addEventListener('click',async function(){y.disabled=true;var rows=srcFirmRows(SRC.view);rows.push({offerIndex:p.offerIndex,name:p.name,city:p.city||'',domain:p.domain||'',origin:'dokument'});var r=await srcPutFirms(rows);if(r.status!==200)y.disabled=false});
+      var ch=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:'Ändra'});
+      ch.addEventListener('click',function(){srcEditForm(row,p.offerIndex,{name:p.name,city:p.city,domain:p.domain})});
+      row.appendChild(y);row.appendChild(ch);
+    }else if(p.state==='enskild'){
+      row.appendChild(el('p',{class:'hint',text:lab+': verkar vara en enskild firma. Vi söker inte omdömen om privatpersoner.'}));
+    }else{
+      row.appendChild(el('p',{class:'hint',text:lab+': '+(p.state==='ej_avlast'?'företaget kunde inte läsas ur offerten säkert.':'offerten anger inget företagsnamn.')}));
+      var add=el('button',{type:'button',class:'linkbtn',text:'Lägg till företag'});add.addEventListener('click',function(){srcEditForm(row,p.offerIndex,null)});row.appendChild(add);
+    }
+    host.appendChild(row);
+  });
+}
 async function srcStart(host,mode){
   if(!srcActive())return;
   try{
     var r=await srcApi('GET','');if(r.status!==200)return;
     if(mode==='offer'){show('srcbox',true);if(state.slots&&state.slots.length)srcForm();srcRender(r.json.sources,'offer')}
     else{host.textContent='';host.appendChild(el('p',{class:'hint',text:'Omdömen visas separat från rapporten, med källans eget urval. De ingår inte i jämförelsen och är ingen bedömning av företaget.'}));
-      var inner=el('div',{id:'srcrep'});host.appendChild(inner);srcRender(r.json.sources,'report')}
+      host.appendChild(el('div',{id:'srcprop','aria-live':'polite'}));
+      var inner=el('div',{id:'srcrep'});host.appendChild(inner);srcRender(r.json.sources,'report');
+      var ir=await srcApi('GET','/identity');SRCPROP=(ir.status===200&&ir.json.proposals)||[];
+      var rows=srcFirmRows(r.json.sources),have={};rows.forEach(function(x){have[x.offerIndex]=true});
+      var add=SRCPROP.filter(function(p){return p.state==='auto'&&!have[p.offerIndex]});
+      if(add.length){add.forEach(function(p){rows.push({offerIndex:p.offerIndex,name:p.name,city:p.city||'',domain:p.domain||'',origin:'dokument'})});await srcPutFirms(rows)}
+      else srcPanel();
+    }
   }catch(e){}
 }
 

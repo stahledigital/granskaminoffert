@@ -346,6 +346,7 @@ async function toOfferStep(page, h) {
   await page.waitForSelector("#s1:not(.hidden)");
   await fillAndCheck(page, [OFFERS[0], OFFERS[1]]);
   await page.waitForSelector("#srcbox:not(.hidden)");
+  await page.evaluate(() => { const d = document.querySelector("#srcmanual"); if (d) d.open = true; }); // D11-P2c: manuell inmatning är valfri och hopfälld
 }
 // Offlineattrapp för Googles UI Kit-element (beta). Elementnamn enligt Googles primärdocs; attrappen bevisar vår konfiguration/händelsehantering/cleanup,
 // INTE Googles liveutfall. __GMP_MODE: ok (gmp-load) | error (gmp-error) | silent (ingen händelse alls).
@@ -918,5 +919,48 @@ test("identitetsfall i vyn: oläsligt ≠ saknas; osäker utställare kräver ko
     // ingen identitetsbrist för Byggfirma AB (webb saknas, inga omdömen): bara oklarheter i andra poster
     const q = await page.textContent("#rep details:has(summary:has-text('Byggfirma AB'))");
     assert.doesNotMatch(q, /företagsnamn|organisationsnummer/i);
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("D11-P2c: företag läses ur offerten – auto utan inmatning, osäkert kräver kort bekräftelse, enskild firma får inga källor, 'Ändra företag' byter och nollställer", async () => {
+  const h = await startHarness({ vars: SRC_VARS }); seedSources(h);
+  const { ctx, page } = await newPage(h, 390, 844);
+  try {
+    await payToReport(page, h, [
+      fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Byggfirma AB") }),
+      fx({ extracted: EX(101000), scope: SC(), issuer: ID_OK("Syd Bygg AB", { orgnr: "556000-0167", city: null }) }),
+      fx({ extracted: EX(102000), scope: SC(), issuer: ID_OK("Karl Karlsson", { orgnr: "850101-1234" }) }),
+      fx({ extracted: EX(103000), scope: SC(), issuer: { name: null, orgnr: null, address: null, city: null, phone: null, web: null, unreadable: true } }),
+    ]);
+    await page.click("#more summary");
+    // 1) offert 1 lades in automatiskt, utan att kunden skrivit något
+    await page.waitForSelector('#srcrep .srcfirm[data-firm]');
+    assert.equal(await page.locator("#srcrep .srcfirm").count(), 1);
+    const c0 = await page.textContent("#srcrep .srcfirm");
+    assert.match(c0, /Byggfirma AB \(Växjö\)/); assert.match(c0, /läst ur offerten/);
+    // 2) osäkert (ort saknas): kort fråga, inget skickas före "Stämmer"
+    const p1 = page.locator('#srcprop .srcprop[data-offer="1"]');
+    assert.match(await p1.textContent(), /Syd Bygg AB.*Stämmer det\?.*Orten framgår inte/s);
+    // 3) enskild firma: inget namn visas, inga källor
+    const p2 = await page.textContent('#srcprop .srcprop[data-offer="2"]');
+    assert.match(p2, /enskild firma/); assert.doesNotMatch(p2, /Karl Karlsson/);
+    // 4) ej avläst: kort rad + Lägg till företag
+    const p3 = await page.textContent('#srcprop .srcprop[data-offer="3"]');
+    assert.match(p3, /kunde inte läsas ur offerten säkert/); assert.match(p3, /Lägg till företag/);
+    await p1.locator("button:has-text('Stämmer')").click();
+    await page.waitForSelector('#srcrep .srcfirm:has-text("Syd Bygg AB")');
+    assert.equal(await page.locator("#srcrep .srcfirm").count(), 2);
+    assert.equal(await page.locator('#srcprop .srcprop[data-offer="1"]').count(), 0);
+    // 5) Ändra företag: byter namn, origin blir kund
+    await page.locator('#srcrep .srcfirm:has-text("Byggfirma AB") button:has-text("Ändra företag")').click();
+    await page.fill("#se-n0", "Byggfirma Syd AB"); await page.fill("#se-c0", "Lund"); await page.click(".srcedit button:has-text('Spara företag')");
+    await page.waitForSelector('#srcrep .srcfirm:has-text("Byggfirma Syd AB (Lund)")');
+    assert.doesNotMatch(await page.textContent("#srcrep"), /Byggfirma AB \(Växjö\)/);
+    assert.doesNotMatch(await page.locator('#srcrep .srcfirm:has-text("Byggfirma Syd AB")').textContent(), /läst ur offerten/);
+    // 6) lägg till för oläsligt: manuell väg finns men är undantaget
+    await page.locator('#srcprop .srcprop[data-offer="3"] button:has-text("Lägg till företag")').click();
+    await page.fill("#se-n3", "Manuell Firma AB"); await page.click(".srcedit button:has-text('Spara företag')");
+    await page.waitForSelector('#srcrep .srcfirm:has-text("Manuell Firma AB")');
+    const hs = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert.ok(hs <= 0, "ingen sidoscroll");
   } finally { await ctx.close(); await h.close(); }
 });

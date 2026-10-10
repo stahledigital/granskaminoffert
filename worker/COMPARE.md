@@ -108,6 +108,12 @@ Anders: "Ta med Swish via stripe." Samma Stripe Checkout/orderledger, 49 kr inkl
 - **Tester.** `compare_swish.test.mjs` (7: konfig, kundtext/samtycke, Checkout-parametrar, hela dubbelflödet, async_payment_failed, serververifiering inkl. metod, async refund) + UI (2 ×390/1280). Ingen riktig charge/refund/nyckel/API.
 
 
+## D11-P2c – företag ur dokumentidentiteten (separat commit ovanpå D11-P2b a4054d91; UTKAST, AV, offline)
+- `GET /compare/orders/:id/sources/identity` (orderToken; 409 före leverans, 410 om rapporten raderats) returnerar `proposals[]` per offert: `auto` (komplett identitet, utförare, bolag, ort, ingen namnkrock), `bekrafta` (+`reason`: ofullstandig | osaker_roll | liknande_namn | ort_saknas), `enskild` (inga fält), `saknas`, `ej_avlast`, `ingen`. Bara namn/ort/webbplats ut – aldrig orgnr, adress, telefon.
+- `origin` ("dokument" | "kund", okänt ⇒ kund) lagras per firma i källtillståndet. Identitetsbyte (namn/ort/domän) ger ny firma-id och nollställer gammal källmatch.
+- Klient: efter rapporten läggs `auto` in via PUT /firms utan inmatning; `bekrafta` kräver "Stämmer"/"Ändra"; "Ändra företag" finns per firma. Kunduppgifter ersätter förslag. Google-val görs fortfarande av kunden i Googles nativa träffar.
+- Retention (Q/P) av identitetsfälten är inte beslutad här.
+
 ## D11-P2a – utställaridentitet ur dokumentet + "uppgifter att reda ut" (separat commit ovanpå D11-P1 8d8a57d3; UTKAST, AV, offline)
 Root/Anders D11: offert först, firmauppgifter läses i bakgrunden, normalt ingen manuell namn/ort/domän. **Bygggap som rättas:** `extracted_schema` saknade faktisk företagsidentitet (orgnr var bara scopeflagga) och `compare_sources` utgick från inmatade namn/ort/domän.
 - **Avläsning.** `submit_offer` har nu obligatoriskt `issuer` (EXTRACT_VERSION `avlasning-2` ⇒ ny cache-nyckel): namn, organisationsnummer, adress, ort, telefon, webb, vardera `status` (`framgar`|`framgar_inte`|`ej_lasbar`) + sida/rad, samt `role` (`utforare`|`osaker`) och `legalForm`. Promptens regel: bara företaget som ger offerten – inte kund, underleverantör eller betalningsförmedlare; inget kompletteras från minne/andra källor. Ingen ny modellgeneration görs här (inga kostnader); det är samma ett anrop per offert med utökat schema (utgående tokens ökar något – Modesty/root bör räkna om modellekonomin före live).

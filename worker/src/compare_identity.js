@@ -97,7 +97,8 @@ export function sanitizeIssuer(raw, readability) {
   const fields = {};
   for (const id of ID_FIELDS) fields[id] = cleanField(raw[id], id);
   const od = fields.orgnr.status === "framgar" ? orgnrDigits(fields.orgnr.value) : null;
-  const personal = !!od && isPersonalOrgnr(od);
+  const odAny = od || (isObj(raw.orgnr) && raw.orgnr.status !== "framgar_inte" ? orgnrDigits(raw.orgnr.value) : null); // personnummerliknande även när kontrollsiffran inte stämmer: försiktigt = enskild
+  const personal = !!odAny && isPersonalOrgnr(odAny);
   let legalForm = ["bolag", "enskild", "okand"].includes(raw.legalForm) ? raw.legalForm : "okand";
   if (personal) legalForm = "enskild";
   const role = raw.role === "utforare" ? "utforare" : "osaker";

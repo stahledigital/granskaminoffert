@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1m – D11-P2c företag läses ur offerten (KANDIDAT – AV, ej släppt; ovanpå D11-P2b a4054d91)
+- Efter köpet föreslås firman per offert ur utställaridentiteten (GET /compare/orders/:id/sources/identity, bara efter leverans): komplett identitet + utförare + bolag + ort + ingen namnkrock ⇒ läggs in automatiskt (origin "dokument"), annars kort "Stämmer det?"; enskild firma ⇒ inget namn/ort lämnar servern och inga källor; ej avläst/saknas ⇒ kort rad + "Lägg till företag". Normalt ingen manuell inmatning.
+- "Ändra företag" per firma (origin "kund" vinner över dokumentförslag); ändrad identitet nollställer gammal Google-/Trustpilot-matchning. Manuell ruta före köp är valfri och hopfälld. Förslagen bär aldrig orgnr/adress/telefon.
+- Google-matchningen kan inte automatiseras (nativt widget, ingen skrapning): identiteten förifyller bara firman, kunden väljer själv i Googles egna träffar.
+
 ## jamfor-v1l – D11-P2b offert först: kolumner, Sortera efter, Visa mer (KANDIDAT – AV, ej släppt; ovanpå D11-P2a ecb58fb9)
 - Resultatet visar 2–4 offerter som kolumner med jämförbara rader (pris inkl. moms/ROT-bas, arbete/material, omfattning, start/tid, betalning/ÄTA, företagsuppgifter). ✓ endast vid uttryckligt "ingår", ? (text+ikon) när det inte framgår, "Kunde inte avläsas säkert" skilt från "Framgår inte". Avvikande rad märks direkt.
 - En liten "Sortera efter"-meny: uppladdningsordning (start), lägst jämförbart pris (bara när jämförbart), minst/flest oklarheter (fast uppsättning, delad placering, ej bedömbart sist – aldrig 0/sämst), högst Google-/Trustpilot-betyg avstängt tills verifierad dataåtkomst/villkor. Ingen total-/bäst-poäng. Hela kolumnen flyttas.

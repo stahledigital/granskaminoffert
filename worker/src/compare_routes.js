@@ -16,7 +16,7 @@ import { offerLabels } from "./compare_engine.js";
 import { validEmail, parseWithdrawToken } from "./compare_ledger.js";
 import { timingSafeEqual } from "./compare_util.js";
 import { createCheckoutSession, retrieveSession, retrieveRefund, verifyWebhook } from "./compare_stripe.js";
-import { sourcesConfig, publicSourcesConfig, googleCandidates, nativeSearchGate, reserveMount, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
+import { identityProposals, sourcesConfig, publicSourcesConfig, googleCandidates, nativeSearchGate, reserveMount, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
 import * as budget from "./compare_budget.js";
 
 const MAX_BODY_CHARS = 11_600_000; // 8 MB binärt ≈ 10,7 MB base64
@@ -271,7 +271,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   }
 
   // ---- D07: källor för senaste omdömen (avstängda om inte COMPARE_REVIEWS + COMPARE_REVIEWS_VERIFIED) ----
-  const sm = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})\/sources(?:\/(firms|google\/search|google\/mount|google\/confirm|google\/render|trustpilot\/search|trustpilot\/confirm|trustpilot\/latest|unconfirm))?$/);
+  const sm = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})\/sources(?:\/(firms|google\/search|google\/mount|google\/confirm|google\/render|trustpilot\/search|trustpilot\/confirm|trustpilot\/latest|unconfirm|identity))?$/);
   if (sm) {
     const oid = sm[1], ssub = sm[2] || "";
     const tok = request.headers.get("x-order-token") || "";
@@ -291,8 +291,18 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
       const e = out(r); if (e) return e;
       return reply({ ok: true, sources: r.json.sources });
     }
+    if (ssub === "identity" && request.method === "GET") {
+      const auth = await orderCall(env, oid, "/sources-get", { tokenHash: th, now: Date.now() });
+      const ea = out(auth); if (ea) return ea;
+      const gi = await orderCall(env, oid, "/internal", { now: Date.now() });
+      const oo = gi.status === 200 && gi.json.order;
+      if (!oo || oo.status !== "delivered" || !oo.reportKey) return reply({ error: "Rapporten är inte klar.", status: oo ? oo.status : null }, 409);
+      const rep = await env.REVIEWS_KV.get(oo.reportKey, "json");
+      if (!rep) return reply({ error: "Rapporten har gått ut och är raderad.", expired: true }, 410);
+      return reply({ ok: true, proposals: identityProposals(rep) });
+    }
     if (ssub === "firms" && request.method === "PUT") {
-      const r = await op({ type: "set_firms", firms: Array.isArray(bv.firms) ? bv.firms.map((f) => ({ offerIndex: f && f.offerIndex, name: f && f.name, city: f && f.city, domain: f && f.domain })) : [] });
+      const r = await op({ type: "set_firms", firms: Array.isArray(bv.firms) ? bv.firms.map((f) => ({ offerIndex: f && f.offerIndex, name: f && f.name, city: f && f.city, domain: f && f.domain, origin: f && f.origin })) : [] });
       if (r.status === 400 && r.json && r.json.error === "domain") return reply({ error: "Webbadressen ser inte rätt ut. Skriv bara t.ex. foretaget.se." }, 400);
       if (r.status === 400 && r.json && r.json.error === "for_manga") return reply({ error: "Högst fyra firmor." }, 400);
       const e = out(r); if (e) return e;

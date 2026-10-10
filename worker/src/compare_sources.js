@@ -63,13 +63,16 @@ export function normDomain(s) {
   v = v.replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#]/)[0].replace(/:\d+$/, "");
   return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,24}$/.test(v) && v.length <= 80 ? v : null;
 }
+// Varifrån firmauppgiften kommer: dokument (läst ur offerten, belagd), bekraftad (kunden bekräftade dokumentets förslag), kund (kunden angav/ändrade själv).
+export const ORIGINS = Object.freeze(["dokument", "bekraftad", "kund"]);
 export async function firmIdentity(f) {
   const name = cleanText(f && f.name, 80), city = cleanText(f && f.city, 50);
   const dom = f && f.domain ? normDomain(f.domain) : "";
   if (!name || normName(name).length < 2) return null;
   if (dom === null) return { error: "domain" };
   const key = normName(name) + "|" + normCity(city);
-  return { id: "f_" + (await sha256Hex(key)).slice(0, 12), name, city, domain: dom, key };
+  const origin = f && ORIGINS.includes(f.origin) ? f.origin : "kund";
+  return { id: "f_" + (await sha256Hex(key)).slice(0, 12), name, city, domain: dom, key, origin };
 }
 // Per offert (index) → paneler: samma firma i flera offerter ger EN panel; filialer/liknamnade hålls isär.
 export async function buildFirms(inputs) {
@@ -104,7 +107,7 @@ export async function buildFirms(inputs) {
   if (out.length > LIM.maxFirms) return { error: "for_manga" };
   return { firms: out };
 }
-const freshFirm = (f) => ({ id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict, google: { candidateIds: [], searches: 0, searchOutcome: null, placeId: null, confirmedAt: null, via: null, renderOutcome: null }, trustpilot: { candidateIds: [], searches: 0, searchOutcome: null, buId: null, confirmedAt: null } });
+const freshFirm = (f) => ({ id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict, origin: f.origin || "kund", google: { candidateIds: [], searches: 0, searchOutcome: null, placeId: null, confirmedAt: null, via: null, renderOutcome: null }, trustpilot: { candidateIds: [], searches: 0, searchOutcome: null, buId: null, confirmedAt: null } });
 export const emptySources = () => ({ firms: [], providerRequests: 0, views: 0, mounts: { search: 0, details: 0, ids: {} } });
 
 // ---------- tillståndsmaskin per firma/källa ----------
@@ -137,7 +140,7 @@ export const stateText = (s) => STATE_TEXT[s] || "okänt";
 
 export function sourcesView(cfg, st) {
   const firms = (st.firms || []).map((f) => ({
-    id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict,
+    id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict, origin: f.origin || "kund",
     google: { state: providerState(cfg, f, "google"), text: stateText(providerState(cfg, f, "google")), placeId: f.google.placeId || null, confirmed: !!f.google.placeId, searchesLeft: Math.max(0, LIM.searchesPerFirm - f.google.searches) },
     trustpilot: { state: providerState(cfg, f, "trustpilot"), text: stateText(providerState(cfg, f, "trustpilot")), confirmed: !!f.trustpilot.buId, searchesLeft: Math.max(0, LIM.searchesPerFirm - f.trustpilot.searches) },
   }));
@@ -154,7 +157,7 @@ export function coverageSummary(cfg, viewFirms) {
     const dom = f.conflict ? (f.domain ? ` [webbplats ${f.domain}]` : " [utan webbplats]") : "";
     lines.push(`${where}${dom}: Google – ${f.google.text}; Trustpilot – ${f.trustpilot.text}.${f.conflict ? " Samma namn och ort med olika webbplatser: kontrollera att det är rätt firma." : ""}`);
   }
-  if (!firms.length) lines.push("Ange firmans namn (och gärna ort och webbplats) för att se vilka källor som kan visas.");
+  if (!firms.length) lines.push("Företagen läses ur offerterna efter köpet. Du kan också lägga till dem själv här.");
   const tally = (prov) => Object.fromEntries(Object.values(STATUS).map((s) => [s, count(prov, s)]).filter(([, n]) => n > 0));
   return { active: true, firms: firms.length, lines, google: tally("google"), trustpilot: tally("trustpilot") };
 }
@@ -190,7 +193,7 @@ export async function applyOp(cfg, st, op) {
       // (Att lägga till en webbplats där ingen fanns ändrar inte grunden för en redan bekräftad Google-profil, men Trustpilot kan inte ha bekräftats utan webbplats.)
       const domainChanged = !!old.domain && old.domain !== f.domain;
       const fresh = freshFirm(f);
-      return domainChanged ? { ...fresh } : { ...old, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict };
+      return domainChanged ? { ...fresh } : { ...old, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict, origin: f.origin || old.origin || "kund" };
     });
     return { state: s };
   }
@@ -366,3 +369,30 @@ export async function tpDeleteCache(env, buId) { try { await env.REVIEWS_KV.dele
 
 // Ingen omdömestext får någonsin följa med in i rapport, export, ledger eller mejl. Fältet "sources" finns bara i /sources-vyerna.
 export const REVIEW_TEXT_FIELDS = Object.freeze(["text", "title"]);
+
+// ---------- D11: firmaförslag ur utställaridentiteten i rapporten ----------
+// Servern bygger FÖRSLAG ur den belagda avläsningen (aldrig ur kundens namn/adress, aldrig organisationsnummer/telefon/adress till källor):
+// bara företagsnamn + ort (+ webbdomän) kan bli en källfirma. Automatiskt förslag (`auto`) kräver komplett identitet, tydlig utförare, bolag (inte
+// enskild firma/personnummerliknande orgnr), ort och att namnet inte krockar med en annan offerts företag. Allt annat kräver kort kundbekräftelse (`bekrafta`)
+// eller är inte avläst (`saknas`/`ej_avlast`/`ingen`) – då gissas inget. Ingen sökning/hämtning sker här: bara förslag.
+export function identityProposals(report) {
+  const offers = (report && Array.isArray(report.offers)) ? report.offers : [];
+  const conflicts = new Set(((report && report.identityGroups && report.identityGroups.conflicts) || []).flatMap((c) => c.offers));
+  return offers.map((o, i) => {
+    const id = o && o.identity;
+    if (!id) return { offerIndex: i, state: "ingen" };
+    const f = id.fields || {};
+    const hasName = f.name && f.name.status === "framgar" && f.name.value;
+    if (!hasName) return { offerIndex: i, state: id.state === "ej_avlast" ? "ej_avlast" : "saknas" };
+    const city = f.city && f.city.status === "framgar" ? f.city.value : "";
+    const domain = f.web && f.web.status === "framgar" ? f.web.value : "";
+    if (id.personal || id.legalForm === "enskild") return { offerIndex: i, state: "enskild" }; // inget namn/ort ut: enskild firma skickas aldrig till källor
+    const base = { offerIndex: i, name: f.name.value, city, domain };
+    let reason = null;
+    if (id.role !== "utforare") reason = "osaker_roll";
+    else if (id.state !== "komplett") reason = "ofullstandig";
+    else if (conflicts.has(i)) reason = "liknande_namn";
+    else if (!city) reason = "ort_saknas";
+    return reason ? { ...base, state: "bekrafta", reason } : { ...base, state: "auto" };
+  });
+}
