@@ -75,7 +75,7 @@ export const ORIGIN = "https://granskaminoffert.se";
 
 export function baseVars(extra = {}) {
   return {
-    COMPARE_ENABLED: "1", COMPARE_PAYMENTS: "test", STRIPE_SECRET_KEY: "sk_test_abcdefgh1234", STRIPE_WEBHOOK_SECRET: WH_SECRET,
+    COMPARE_ENABLED: "1", COMPARE_PAYMENTS: "test", COMPARE_MAILER_MODE: "mock", STRIPE_SECRET_KEY: "sk_test_abcdefgh1234", STRIPE_WEBHOOK_SECRET: WH_SECRET,
     COMPARE_MONTH_CAP_MICRO: "20000000", COMPARE_PAID_CAP_MICRO: "10000000", COMPARE_ORDER_CAP_MICRO: "2000000", COMPARE_DAY_ORDERS: "50",
     COMPARE_RETURN_URL: "https://granskaminoffert.se/jamfor/", ANTHROPIC_API_KEY: "sk-ant-test", ALLOWED_ORIGIN: ORIGIN, ...extra,
   };

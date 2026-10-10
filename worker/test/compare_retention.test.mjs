@@ -117,3 +117,36 @@ test("pågående order eller öppen återbetalning raderas aldrig av svepet", as
     assert.ok(st.get("ledger") && st.get("order"));
   } finally { f.restore(); }
 });
+
+test("manuell slutmarkör: bara admin kan sätta den; den släpper endast manuell-prövning-spärren; intervallsvep täcker flera månader; ingen bedömning i koden", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv({ ...POL, COMPARE_AUTO_REFUND: "1" });
+    const b = await delivered(env, f);
+    const adm = (p, body, auth = ADMIN) => api(env, "POST", p, { headers: { authorization: "Bearer " + auth }, body });
+    const paidAt = env.COMPARE_ORDERS.peek(b.orderId).store.get("ledger").agreement.payment.paidAt; const month = monthOf(paidAt);
+    // utan ångerbegäran finns inget att avsluta
+    assert.equal((await adm("/compare/admin/retention-close-review", { orderId: b.orderId })).status, 409);
+    assert.equal((await api(env, "POST", `/compare/orders/${b.orderId}/withdraw`, { token: b.token })).json.withdrawal.outcome, "manuell_provning");
+    // skyddad rutt
+    assert.equal((await adm("/compare/admin/retention-close-review", { orderId: b.orderId }, "fel-token-fel-token-fel-token-xx")).status, 404);
+    assert.equal((await api(env, "POST", "/compare/admin/retention-close-review", { body: { orderId: b.orderId } })).status, 404);
+    assert.equal((await adm("/compare/admin/retention-close-review", { orderId: "../x" })).status, 400);
+    await withClock(paidAt + 91 * DAY, async () => { assert.deepEqual((await sweep(env, month)).json.held, { manuell_provning_oppen: 1 }); });
+    // markören sätts (idempotent) och ändrar inte själva ångerutfallet
+    const c1 = await adm("/compare/admin/retention-close-review", { orderId: b.orderId, note: "avslutad av människa\n" });
+    assert.equal(c1.status, 200); assert.equal(c1.json.ok, true);
+    const c2 = await adm("/compare/admin/retention-close-review", { orderId: b.orderId }); assert.equal(c2.json.already, true); assert.equal(c2.json.closedAt, c1.json.closedAt);
+    const led = env.COMPARE_ORDERS.peek(b.orderId).store.get("ledger");
+    assert.equal(led.withdrawal.outcome, "manuell_provning"); assert.equal(led.review.by, "admin"); assert.equal(led.review.note, "avslutad av människa");
+    // en öppen återbetalning hålls kvar trots markören
+    const st = env.COMPARE_ORDERS.peek(b.orderId).store; const o = st.get("order"); o.refund.state = "needed"; st.set("order", o);
+    await withClock(paidAt + 91 * DAY, async () => { assert.deepEqual((await sweep(env, month)).json.held, { aterbetalning_oppen: 1 }); });
+    o.refund.state = "none"; st.set("order", o);
+    // intervallsvep (from/to) rensar nu; felaktiga/för stora intervall nekas
+    const r = await withClock(paidAt + 91 * DAY, () => api(env, "POST", `/compare/admin/retention-sweep?from=${month}&to=${month}`, { headers: { authorization: "Bearer " + ADMIN } }));
+    assert.equal(r.status, 200); assert.equal(r.json.purged, 1);
+    assert.deepEqual(keys(env, b.orderId), []);
+    for (const q of ["from=2026-01&to=2028-12", "from=2026-05&to=2026-01", "from=x&to=y", ""]) assert.equal((await api(env, "POST", `/compare/admin/retention-sweep?${q}`, { headers: { authorization: "Bearer " + ADMIN } })).status, 400, q);
+  } finally { f.restore(); }
+});

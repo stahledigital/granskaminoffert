@@ -17,7 +17,7 @@
 //   draft|ready|awaiting_payment → expired | cancelled(=ready igen vid avbruten kassa)
 //   delivered|failed|… → deleted (innehållet raderat på kundens begäran)
 
-import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy } from "./compare_config.js";
+import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy, mailerKind } from "./compare_config.js";
 import { timingSafeEqual, sha256Hex } from "./compare_util.js";
 import { stripLedger, validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow } from "./compare_ledger.js";
 import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } from "./compare_stripe.js";
@@ -42,6 +42,7 @@ function publicView(o, now) {
     expiresAt: o.expiresAt,
     contentDeleted: !!o.contentDeleted,
     error: o.work && o.work.error ? o.work.error : null,
+    waiting: (o.work && o.work.waiting) || null, // "avtalsbekraftelse": arbetet startar först när bekräftelsen har fått godkänd transportkvittens
     refund: { mode: o.refund.mode, state: o.refund.state, providerStatus: o.refund.providerStatus || null },
     consent: o.accept && o.accept.terms ? { accepted: true, version: o.accept.consentVersion || null, hash: o.accept.consentHash || null, draft: !!o.accept.draft } : { accepted: false },
     price: { ore: OFFER.priceOre, currency: OFFER.currency },
@@ -141,6 +142,7 @@ export class CompareOrders {
     const o = await this._load();
     if (!o) return NOT_FOUND;
     await this._repairWithdrawal(o, now);
+    if (path === "/retention-close-review") return { body: await this._closeReview(o, b, now) };
     if (path === "/retention-sweep") return { body: { ok: true, ...(await this._retentionSweep(o, now)) } };
     if (o.paidAt) { const sw = await this._retentionSweep(o, now); if (sw.purged) return NOT_FOUND; } // lazy: verklig rensning när posten åtkoms efter förfallotid
     // Obetalda utkast går ut efter retentionstiden.
@@ -318,6 +320,20 @@ export class CompareOrders {
     await this._tx(async () => { const cur = await this._load(); if (cur) await this._repairWithdrawal(cur, now); });
     if (this._afterTx) { const a = this._afterTx; this._afterTx = null; await a(); }
     await this._drainOutbox(now);
+    // GRIND (Modesty §5e): avtalsbekräftelsen ska ges på varaktigt medium INNAN tjänsten utförs. Inget arbete, ingen räkning, ingen generation
+    // förrän orderns bekräftelse har godkänd transportkvittens. Misslyckad/utebliven bekräftelse efter begränsad väntan ⇒ ordern avbryts och återbetalas.
+    const gate = await this._tx(async () => {
+      const o = await this._load();
+      if (!o || !["paid", "running"].includes(o.status)) return { open: true };
+      if (o.work.lease && o.work.lease.until > now) return { open: true };
+      const m = await this.state.storage.get(`outbox:mail_avtal_${o.id}`);
+      if (m && m.state === "sent") { if (o.work.waiting) { o.work.waiting = null; await this._save(o); } return { open: true }; }
+      if (!m || m.state === "failed" || now >= (o.paidAt || now) + LIMITS.confirmWaitMs) return { fail: true };
+      if (o.work.waiting !== "avtalsbekraftelse") { o.work.waiting = "avtalsbekraftelse"; await this._save(o); }
+      return { wait: m.nextAt && m.nextAt > now ? m.nextAt : now + 5_000 };
+    });
+    if (gate.fail) { await this._finish(null, { state: "failed", reason: "bekraftelse_ej_levererad" }); return; }
+    if (gate.wait) { if (this.state.storage.setAlarm) await this.state.storage.setAlarm(gate.wait + 10); return; }
     // Atomär arbetsclaim: bara om betald, ej levererad och ingen annan har en giltig lease.
     const claim = await this._tx(async () => {
       const o = await this._load();
@@ -527,7 +543,7 @@ export class CompareOrders {
     if (!purgeDue && !stripDue) return { ran: true, action: "inget_forfallet" };
     if (!["delivered", "failed", "deleted", "expired"].includes(o.status)) return { ran: true, action: "hallen", reason: "arendet_oppet" };
     if (!["none", "done"].includes(o.refund.state)) return { ran: true, action: "hallen", reason: "aterbetalning_oppen" };
-    if (ledger.withdrawal && ledger.withdrawal.outcome === "manuell_provning") return { ran: true, action: "hallen", reason: "manuell_provning_oppen" };
+    if (ledger.withdrawal && ledger.withdrawal.outcome === "manuell_provning" && !(ledger.review && ledger.review.closedAt)) return { ran: true, action: "hallen", reason: "manuell_provning_oppen" };
     if (purgeDue) {
       try { await this._purgeDocs(o); } catch { /* 24 h TTL är reservvägen */ }
       const keys = [...(await this.state.storage.list()).keys()];
@@ -540,6 +556,18 @@ export class CompareOrders {
     const mails = [...(await this.state.storage.list({ prefix: "outbox:" })).keys()];
     await this._commit({ put: { ledger: stripLedger(ledger, now), order: o }, del: [...mails, "sources"] });
     return { ran: true, action: "avtalsdel_rensad", stripped: true };
+  }
+
+  // Manuell slutmarkör: en människa har avslutat den manuella ångerprövningen (utanför koden). Sätter bara ledger.review.closedAt; koden bedömer
+  // inget juridiskt och väljer ingen retention. Släpper enbart spärren "manuell_provning_oppen" i svepet; återbetalning/öppet ärende hålls kvar.
+  async _closeReview(o, b, now) {
+    const ledger = await this.state.storage.get("ledger");
+    if (!ledger) return { ok: false, error: "ingen_post" };
+    if (!ledger.withdrawal || ledger.withdrawal.outcome !== "manuell_provning") return { ok: false, error: "ingen_manuell_provning" };
+    if (ledger.review && ledger.review.closedAt) return { ok: true, already: true, closedAt: ledger.review.closedAt };
+    const note = String((b && b.note) || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 200);
+    await this._commit({ put: { ledger: { ...ledger, review: { closedAt: now, by: "admin", note: note || null } } } });
+    return { ok: true, closedAt: now };
   }
 
   async _indexLedger(orderId, now) {
@@ -595,15 +623,16 @@ export class CompareOrders {
   // "sent" sätts bara efter transportens kvittens. Samma meddelande-ID vid omförsök (transporten ska deduplicera), så en förlorad
   // kvittens ger omsändning av SAMMA meddelande, aldrig ett nytt eller ett falskt "skickat".
   async _drainOutbox(now) {
-    const mailer = this.env.COMPARE_MAILER;
-    if (!mailer || typeof mailer.send !== "function") return;
+    const kind = mailerKind(this.env);
+    if (kind === null) return;
+    const mailer = kind === "adapter" ? this.env.COMPARE_MAILER : { send: async (msg) => ({ ok: true, ref: "mock:" + String(msg.id).slice(-12) }) }; // mock = uttryckligt testläge, ingen verklig sändning
     const entries = [...(await this.state.storage.list({ prefix: "outbox:" }))];
     let retryAt = null;
     for (const [key] of entries) {
       const claim = await this._tx(async () => {
         const m = await this.state.storage.get(key);
         if (!m || m.state === "sent" || m.state === "failed") return null;
-        if (m.attempts >= 5) { m.state = "failed"; await this.state.storage.put(key, m); return null; }
+        if (m.attempts >= (m.kind === "avtalsbekraftelse" ? 12 : 5)) { m.state = "failed"; await this.state.storage.put(key, m); return null; }
         if (m.nextAt && m.nextAt > now) return { wait: m.nextAt };
         m.attempts += 1; m.lastAttemptAt = now; await this.state.storage.put(key, m);
         return { m: { ...m } };
@@ -619,8 +648,8 @@ export class CompareOrders {
       await this._tx(async () => {
         const m = await this.state.storage.get(key);
         if (!m || m.state === "sent") return;
-        if (ack && ack.ok === true) { m.state = "sent"; m.sentAt = Date.now(); m.providerRef = typeof ack.ref === "string" ? ack.ref.slice(0, 80) : null; m.secrets = null; m.lastError = null; }
-        else { m.lastError = "transport"; m.nextAt = Date.now() + Math.min(60_000, 2_000 * 2 ** m.attempts); retryAt = Math.min(retryAt ?? m.nextAt, m.nextAt); }
+        if (ack && ack.ok === true) { m.state = "sent"; m.transport = kind; m.sentAt = Date.now(); m.providerRef = typeof ack.ref === "string" ? ack.ref.slice(0, 80) : null; m.secrets = null; m.lastError = null; }
+        else { m.lastError = "transport"; m.nextAt = Date.now() + Math.min(m.kind === "avtalsbekraftelse" ? 300_000 : 60_000, 2_000 * 2 ** m.attempts); retryAt = Math.min(retryAt ?? m.nextAt, m.nextAt); }
         await this.state.storage.put(key, m);
       });
     }

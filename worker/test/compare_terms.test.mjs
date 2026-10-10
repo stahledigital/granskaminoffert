@@ -11,9 +11,12 @@ const S = (t) => ({ extracted: { totalBeforeRotSek: t, totalVatBasis: "inkl" }, 
 
 test("säljarinfo: alla fält konfigurerbara; platshållare utan konfiguration; live-komplett kräver adress+momsnr+org.nr+e-post; ogiltigt format räknas som saknat", () => {
   const d = sellerInfo({}); assert.equal(d.placeholder, true); assert.ok(Object.values({ a: d.name, b: d.orgnr, c: d.address, d: d.vat, e: d.email }).every((v) => /^\[.*fylls i/.test(v) || /^\[/.test(v)));
-  assert.deepEqual(d.missing.sort(), ["address", "email", "name", "orgnr", "vat"]);
+  assert.deepEqual(d.missing.sort(), ["address", "email", "name", "orgnr", "phone", "vat"]);
   const f = sellerInfo(FULL); assert.equal(f.placeholder, false); assert.equal(f.phone, "+46 8 000 00 00"); assert.equal(f.vat, "SE556000000001");
-  assert.equal(sellerInfo({ ...FULL, COMPARE_SELLER_PHONE: "" }).placeholder, false, "telefon är valfri");
+  assert.equal(sellerInfo({ ...FULL, COMPARE_SELLER_PHONE: "" }).placeholder, true, "telefon är ett informationskrav");
+  assert.deepEqual(sellerInfo({ ...FULL, COMPARE_SELLER_PHONE: "" }).missing, ["phone"]);
+  for (const id of ["19800101-0000", "198001010000", "800101-0000", "556000-0000"]) assert.equal(sellerInfo({ ...FULL, COMPARE_SELLER_ORGNR: id }).placeholder, false, "enskild firma (personnummerformat) tvingas inte till AB-format: " + id);
+  assert.equal(sellerInfo({ ...FULL, COMPARE_SELLER_NAME: "Syntetisk Enskild Firma" }).placeholder, false);
   for (const bad of [{ COMPARE_SELLER_VAT: "556000000001" }, { COMPARE_SELLER_ADDRESS: "x" }, { COMPARE_SELLER_ORGNR: "123" }, { COMPARE_SELLER_PHONE: "abc" }]) assert.equal(sellerInfo({ ...FULL, ...bad }).placeholder, true);
   assert.equal(sellerInfo({ ...FULL, COMPARE_SELLER_NAME: "A\nB\tC" }).name, "A B C");
   // live stängt tills säljaren är komplett (och villkorstexten inte längre är utkast)

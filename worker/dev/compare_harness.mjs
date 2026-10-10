@@ -110,7 +110,7 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
   const bindings = {
     COMPARE_ENABLED: "1", COMPARE_PAYMENTS: "test", STRIPE_SECRET_KEY: "sk_test_devdevdev1234", STRIPE_WEBHOOK_SECRET: WH_SECRET,
     COMPARE_MONTH_CAP_MICRO: "20000000", COMPARE_PAID_CAP_MICRO: "10000000", COMPARE_ORDER_CAP_MICRO: "2000000", COMPARE_DAY_ORDERS: "200",
-    COMPARE_RETURN_URL: base + "/jamfor/", ANTHROPIC_API_KEY: "sk-ant-dev-inte-riktig", ALLOWED_ORIGIN: base, ANTHROPIC_MODEL: "claude-sonnet-5-5", ...vars,
+    COMPARE_RETURN_URL: base + "/jamfor/", ANTHROPIC_API_KEY: "sk-ant-dev-inte-riktig", COMPARE_MAILER_MODE: "mock", ALLOWED_ORIGIN: base, ANTHROPIC_MODEL: "claude-sonnet-5-5", ...vars,
   };
   const mf = new miniflareMod.Miniflare({
     modules: true, scriptPath: out, modulesRoot: path.dirname(out), compatibilityDate: "2026-08-01",

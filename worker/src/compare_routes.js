@@ -181,25 +181,43 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     return reply({ ok: true, month, count: rows.length, rows, note: "Ingen utbetalning/bankinsättning är avstämd här (settlement.status = ej_avstamt)." });
   }
 
-  // ---- Retention-svep (skyddad): kör den verkliga rensningen för en månads poster. Utan fullständig policy görs ingenting. ----
+  // ---- Retention-svep (skyddad): kör den verkliga rensningen för en månads (eller ett begränsat månadsintervalls) poster. Utan fullständig policy görs ingenting. ----
+  // Detta ÄR schemaläggningen inom befintliga bindningar: en människa/befintlig rutin anropar rutten (+ lazy rensning vid åtkomst). Ingen cron/ny resurs.
+  const adminOk = () => { const tok = String(env.COMPARE_ADMIN_TOKEN || ""); const given = (request.headers.get("authorization") || "").replace(/^Bearer /, ""); return !(tok.length < 24 || !compareEnabled(env) || !bindingsOk(env) || !timingSafeEqual(tok, given)); };
   if (path === "/compare/admin/retention-sweep" && request.method === "POST") {
-    const tok = String(env.COMPARE_ADMIN_TOKEN || "");
-    const given = (request.headers.get("authorization") || "").replace(/^Bearer /, "");
-    if (tok.length < 24 || !compareEnabled(env) || !bindingsOk(env) || !timingSafeEqual(tok, given)) return reply({ error: "Not found" }, 404);
+    if (!adminOk()) return reply({ error: "Not found" }, 404);
     if (!retentionPolicy(env).ok) return reply({ ok: true, ran: false, reason: "policy_saknas", note: "Retention-längder för avtal och bokföring är inte fastställda; inget raderas." });
-    const month = url.searchParams.get("month") || "";
-    if (!/^\d{4}-\d{2}$/.test(month)) return reply({ error: "month=YYYY-MM krävs" }, 400);
-    let ids = [];
-    try { ids = await budget.ledgerList(env, { month }); } catch { return reply({ error: "Tillfälligt fel." }, 503); }
-    const out = { ok: true, ran: true, month, checked: 0, purged: 0, stripped: 0, held: {}, errors: 0 };
-    for (const oid of ids) {
-      if (!ORDER_ID_RE.test(oid)) continue;
-      const r = await orderCall(env, oid, "/retention-sweep", { now: Date.now() });
-      out.checked++;
-      if (r.status !== 200 || !r.json.ok) { if (r.status !== 404) out.errors++; continue; }
-      if (r.json.purged) out.purged++; else if (r.json.stripped) out.stripped++; else if (r.json.action === "hallen") out.held[r.json.reason] = (out.held[r.json.reason] || 0) + 1;
+    const MR = /^(\d{4})-(\d{2})$/;
+    const one = url.searchParams.get("month"), from = url.searchParams.get("from") || one, to = url.searchParams.get("to") || one;
+    const fm = MR.exec(from || ""), tm = MR.exec(to || "");
+    if (!fm || !tm) return reply({ error: "month=YYYY-MM eller from=YYYY-MM&to=YYYY-MM krävs" }, 400);
+    const months = []; { let y = +fm[1], m = +fm[2]; const ey = +tm[1], em = +tm[2]; while ((y < ey || (y === ey && m <= em)) && months.length <= 24) { months.push(`${y}-${String(m).padStart(2, "0")}`); m++; if (m > 12) { m = 1; y++; } } }
+    if (months.length === 0 || months.length > 24) return reply({ error: "Intervallet måste vara 1–24 månader." }, 400);
+    const out = { ok: true, ran: true, months, checked: 0, purged: 0, stripped: 0, held: {}, errors: 0 };
+    if (months.length === 1) out.month = months[0];
+    for (const month of months) {
+      let ids = [];
+      try { ids = await budget.ledgerList(env, { month }); } catch { return reply({ error: "Tillfälligt fel." }, 503); }
+      for (const oid of ids) {
+        if (!ORDER_ID_RE.test(oid)) continue;
+        const r = await orderCall(env, oid, "/retention-sweep", { now: Date.now() });
+        out.checked++;
+        if (r.status !== 200 || !r.json.ok) { if (r.status !== 404) out.errors++; continue; }
+        if (r.json.purged) out.purged++; else if (r.json.stripped) out.stripped++; else if (r.json.action === "hallen") out.held[r.json.reason] = (out.held[r.json.reason] || 0) + 1;
+      }
     }
     return reply(out);
+  }
+  // Manuell slutmarkör: människan har avslutat den manuella ångerprövningen. Sätter bara markören (ingen bedömning, ingen retention-policy).
+  if (path === "/compare/admin/retention-close-review" && request.method === "POST") {
+    if (!adminOk()) return reply({ error: "Not found" }, 404);
+    const body = await readJson(request, 2_000);
+    const oid = body.value && body.value.orderId;
+    if (typeof oid !== "string" || !ORDER_ID_RE.test(oid)) return reply({ error: "orderId krävs" }, 400);
+    const r = await orderCall(env, oid, "/retention-close-review", { now: Date.now(), note: body.value.note });
+    if (r.status === 404) return reply({ error: "Not found" }, 404);
+    if (r.status !== 200) return reply({ error: "Tillfälligt fel." }, 503);
+    return reply(r.json, r.json.ok ? 200 : 409);
   }
 
   // ---- Config (öppen, ingen hemlighet) ----

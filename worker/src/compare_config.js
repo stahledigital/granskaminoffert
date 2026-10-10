@@ -62,25 +62,28 @@ export function retentionPolicy(env) {
   return { ok: avtal !== null && bokforing !== null, avtalDays: avtal, bokforingDays: bokforing };
 }
 // Säljaruppgifter till avtalsbekräftelsen/villkoren. ALLT kommer från konfiguration (miljövariabler) – inga riktiga identifierare finns i koden.
-// Saknas fält i testläge används tydligt märkta platshållare; live kräver ALLA obligatoriska fält (telefon är valfri).
+// Saknas fält i testläge används tydligt märkta platshållare; live kräver namn, id-nummer, adress, e-post, TELEFON (informationskrav) och momsreg.nr.
+// Id-numret är en ren formatkontroll (organisationsnummer ELLER personnummer-format för enskild firma, 10 eller 12 siffror); AB antas inte.
+// Momsreg.nr: SE + 10 siffror + 01 (SE + 12 siffror) gäller både AB och enskild firma. Erbjudandet är 49 kr INKLUSIVE moms; är säljaren inte momsregistrerad
+// måste pris-/momstexten beslutas av människa (T4) innan live – koden hittar inte på en momsfri variant.
 const clip = (v, n) => String((v == null ? "" : v)).replace(/[\r\n\t]+/g, " ").trim().slice(0, n);
 export function sellerInfo(env) {
   const g = (k, n) => clip(env && env[k], n);
   const name = g("COMPARE_SELLER_NAME", 120), orgnr = g("COMPARE_SELLER_ORGNR", 20), email = g("COMPARE_SELLER_EMAIL", 120);
   const address = g("COMPARE_SELLER_ADDRESS", 200), phone = g("COMPARE_SELLER_PHONE", 30), vat = g("COMPARE_SELLER_VAT", 20).replace(/\s+/g, "");
   const ok = {
-    name: !!name, orgnr: /^\d{6}-?\d{4}$/.test(orgnr), email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
-    address: address.length >= 8, vat: /^SE\d{12}$/.test(vat), phone: phone === "" || /^[+0-9][0-9 ()-]{5,29}$/.test(phone),
+    name: !!name, orgnr: /^(\d{6}|(19|20)\d{6})-?\d{4}$/.test(orgnr), email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
+    address: address.length >= 8, vat: /^SE\d{12}$/.test(vat), phone: /^[+0-9][0-9 ()-]{5,29}$/.test(phone),
   };
   const complete = Object.values(ok).every(Boolean);
   const ph = (v, label) => v || `[${label} – fylls i före skarp drift]`;
   return {
-    name: ph(name, "Säljare"), orgnr: ph(orgnr, "org.nr"), email: ph(email, "kontakt-e-post"), address: ph(address, "adress"), vat: ph(vat, "momsreg.nr"), phone: phone || null,
+    name: ph(name, "Säljare"), orgnr: ph(orgnr, "org.nr"), email: ph(email, "kontakt-e-post"), address: ph(address, "adress"), vat: ph(vat, "momsreg.nr"), phone: ph(phone, "telefon"),
     placeholder: !complete, missing: Object.entries(ok).filter(([, v]) => !v).map(([k]) => k),
   };
 }
 export function sellerLines(sel) {
-  return [`Säljare: ${sel.name}`, `Organisationsnummer: ${sel.orgnr}`, `Momsregistreringsnummer: ${sel.vat}`, `Adress: ${sel.address}`, `E-post: ${sel.email}`, ...(sel.phone ? [`Telefon: ${sel.phone}`] : [])];
+  return [`Säljare: ${sel.name}`, `Organisationsnummer: ${sel.orgnr}`, `Momsregistreringsnummer: ${sel.vat}`, `Adress: ${sel.address}`, `E-post: ${sel.email}`, `Telefon: ${sel.phone}`];
 }
 const krText = (ore) => `${(ore / 100).toFixed(2).replace(".", ",")} kr`;
 // Fullständig villkors-/avtalstext (UTKAST) ägd av servern. Den som kunden ser, godkänner (hash) och får i bekräftelsen är EXAKT denna snapshot.
@@ -141,6 +144,7 @@ export const LIMITS = Object.freeze({
   synthMaxOutputTokens: 6_000,
   maxAttemptsPerStep: 2, // ett omförsök, bara om återstående budget räcker
   maxOrderAttempts: 3,
+  confirmWaitMs: 30 * 60_000, // längsta väntan på godkänd transportkvittens för avtalsbekräftelsen innan ordern avbryts och återbetalas
   leaseMs: 5 * 60_000,
   statusPollMinMs: 2_000,
   reconcileMinMs: 10_000,
@@ -196,11 +200,19 @@ export function refundMode(env) {
   return env && env.COMPARE_AUTO_REFUND === "1" ? "auto" : "manual";
 }
 
+// Mejltransport för avtalsbekräftelsen. "adapter" = env.COMPARE_MAILER.send (extern, AV tills människa kopplar). "mock" = uttryckligt TESTLÄGE
+// (COMPARE_MAILER_MODE=mock, aldrig i live): kvittensen är en attrapp och märks så. Utan någon av dem kan bekräftelsen inte ges ⇒ inga ordrar tas emot.
+export function mailerKind(env) {
+  if (env && env.COMPARE_MAILER && typeof env.COMPARE_MAILER.send === "function") return "adapter";
+  if (env && env.COMPARE_MAILER_MODE === "mock" && env.COMPARE_PAYMENTS !== "live") return "mock";
+  return null;
+}
 export function acceptingOrders(env, allowedOrigins) {
   const mode = compareEnabled(env) ? paymentsMode(env) : null;
   if (mode === null) return false;
   if (mode === "live" && CONSENT.draft) return false; // utkasttext: ingen skarp betalning
   if (mode === "live" && (!retentionPolicy(env).ok || sellerInfo(env).placeholder)) return false; // retention och säljare måste vara satta
+  if (mailerKind(env) === null) return false; // utan transport kan avtalsbekräftelsen (som måste ges före tjänsten) inte levereras
   return budgetConfig(env).ok && returnUrl(env, allowedOrigins) !== null;
 }
 

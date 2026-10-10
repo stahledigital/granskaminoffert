@@ -594,3 +594,29 @@ test("källor AV som standard: ingen källpanel, inga Google-/Trustpilot-anrop, 
   } finally { await ctx.close(); await h.close(); }
 });
 async function toOfferStepOff(page, h) { await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, [OFFERS[0], OFFERS[1]]); }
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`väntan på avtalsbekräftelse (${name}): ärlig status utan arbetspåstående; misslyckad bekräftelse visas med återbetalning`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors } = await newPage(h, w, hgt);
+    try {
+      let mode = "waiting";
+      const ord = () => ({ id: "o_" + "a".repeat(32), status: mode === "waiting" ? "paid" : "failed", waiting: mode === "waiting" ? "avtalsbekraftelse" : null, error: mode === "waiting" ? null : "bekraftelse_ej_levererad", progress: { extracted: 0, total: 2, synth: "pending" }, refund: { state: mode === "waiting" ? "none" : "needed" }, withdrawal: { requested: false }, expiresAt: Date.now() + 3600_000 });
+      await page.route("**/compare/orders/o_*", async (route) => {
+        if (route.request().method() !== "GET" || /\/(report|sources|checkout|withdraw)/.test(route.request().url())) return route.continue();
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, order: ord(), pollMs: 600 }) });
+      });
+      await page.goto(h.base + "/jamfor/#o=o_" + "a".repeat(32) + "&t=tok_" + "b".repeat(32));
+      await page.waitForFunction(() => /avtalsbekräftelsen ska kunna skickas/.test(document.body.textContent));
+      const t = await page.textContent("#statusbox");
+      assert.match(t, /Inget arbete har påbörjats/); assert.doesNotMatch(t, /Vi läser offerterna/);
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_9_vantar_bekraftelse.png`), fullPage: true });
+      mode = "failed";
+      await page.waitForFunction(() => /kunde inte skicka avtalsbekräftelsen/.test(document.getElementById("statusbox").textContent), null, { timeout: 8000 });
+      assert.match(await page.textContent("#statusbox"), /pengarna tillbaka/);
+      assert.ok(await noSideScroll(page));
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}

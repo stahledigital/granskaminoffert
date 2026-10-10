@@ -107,6 +107,10 @@ new_sqlite_classes = ["ExplainBudget"]
 
 # D07 (omdömeskällor, ALLA AV; inga värden satta här, inga hemligheter i repo):
 #   COMPARE_REVIEWS=1 + COMPARE_REVIEWS_VERIFIED=1 (människa: villkor/licens/kostnad verifierade)
-#   Google: GOOGLE_UI_KIT=1, GOOGLE_MAPS_BROWSER_KEY (publik, domän-/API-begränsad – INTE ett USD-tak), GOOGLE_CANDIDATES=1,
-#           GOOGLE_PLACES_SERVER_KEY (secret), COMPARE_SOURCES_SEARCH_DAY_CAP
+#   Google: GOOGLE_UI_KIT=1, GOOGLE_MAPS_BROWSER_KEY (publik, domän-/API-begränsad – INTE ett USD-tak), COMPARE_SOURCES_SEARCH_DAY_CAP (native UI Kit-sök räknas mot det),
+#           servermässig Text Search (EJ UI Kit-undantaget): GOOGLE_CANDIDATES=1 + GOOGLE_PLACES_API_SEARCH_VERIFIED=1 (extra mänsklig flagga) + GOOGLE_PLACES_SERVER_KEY (secret)
 #   Trustpilot: TRUSTPILOT_DISPLAY=1, TRUSTPILOT_API_BASE, TRUSTPILOT_API_KEY (secret), TRUSTPILOT_AUTH_HEADER, COMPARE_TP_DAY_CAP, COMPARE_TP_CACHE_MIN (≤1440)
+
+# D08b: avtalsbekräftelsen kräver transport: COMPARE_MAILER-bindning (AV tills människa kopplar) – eller, ENDAST i test, COMPARE_MAILER_MODE=mock (nekas i live).
+# D06-rättning (inga värden satta här): säljare COMPARE_SELLER_NAME/ORGNR/EMAIL/ADDRESS/VAT (+ COMPARE_SELLER_PHONE, obligatorisk för live), COMPARE_ADMIN_TOKEN (secret),
+#   retention COMPARE_LEDGER_RETENTION_DAYS + COMPARE_BOOKKEEPING_RETENTION_DAYS (människa; saknas ⇒ svepet gör ingenting och live är stängt).

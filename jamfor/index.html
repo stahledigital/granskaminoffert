@@ -309,7 +309,8 @@ async function tick(cancelled){
   }else if(o.status==='expired'){box.appendChild(el('p',{text:'Ordern har gått ut. Du har inte debiterats. Börja om med dina offerter.'}));box.appendChild(restartBtn());}
   else if(o.status==='paid'||o.status==='running'){
     var pct=Math.round(100*(o.progress.extracted+(o.progress.synth==='done'||o.progress.synth==='skipped'?1:0))/(o.progress.total+1));
-    box.appendChild(el('p',{text:'Betalningen är bekräftad. Vi läser offerterna ('+o.progress.extracted+' av '+o.progress.total+' klara).'}));
+    if(o.waiting==='avtalsbekraftelse'){box.appendChild(el('p',{text:'Betalningen är bekräftad. Vi väntar på att avtalsbekräftelsen ska kunna skickas till din e-post innan jämförelsen startar. Inget arbete har påbörjats.'}));box.appendChild(el('p',{class:'hint',text:'Går det inte inom en halvtimme avbryts köpet och du får pengarna tillbaka. Du kan också ångra köpet nedan.'}))}
+    else box.appendChild(el('p',{text:'Betalningen är bekräftad. Vi läser offerterna ('+o.progress.extracted+' av '+o.progress.total+' klara).'}));
     var pr=el('div',{class:'progress',role:'progressbar','aria-valuemin':'0','aria-valuemax':'100','aria-valuenow':String(pct)},el('i',{style:'width:'+pct+'%'}));box.appendChild(pr);
     box.appendChild(el('p',{class:'hint',text:'Du kan stänga fliken. Använd länken nedan för att komma tillbaka.'}));
     next=(r.json.pollMs||2000)+500;
@@ -322,6 +323,7 @@ async function tick(cancelled){
     var rs=o.refund&&o.refund.state;
     var rt={done:' Återbetalningen är genomförd hos betalleverantören.',pending:' Återbetalningen är begärd och väntar på att slutföras hos betalleverantören – den är inte klar än.',requested:' Återbetalningen begärs just nu.',action_required:' Återbetalningen kräver en åtgärd som vi måste ta hand om.',failed:' Återbetalningen gick inte igenom automatiskt och måste göras för hand.',needed:' Återbetalningen görs för hand.',none:''}[rs];
     if(o.error==='angrat')box.appendChild(el('div',{class:'okbox',text:'Du har ångrat köpet. Jämförelsen är stoppad och ditt innehåll raderat.'+(rt===undefined?'':rt)}));
+    else if(o.error==='bekraftelse_ej_levererad')box.appendChild(el('div',{class:'err',text:'Vi kunde inte skicka avtalsbekräftelsen, så jämförelsen startades aldrig. Du ska få pengarna tillbaka.'+(rt===undefined?'':rt)}));
     else box.appendChild(el('div',{class:'err',text:'Jämförelsen kunde inte slutföras. Du ska få pengarna tillbaka.'+(rt===undefined?'':rt)}));
     box.appendChild(el('p',{text:'Ordernummer: '+o.id.slice(2,10).toUpperCase()+(rs&&rs!=='done'?'. Kontakta oss med ordernumret om pengarna inte kommit tillbaka inom några dagar.':'')}));
     if(rs==='pending'||rs==='action_required'||rs==='requested')next=15000;

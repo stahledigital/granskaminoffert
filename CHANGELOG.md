@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1g – D08b rättning efter root-QA 21:10 (KANDIDAT – AV, ej släppt; ovanpå D08 cbf439ff)
+- P1: avtalsbekräftelsen grindar arbetet (ingen räkning/generation/claim före godkänd transportkvittens; ärlig väntstatus; retry med samma ID; begränsad uttömning ⇒ `bekraftelse_ej_levererad` + återbetalning); mock-transport endast i test.
+- Säljarkrav: telefon obligatorisk för live, id-nummer ej AB-låst, ångerblankettblock i bekräftelsen (ingen blankettext).
+- Retention: admin-slutmarkör `retention-close-review` och intervallsvep `from/to` inom befintlig adminrutt; ingen ny resurs/policy.
+
 ## jamfor-v1f – rättning efter root-QA 20:38 (KANDIDAT – AV, ej släppt; separat commit ovanpå D07 f96a7b0)
 - D06: order+ledger+utkorg skrivs i en lagringstransaktion med idempotent reparation av delskrivning; ångerlänk på startsidan; full säljarinfo och fullständig villkorssnapshot i samtyckeshash/avtalspost/bekräftelse (villkorssidan renderar serverns text); verklig retention-svep (lazy + admin, fail closed).
 - D07: Googles element rättade till `gmp-advanced-place-details`, native `gmp-place-search`-val (server Text Search AV bakom extra flagga), nativa `gmp-load`/`gmp-error` + timeout + versionsbunden mount, visningsfel i täckningen, domänkonflikt separeras, identitetsändring rensar bekräftelser, Trustpilot-schemafel ⇒ källfel. Se `worker/COMPARE.md`.

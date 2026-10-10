@@ -59,20 +59,19 @@ test("avtalspost: skapas vid betalning, frusen, med faktiska texter + version + 
   } finally { f.restore(); }
 });
 
-test("avtalsbekräftelse: köas utan sändning när extern mejladapter är AV (inget påstås skickat); skickas via mock med kvittens, ångerlänk bara i mejlet", async () => {
+test("avtalsbekräftelse: köas medan transporten är nere (inget påstås skickat, arbetet väntar); skickas efter kvittens med ångerlänk bara i mejlet", async () => {
   const f = installFetch();
   try {
-    const env = makeEnv();
+    const env = makeEnv(); const mm = mailer(); mm.down = true; env.COMPARE_MAILER = mm;
     const { orderId, token } = await paidOrder(env, f);
-    await env.COMPARE_ORDERS.runAlarms();
+    await env.COMPARE_ORDERS.runAlarms(1);
     let [m] = outboxOf(env, orderId).filter((x) => x.kind === "avtalsbekraftelse");
-    assert.equal(m.state, "queued"); assert.equal(m.attempts, 0); assert.equal(m.sentAt, null);
-    assert.equal((await status(env, orderId, token)).agreement.mails[0].state, "queued");
-    // adaptern slås på (mock) → skickas, secrets rensas, kropp oförändrad
-    const mm = mailer(); env.COMPARE_MAILER = mm;
-    env.COMPARE_ORDERS.peek(orderId).obj.state.storage.setAlarm?.(Date.now());
-    await env.COMPARE_ORDERS.get(orderId).fetch("https://x/internal", { method: "POST", body: JSON.stringify({}) });
-    await env.COMPARE_ORDERS.peek(orderId).obj.alarm();
+    assert.equal(m.state, "queued"); assert.equal(m.attempts, 1); assert.equal(m.sentAt, null);
+    const st0 = await status(env, orderId, token);
+    assert.equal(st0.agreement.mails[0].state, "queued"); assert.equal(st0.status, "paid"); assert.equal(st0.waiting, "avtalsbekraftelse"); assert.equal(f.log.anthropic.length, 0);
+    // transporten tillbaka → skickas, secrets rensas, kropp oförändrad
+    mm.down = false; await nextMailRound(env, orderId);
+    await env.COMPARE_ORDERS.runAlarms();
     [m] = outboxOf(env, orderId).filter((x) => x.kind === "avtalsbekraftelse");
     assert.equal(m.state, "sent"); assert.ok(m.sentAt); assert.equal(m.secrets, null); assert.match(m.providerRef, /^ref_/);
     const sent = mm.delivered.get(m.id);
@@ -82,6 +81,7 @@ test("avtalsbekräftelse: köas utan sändning när extern mejladapter är AV (i
     assert.ok(tokenFrom(sent), "ångerlänk i mejlet"); assert.match(sent.body, /\/jamfor\/angra\/#t=ang_o_/);
     assert.ok(!sent.body.includes("FIXTURE")); assert.ok(!m.body.includes("ang_o_")); // lagrad mall har bara platshållare
     assert.equal(m.bodyHash, await sha256Hex(`${m.subject}\n${m.body}`));
+    assert.equal((await status(env, orderId, token)).status, "delivered");
   } finally { f.restore(); }
 });
 
@@ -99,14 +99,14 @@ test("utkorg: transport nere → omförsök med samma ID; förlorad kvittens ger
   } finally { f.restore(); }
 });
 
-test("utkorg: ihållande transportfel stannar efter 5 försök som 'failed' (manuell hantering), aldrig falskt 'sent'", async () => {
+test("utkorg: ihållande transportfel stannar efter 12 försök för avtalsbekräftelsen som 'failed' (ordern avbryts, se compare_gate), aldrig falskt 'sent'", async () => {
   const f = installFetch();
   try {
     const env = makeEnv(); const mm = mailer(); mm.down = true; env.COMPARE_MAILER = mm;
     const { orderId } = await paidOrder(env, f);
-    for (let i = 0; i < 10; i++) { await env.COMPARE_ORDERS.runAlarms(); await nextMailRound(env, orderId); await env.COMPARE_ORDERS.peek(orderId).obj.alarm(); }
+    for (let i = 0; i < 30; i++) { await env.COMPARE_ORDERS.runAlarms(); await nextMailRound(env, orderId); await env.COMPARE_ORDERS.peek(orderId).obj.alarm(); }
     const [m] = outboxOf(env, orderId).filter((x) => x.kind === "avtalsbekraftelse");
-    assert.equal(m.state, "failed"); assert.equal(m.attempts, 5); assert.equal(mm.delivered.size, 0);
+    assert.equal(m.state, "failed"); assert.equal(m.attempts, 12); assert.equal(mm.delivered.size, 0);
   } finally { f.restore(); }
 });
 

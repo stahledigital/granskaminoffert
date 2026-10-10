@@ -108,6 +108,7 @@ export function confirmationMail(ledger) {
     `Kvittot från betalleverantören är en separat handling.`,
     ``,
     `Vill du ångra köpet? Använd den här länken: {{ANGERLANK}}`,
+    `Standardformulär för ångerrätt (Konsumentverkets blankett) fylls i med säljarens uppgifter: ${ag.seller.name}, ${ag.seller.address}, ${ag.seller.email}. [UTKAST – blankettens text bifogas/länkas av människa före skarp drift; ingen blankettext återges här.]`,
     `Du kan också ångra från sidan med ditt resultat.`,
   ].join("\n");
   return { id: `mail_avtal_${ag.orderId}`, kind: "avtalsbekraftelse", subject: `Avtalsbekräftelse ${ledger.agreementId}`, body };
