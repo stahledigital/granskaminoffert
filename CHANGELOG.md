@@ -1,5 +1,8 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1p-fix3 – docs-only: förköpets kostnadsrad (root-QA; KANDIDAT – AV; ovanpå 03aa366e)
+- `worker/COMPARE.md`: budgetnyckel är `pid:<order>:<claimId>` (inte `<idx>:<försök>`); ~0,27 USD vid ~3 000 tokens/4 dokument är endast ett SCENARIO, inte ett universellt minsta ordertak – reservationen beräknas efter verkligt maxindata (dokumenttokens + marginal) och försök, och människosatt tak måste täcka den; inget tak antaget. Modell (Sonnet 5.5) och gemensam 20 USD-pott borttagna ur human-beslutslistan (redan beslutade). Ingen kod/test ändrad.
+
 ## jamfor-v1p-fix2 – förköpsidentitet: unik claim per generation, hash/ctx-bindning, kontrollerat put (root-QA P1; KANDIDAT – AV; ovanpå 5a79713a)
 - Rotorsak (reproducerad av root): claim återställde `attempts` vid filbyte ⇒ budgetnyckeln `pid:order:idx:attempt` återanvändes (andra reservationen skrev över första ⇒ 700 i stället för 1400 µUSD) och put kontrollerade bara attempt-numret, inte vilken claim/fil svaret hörde till ⇒ gammalt svar kunde lagras för nytt dokument.
 - Nu: varje faktisk generation får ett monotont, aldrig återanvänt `claimId`; budgetnyckel `pid:<order>:<claimId>` ⇒ två generationer = två reservationer/avräkningar (även avvisat sent svar avräknas en gång). Posten binds till dokumenthash + `ctx` (modell, promptversion, prompttext, verktygsschema, sha256). Put kräver samma claimId + hash + ctx och pågående state; routen kontrollerar put-resultatet (annars 409, inga gamla uppgifter ut). `/preid-get` och GET identity returnerar bara poster med aktuell hash+ctx. Filbyte efter done ⇒ "ingen" tills ny läsning.
