@@ -7,7 +7,7 @@
 // Betalningsbevis kommer bara från signerad webhook eller serveravstämning mot Stripe – returadressen
 // (success_url) bevisar ingenting.
 
-import { OFFER, LIMITS, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy } from "./compare_config.js";
+import { OFFER, LIMITS, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
@@ -78,6 +78,7 @@ async function consentHash(env) { return sha256Hex(JSON.stringify(consentSnapsho
 
 async function publicConfig(env, allowedOrigins) {
   const enabled = compareEnabled(env);
+  const pm = paymentMethods(env);
   return {
     enabled,
     accepting: enabled && bindingsOk(env) && acceptingOrders(env, allowedOrigins),
@@ -99,6 +100,7 @@ async function publicConfig(env, allowedOrigins) {
     dataCards: false, // gamla datakortsmodulen (datacard.js) är oanvänd; källor styrs av `sources`
     sources: publicSourcesConfig(env),
     refund: env.COMPARE_AUTO_REFUND === "1" ? "auto" : "manual",
+    payment: { methods: pm.swish ? ["card", "swish"] : ["card"], swish: pm.swish, swishNote: pm.swish ? SWISH_NOTE : null },
   };
 }
 

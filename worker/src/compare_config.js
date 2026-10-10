@@ -88,6 +88,7 @@ export function sellerLines(sel) {
 const krText = (ore) => `${(ore / 100).toFixed(2).replace(".", ",")} kr`;
 // Fullständig villkors-/avtalstext (UTKAST) ägd av servern. Den som kunden ser, godkänner (hash) och får i bekräftelsen är EXAKT denna snapshot.
 // Ingen slutlig juridisk text: öppna beslut står som [hakparentes]-platshållare och live är stängt (CONSENT.draft) tills människa fastställt dem.
+export const SWISH_NOTE = "Du kan betala med kort eller Swish. Betalar du med Swish går betalningen via Stripe: i Swish kan Stripe visas som mottagare och Ståhle Digital i meddelandet. Du köper av Ståhle Digital. Beloppet är samma 49 kr inklusive moms.";
 export const TERMS_VERSION = "villkor-utkast-1";
 export function termsSnapshot(env) {
   const seller = sellerInfo(env), pol = retentionPolicy(env), copy = offerCopy(env);
@@ -96,7 +97,7 @@ export function termsSnapshot(env) {
   const sections = [
     { id: "saljare", title: "Säljare", text: sellerLines(seller).join("\n") },
     { id: "tjansten", title: "Tjänsten", text: [`${OFFER.product} jämför innehåll i ${OFFER.minDocs}–${OFFER.maxDocs} offerter som du själv laddar upp.`, "Det här ingår:", ...copy.gets.map((t) => `- ${t}`), "Det här ingår inte:", ...copy.getsNot.map((t) => `- ${t}`), "Så går det till:", ...copy.how.map((t) => `- ${t}`)].join("\n") },
-    { id: "pris", title: "Pris och betalning", text: `Pris: ${krText(OFFER.priceOre)} inklusive moms (varav moms ${krText(vatOre)}, ${OFFER.vatPct} %). Engångsköp. Betalningen sker hos betalleverantören Stripe; kvittot därifrån är en separat handling.` },
+    { id: "pris", title: "Pris och betalning", text: `Pris: ${krText(OFFER.priceOre)} inklusive moms (varav moms ${krText(vatOre)}, ${OFFER.vatPct} %). Engångsköp. Betalningen sker hos betalleverantören Stripe; kvittot därifrån är en separat handling.${paymentMethods(env).swish ? ` ${SWISH_NOTE}` : ""}` },
     { id: "avtal", title: "Avtalsbekräftelse", text: "När betalningen är genomförd skickas en avtalsbekräftelse med de här villkoren, det du godkände och en länk för att ångra köpet till den e-postadress du angav." },
     { id: "angerratt", title: "Ångra köpet och start direkt", text: "[UTKAST – hur ångerrätt och start direkt bedöms är inte slutligt fastställt.] Du kan begära att ångra köpet via länken i bekräftelsen, från sidan med ditt resultat eller på /jamfor/angra/. Begäran sparas med tidpunkt. Har jämförelsen inte levererats stoppas den och hela beloppet ska betalas tillbaka. Är rapporten redan levererad prövas begäran manuellt; mottagningsbeviset avgör inte om ångerrätt finns eller inte." },
     { id: "aterbetalning", title: "Om något går fel", text: "Går något fel och du inte får ditt resultat ska du få pengarna tillbaka." },
@@ -172,6 +173,19 @@ export function paymentsMode(env) {
   if (!okKey || !/^whsec_[A-Za-z0-9]{8,}$/.test(wh)) return null;
   return m;
 }
+
+// Betalmetoder i Stripe Checkout (samma Checkout/orderledger, 49 kr inkl. moms, engångsköp, SEK). Standard = bara kort. Swish (kort+swish eller dynamiskt metodval)
+// öppnas ENDAST när en människa satt COMPARE_SWISH_VERIFIED=1 (= kontoåtkomst/villkor verifierade); annars faller allt tillbaka till kort. Koden ändrar aldrig kontots metoder.
+//   COMPARE_PAYMENT_METHODS: "card" (standard) | "card,swish" | "dynamic" (utelämnar payment_method_types; Stripes dynamiska metodval styrs av Dashboard)
+export function paymentMethods(env) {
+  const raw = String((env && env.COMPARE_PAYMENT_METHODS) || "card").trim().toLowerCase();
+  const verified = !!env && env.COMPARE_SWISH_VERIFIED === "1";
+  const set = new Set(raw.split(",").map((x) => x.trim()).filter(Boolean));
+  const wantsSwish = (set.size === 2 && set.has("card") && set.has("swish")) || raw === "dynamic";
+  if (wantsSwish && verified) return raw === "dynamic" ? { kind: "dynamic", types: null, swish: true } : { kind: "card_swish", types: ["card", "swish"], swish: true };
+  return { kind: "card", types: ["card"], swish: false, swishBlocked: wantsSwish && !verified };
+}
+export const methodsKey = (m) => (m.kind === "dynamic" ? "dyn" : m.types.join("+"));
 
 // Hårda tak (µUSD) måste sättas av en människa. Saknas något returneras ok:false och INGEN
 // generation görs. Det finns ingen standardsumma.

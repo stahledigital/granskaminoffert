@@ -109,6 +109,7 @@ footer{margin-top:36px;font-size:13px;color:var(--ink2)}
   <div id="docs" aria-live="polite"></div>
   <div id="offer" class="card acc hidden">
     <div class="price">49 kr <small>inklusive moms (varav <span id="vat">9,80</span> kr moms) · engångsköp</small></div>
+    <p class="hint hidden" id="paymethods" data-methods=""></p>
     <p id="draftnote" class="warnbox hidden"><b>Utkast.</b> Villkors- och samtyckestexterna är inte slutgiltiga. Skarp betalning är avstängd tills de är fastställda.</p>
     <p id="coverage" class="hint"></p>
     <h3>Det här får du</h3>
@@ -190,6 +191,7 @@ async function init(){
     c.appendChild(el('a',{class:'btn acc',href:'/',text:'Granska en offert gratis'}));
     show('closed',true);return;
   }
+  (function(){var pm=cfg.payment||{},n=$('paymethods');if(n){n.textContent=pm.swish&&pm.swishNote?pm.swishNote:'';n.setAttribute('data-methods',(pm.methods||['card']).join(','));n.classList.toggle('hidden',!(pm.swish&&pm.swishNote))}})();
   $('vat').textContent=(Math.round(cfg.offer.priceOre*cfg.offer.vatPct/(100+cfg.offer.vatPct))/100).toFixed(2).replace('.',',');
   $('limits').textContent='Varje fil får vara högst '+Math.round(cfg.limits.maxFileBytes/1e6)+' MB (PDF, foto eller text), PDF högst ca '+cfg.limits.maxPdfPagesPerDoc+' sidor. Tillsammans högst '+Math.round(cfg.limits.maxTotalBytes/1e6)+' MB. Ta gärna bara sidorna med pris och villkor.';
   fillCopy(cfg);

@@ -258,7 +258,7 @@ export class CompareOrders {
       const s = b.session;
       if (!s || typeof s.id !== "string" || typeof s.url !== "string") return { status: 400, body: { ok: false, error: "ogiltig" } };
       if (o.stripe && o.stripe.sessionId && o.stripe.sessionId !== s.id && o.stripe.expiresAt > now) return { body: { ok: true, url: o.stripe.url } }; // samtidig skapare: första vinner
-      o.stripe = { sessionId: s.id, url: s.url, expiresAt: s.expiresAt, paymentIntentId: null, attempt: o.checkout.intent ? o.checkout.intent.attempt : null };
+      o.stripe = { sessionId: s.id, url: s.url, expiresAt: s.expiresAt, methods: Array.isArray(s.methods) ? s.methods.filter((x) => typeof x === "string").slice(0, 4) : null, paymentIntentId: null, attempt: o.checkout.intent ? o.checkout.intent.attempt : null };
       o.status = "awaiting_payment";
       await this._save(o);
       return { body: { ok: true, url: s.url } };

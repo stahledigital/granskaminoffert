@@ -8,7 +8,7 @@
 // utebliven leverans. Manuell capture är INTE implementerad (otestad, och auktoriseringsfönstret
 // är begränsat); den kräver eget test innan den väljs.
 
-import { OFFER } from "./compare_config.js";
+import { paymentMethods, methodsKey, OFFER } from "./compare_config.js";
 import { hmacSha256Hex, timingSafeEqual } from "./compare_util.js";
 
 const API = "https://api.stripe.com/v1";
@@ -50,8 +50,10 @@ async function stripeFetch(env, path, { method = "GET", body, idempotencyKey, fe
 export async function createCheckoutSession(env, order, { returnUrl, fetchImpl } = {}) {
   if (!Number.isInteger(order.attempt) || order.attempt < 1 || !Number.isInteger(order.expiresAtSec)) throw new Error("stripe: försök saknas");
   const sep = returnUrl.includes("?") ? "&" : "?";
+  const pm = paymentMethods(env);
   const body = {
     mode: "payment",
+    ...(pm.types ? { payment_method_types: pm.types } : {}), // dynamiskt metodval: utelämnas (Dashboard styr); annars explicit lista (kort, ev. swish – kräver SEK)
     locale: "sv",
     client_reference_id: order.id,
     success_url: `${returnUrl}${sep}order=${order.id}&session_id={CHECKOUT_SESSION_ID}`,
@@ -68,9 +70,9 @@ export async function createCheckoutSession(env, order, { returnUrl, fetchImpl }
     metadata: { order_id: order.id, offer: OFFER.version },
     payment_intent_data: { metadata: { order_id: order.id, offer: OFFER.version } },
   };
-  const s = await stripeFetch(env, "/checkout/sessions", { method: "POST", body, idempotencyKey: `checkout:${order.id}:${order.attempt}`, fetchImpl });
+  const s = await stripeFetch(env, "/checkout/sessions", { method: "POST", body, idempotencyKey: `checkout:${order.id}:${order.attempt}${pm.kind === "card" ? "" : ":" + methodsKey(pm)}`, fetchImpl });
   if (!s || typeof s.id !== "string" || typeof s.url !== "string" || !/^https:\/\//.test(s.url)) throw new Error("stripe: ogiltig session");
-  return { id: s.id, url: s.url, expiresAt: Number.isFinite(s.expires_at) ? s.expires_at * 1000 : order.expiresAtSec * 1000 };
+  return { id: s.id, url: s.url, methods: pm.types, expiresAt: Number.isFinite(s.expires_at) ? s.expires_at * 1000 : order.expiresAtSec * 1000 };
 }
 
 export async function retrieveSession(env, sessionId, { fetchImpl } = {}) {
@@ -131,6 +133,7 @@ export async function signForTest(rawBody, secret, t = Math.floor(Date.now() / 1
 // Kontroll att en Checkout-session verkligen är betalningen för DEN HÄR ordern med rätt belopp.
 // Används av både webhook och avstämning; returnsidan är aldrig bevis.
 export function evaluatePaidSession(session, order, mode) {
+  // Metodbindning: har ordern en frusen metodlista måste sessionens metoder ligga inom den (ingen oväntad metod låser upp).
   const fail = (reason) => ({ ok: false, reason });
   if (!session || typeof session !== "object" || session.object !== "checkout.session") return fail("form");
   if (session.mode !== "payment") return fail("mode");
@@ -138,6 +141,7 @@ export function evaluatePaidSession(session, order, mode) {
   if (session.client_reference_id !== order.id) return fail("order");
   if (!order.stripe || session.id !== order.stripe.sessionId) return fail("session");
   if (session.metadata && session.metadata.order_id !== undefined && session.metadata.order_id !== order.id) return fail("metadata");
+  if (Array.isArray(order.stripe.methods) && Array.isArray(session.payment_method_types) && !session.payment_method_types.every((t) => order.stripe.methods.includes(t))) return fail("metod");
   if (session.currency !== OFFER.currency) return fail("valuta");
   if (session.amount_total !== OFFER.priceOre) return fail("belopp");
   if (session.status !== "complete" || session.payment_status !== "paid") return fail("ej_betald");

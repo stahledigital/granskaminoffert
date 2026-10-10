@@ -153,7 +153,7 @@ export function installFetch(opts = {}) {
       }
       const id = "cs_test_" + String(++n).padStart(10, "0");
       const p = new URLSearchParams(body);
-      const s = { id, object: "checkout.session", url: `https://checkout.stripe.test/c/${id}`, expires_at: Number(p.get("expires_at")), mode: "payment", livemode: false, client_reference_id: p.get("client_reference_id"), currency: "sek", amount_total: Number(p.get("line_items[0][price_data][unit_amount]")), status: "open", payment_status: "unpaid", payment_intent: null, metadata: { order_id: p.get("metadata[order_id]") } };
+      const s = { id, object: "checkout.session", url: `https://checkout.stripe.test/c/${id}`, expires_at: Number(p.get("expires_at")), mode: "payment", livemode: false, client_reference_id: p.get("client_reference_id"), currency: "sek", amount_total: Number(p.get("line_items[0][price_data][unit_amount]")), status: "open", payment_status: "unpaid", payment_intent: null, payment_method_types: [...p.keys()].filter((k) => /^payment_method_types\[\d\]$/.test(k)).map((k) => p.get(k)).concat([]).length ? [...p.keys()].filter((k) => /^payment_method_types\[\d\]$/.test(k)).map((k) => p.get(k)) : ["card"], metadata: { order_id: p.get("metadata[order_id]") } };
       sessions.set(id, s); if (idem) byIdem.set(idem, { body, session: s });
       return Response.json(s);
     }

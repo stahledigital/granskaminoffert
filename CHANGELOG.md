@@ -1,5 +1,8 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1i – D10 Swish via Stripe (KANDIDAT – AV, ej släppt; ovanpå D09 9530c46b)
+- Konfigurerbar metodlista (kort | kort+swish | dynamiskt), Swish bara med COMPARE_SWISH_VERIFIED=1; metodbindning i serververifieringen; Swish-kundtext före betalning (ingår i samtyckeshashen). Ingen kontoaktivering, ingen riktig betalning.
+
 ## jamfor-v1h – D09 Google-mountreservation + hantverksavgränsning (KANDIDAT – AV, ej släppt; ovanpå D08b 7d6d2577)
 - Atomisk serverreservation (per order + gemensamt dygnstak + tak per SKU, default 0/fail closed) före varje Search-/AdvancedDetails-instans; nytt mountId per instans.
 - Jämförsidan: "Jämför 2–4 hantverkarofferter för samma arbete" + avgränsningsrad (material i hantverkarens offert omfattas; materialinköp/produkt/abonnemang stöds ännu inte).

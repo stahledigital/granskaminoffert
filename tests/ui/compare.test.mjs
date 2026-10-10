@@ -693,3 +693,26 @@ test("Googlereservation: retry efter gmp-error är en NY reservation (nytt mount
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); await h.close(); }
 });
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`Swish-text (${name}): kunden ser före betalning att Stripe kan visas som mottagare; texten finns bara när Swish är påslaget`, async () => {
+    for (const on of [true, false]) {
+      const h = await startHarness({ vars: { ...SRC_VARS, ...(on ? { COMPARE_PAYMENT_METHODS: "card,swish", COMPARE_SWISH_VERIFIED: "1" } : { COMPARE_PAYMENT_METHODS: "card,swish" }) } }); seedSources(h);
+      const { ctx, page, errors } = await newPage(h, w, hgt);
+      await page.addInitScript(gmpDouble);
+      try {
+        await toOfferStep(page, h);
+        await page.waitForSelector("#paymethods", { state: "attached" });
+        const vis = await page.locator("#paymethods").isVisible();
+        assert.equal(vis, on);
+        if (on) {
+          assert.match(await page.textContent("#paymethods"), /kan Stripe visas som mottagare och Ståhle Digital i meddelandet/);
+          assert.equal(await page.getAttribute("#paymethods", "data-methods"), "card,swish");
+          assert.ok(await noSideScroll(page));
+          await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_11_swish_text.png`), fullPage: true });
+        } else assert.equal(await page.getAttribute("#paymethods", "data-methods"), "card", "begärd men ej verifierad ⇒ bara kort");
+        assert.deepEqual(errors, []);
+      } finally { await ctx.close(); await h.close(); }
+    }
+  });
+}
