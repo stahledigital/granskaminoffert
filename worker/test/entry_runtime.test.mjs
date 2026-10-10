@@ -3,6 +3,7 @@
 // Bevisar att ingången startar (inga exporterade strängar m.m.), att /health svarar och att det
 // globala dygnstaket håller vid samtidiga granskningar. Inget riktigt AI-anrop, ingen nyckel.
 // Saknas Miniflare hoppas testet över och rapporteras som EJ KÖRT (se quota_runtime.test.mjs).
+import { gateVars } from "./helpers/free_gate.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -34,6 +35,7 @@ if (!skipAll) {
 }
 const ORIGIN = "https://granskaminoffert.se";
 
+const gateEnv = () => { const { FREE_BUDGET, ...v } = gateVars(); return v; }; // DO-bindningen kommer från durableObjects ovan
 function boot(vars = {}, calls = { messages: 0 }) {
   const mf = new Miniflare({
     modules: true,
@@ -41,14 +43,15 @@ function boot(vars = {}, calls = { messages: 0 }) {
     modulesRoot: path.dirname(entry),
     compatibilityDate: "2026-08-01",
     modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
-    durableObjects: { QUOTA: { className: "QuotaCounter", useSQLite: true } },
+    durableObjects: { QUOTA: { className: "QuotaCounter", useSQLite: true }, FREE_BUDGET: { className: "FreeBudget", useSQLite: true } },
     kvNamespaces: ["REVIEWS_KV"],
-    bindings: { ANTHROPIC_API_KEY: "test-nyckel-inte-riktig", ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_MODEL: "claude-sonnet-5-5", ...vars },
+    bindings: { ANTHROPIC_API_KEY: "test-nyckel-inte-riktig", ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_MODEL: "claude-sonnet-5-5", ...gateEnv(), ...vars },
     outboundService: async (req) => {
       const u = new URL(req.url);
       if (u.hostname !== "api.anthropic.com") return new Response("blockerad", { status: 502 });
       if (u.pathname.endsWith("/count_tokens")) return Response.json({ input_tokens: 1000 });
       calls.messages++;
+      if (calls.delay) await new Promise((r) => setTimeout(r, calls.delay));
       return Response.json({
         stop_reason: "tool_use", usage: { input_tokens: 1000, output_tokens: 300 },
         content: [{ type: "tool_use", name: "submit_review", input: { trade: "annat", contradictions: [], clarify: [], stated: [], calcCoverage: "checked", calcNote: "", price: { comment: "x" }, questions: [], extracted: { trades: [] } } }],
@@ -88,6 +91,20 @@ test("workerd: ingång + Durable Object – 12 samtidiga granskningar från olik
     assert.equal(calls.messages, 3, JSON.stringify(statuses));
     assert.equal(statuses.filter((s) => s === 200).length, 3, JSON.stringify(statuses));
     assert.ok(statuses.filter((s) => s !== 200).every((s) => s === 429 || s === 503), JSON.stringify(statuses));
+  } finally { await mf.dispose(); }
+});
+
+test("workerd (D12): 12 samtidiga mot pilottak som rymmer 3 värsta fall → exakt 3 generationer; FREE_BUDGET saknas ⇒ stängt", { skip: skipAll }, async () => {
+  const calls = { messages: 0, delay: 400 }; // långsamma svar: reservationerna överlappar (annars frigör tidiga avräkningar utrymme)
+  const { worstMicroFor } = await import("../src/free_budget.js");
+  const cap = String(worstMicroFor("claude-sonnet-5-5", 1000) * 3);
+  const mf = boot({ FREE_PILOT_CAP_MICRO: cap, RATE_LIMIT_PER_HOUR: "50" }, calls);
+  await mf.ready;
+  try {
+    const statuses = (await Promise.all(Array.from({ length: 12 }, (_, i) => review(mf, `203.0.113.${i + 1}`)))).map((r) => r.status);
+    assert.equal(calls.messages, 3, JSON.stringify(statuses)); assert.equal(statuses.filter((s) => s === 200).length, 3);
+    // efter avräkning mot uppmätt (lägre) kostnad finns utrymme igen – det är avsett; taket gäller värsta fall vid reservation
+    const h = await (await mf.dispatchFetch("http://localhost/health")).json(); assert.equal(h.freeGate.state, "aktiv");
   } finally { await mf.dispose(); }
 });
 

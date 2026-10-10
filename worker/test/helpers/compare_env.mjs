@@ -7,6 +7,7 @@ import { CompareBudget } from "../../src/compare_budget.js";
 import { signForTest } from "../../src/compare_stripe.js";
 import { sha256Hex } from "../../src/compare_util.js";
 import worker from "../../src/index.js";
+import { gateVars } from "./free_gate.mjs";
 
 export function memoryKv() {
   const m = new Map();
@@ -82,7 +83,7 @@ export function baseVars(extra = {}) {
 }
 
 export function makeEnv(extra = {}) {
-  const env = { ...baseVars(extra), REVIEWS_KV: memoryKv() };
+  const env = { ...gateVars(), ...baseVars(extra), REVIEWS_KV: memoryKv() };
   env.COMPARE_ORDERS = fakeNs(CompareOrders, env);
   env.COMPARE_BUDGET = fakeNs(CompareBudget, env);
   return env;

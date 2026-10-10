@@ -4,9 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import * as budget from "../src/compare_budget.js";
-import { gateEnabled, gateCaps } from "../src/cost_gate.js";
 import { CONSENT, consentSnapshot } from "../src/compare_config.js";
-import { fakeQuotaNamespace } from "./helpers/quota_do.mjs";
 import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheckout, paidSession, webhook, docKeys, consentOf, ORIGIN, offerText, TEST_EMAIL } from "./helpers/compare_env.mjs";
 
 const S = (total, scope = {}) => ({ extracted: { totalBeforeRotSek: total, totalVatBasis: "inkl" }, scope });
@@ -27,133 +25,7 @@ const fakeReview = {
   stated: [], calcCoverage: "checked", calcNote: "ok",
   price: { hourlyRateSek: 595, totalSumSek: 42820, rotDeducted: true, comment: "x" }, questions: ["q"], extracted: { trades: [] },
 };
-function gateEnv(over = {}) {
-  const e = makeEnv({ ALLOWED_ORIGIN: ORIGIN, ...over });
-  e.QUOTA = fakeQuotaNamespace();
-  return e;
-}
-const jobs = () => { const j = []; return { j, waitUntil: (p) => j.push(p) }; };
-function reviewReq(i = 0) {
-  return new Request("https://x/review", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "CF-Connecting-IP": `203.0.113.${10 + i}` }, body: JSON.stringify({ kind: "text", text: "Offert " + (42820 + i) + " kr", path: "mottagare" }) });
-}
-function aiFetch(env, { hold = null, usage = { input_tokens: 10, output_tokens: 5 }, status = 200, throwNet = false } = {}) {
-  const real = globalThis.fetch;
-  const seen = { calls: 0, reservedMicro: null };
-  globalThis.fetch = async (url, init) => {
-    if (String(url).includes("count_tokens")) return Response.json({ input_tokens: 500 });
-    if (String(url).includes("anthropic")) {
-      seen.calls++;
-      if (seen.reservedMicro === null && env.COMPARE_FREE_CAP_MICRO) {
-        const cap = await budget.capacity(env, { caps: { joint: Number(env.COMPARE_MONTH_CAP_MICRO), scope: Number(env.COMPARE_FREE_CAP_MICRO) }, scope: "free" });
-        seen.reservedMicro = Number(env.COMPARE_FREE_CAP_MICRO) - cap.remaining;
-      }
-      if (hold) await hold;
-      if (throwNet) throw new Error("nät");
-      return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "submit_review", input: fakeReview }], usage }), { status });
-    }
-    throw new Error("oväntat anrop " + url);
-  };
-  return { seen, restore: () => { globalThis.fetch = real; } };
-}
-const GATE = { COST_GATE: "1", COMPARE_MONTH_CAP_MICRO: "50000000", COMPARE_FREE_CAP_MICRO: "40000000" };
 
-test("gate AV (standard): /review fungerar som förut och rör inte budgeten", async () => {
-  const env = gateEnv(); const a = aiFetch(env);
-  try {
-    assert.equal(gateEnabled(env), false);
-    const r = await worker.fetch(reviewReq(), env, jobs());
-    assert.equal(r.status, 200); assert.equal(a.seen.calls, 1);
-    const st = await budget.stats(env);
-    assert.ok(!st || !st.free);
-  } finally { a.restore(); }
-});
-
-test("gate PÅ: lyckad /review reserverar värsta fallet, avräknar mot uppmätt användning (gratis-scope)", async () => {
-  const env = gateEnv(GATE); const a = aiFetch(env);
-  try {
-    const r = await worker.fetch(reviewReq(), env, jobs());
-    assert.equal(r.status, 200); assert.equal(a.seen.calls, 1);
-    assert.ok(a.seen.reservedMicro > 0, "reservation fanns när anropet gjordes");
-    const cap = await budget.capacity(env, { caps: { joint: 50_000_000, scope: 40_000_000 }, scope: "free" });
-    assert.ok(40_000_000 - cap.remaining < a.seen.reservedMicro, "avräknad kostnad < reserverat värsta fall");
-  } finally { a.restore(); }
-});
-
-test("gate PÅ: saknat/ogiltigt tak, saknad bindning → inget anrop", async () => {
-  for (const over of [{ COMPARE_FREE_CAP_MICRO: undefined }, { COMPARE_MONTH_CAP_MICRO: undefined }, { COMPARE_FREE_CAP_MICRO: "0" }, { COMPARE_FREE_CAP_MICRO: "60000000" }, { COMPARE_FREE_CAP_MICRO: "abc" }]) {
-    const env = gateEnv({ ...GATE, ...over }); for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
-    const a = aiFetch(env);
-    try { const r = await worker.fetch(reviewReq(), env, jobs()); assert.ok(r.status >= 400, JSON.stringify(over)); assert.equal(a.seen.calls, 0, JSON.stringify(over)); } finally { a.restore(); }
-  }
-  const env = gateEnv(GATE); delete env.COMPARE_BUDGET; const a = aiFetch(env);
-  try { const r = await worker.fetch(reviewReq(), env, jobs()); assert.ok(r.status >= 400); assert.equal(a.seen.calls, 0); } finally { a.restore(); }
-  assert.equal(gateCaps({ COMPARE_MONTH_CAP_MICRO: "10", COMPARE_FREE_CAP_MICRO: "20" }).ok, false);
-});
-
-test("gate PÅ: uttömt gemensamt tak (betalda reservationer) stoppar gratis /review utan anrop", async () => {
-  const env = gateEnv({ ...GATE, COMPARE_MONTH_CAP_MICRO: "1000", COMPARE_FREE_CAP_MICRO: "1000" }); const a = aiFetch(env);
-  try {
-    const r = await worker.fetch(reviewReq(), env, jobs());
-    assert.ok(r.status >= 400); assert.equal(a.seen.calls, 0);
-  } finally { a.restore(); }
-  // betald reservation äter det gemensamma taket
-  const env2 = gateEnv(GATE);
-  const a2 = aiFetch(env2);
-  try {
-    await worker.fetch(reviewReq(), env2, jobs()); // mäter W
-    const W = a2.seen.reservedMicro;
-    const env3 = gateEnv({ ...GATE, COMPARE_MONTH_CAP_MICRO: String(W * 2), COMPARE_FREE_CAP_MICRO: String(W * 2) });
-    const a3 = aiFetch(env3);
-    try {
-      const rp = await budget.reserve(env3, { key: "ext:o_" + "a".repeat(32) + ":0:1", scope: "paid", orderId: "o_" + "a".repeat(32), micro: W + Math.floor(W / 2), caps: { joint: W * 2, scope: W * 2, order: W * 2 } });
-      assert.ok(rp.ok);
-      const r = await worker.fetch(reviewReq(), env3, jobs());
-      assert.ok(r.status >= 400); assert.equal(a3.seen.calls, 0);
-    } finally { a3.restore(); }
-  } finally { a2.restore(); }
-});
-
-test("gate PÅ: fem samtidiga /review mot tak för en → exakt ett anrop (atomär gemensam reservation)", async () => {
-  const probe = gateEnv(GATE); const ap = aiFetch(probe);
-  let W;
-  try { await worker.fetch(reviewReq(), probe, jobs()); W = ap.seen.reservedMicro; } finally { ap.restore(); }
-  assert.ok(W > 0);
-  const env = gateEnv({ ...GATE, COMPARE_MONTH_CAP_MICRO: String(Math.floor(W * 1.5)), COMPARE_FREE_CAP_MICRO: String(Math.floor(W * 1.5)) });
-  let release; const hold = new Promise((r) => { release = r; });
-  const a = aiFetch(env, { hold });
-  try {
-    const ps = [0, 1, 2, 3, 4].map((i) => worker.fetch(reviewReq(i), env, jobs()));
-    await new Promise((r) => setTimeout(r, 50));
-    release();
-    const rs = await Promise.all(ps);
-    assert.equal(a.seen.calls, 1);
-    assert.equal(rs.filter((r) => r.status === 200).length, 1);
-  } finally { a.restore(); }
-});
-
-test("gate PÅ: oklar användning (nätverksfel) → stopp; nästa /review nekas utan anrop", async () => {
-  const env = gateEnv(GATE); const a = aiFetch(env, { throwNet: true });
-  try {
-    await worker.fetch(reviewReq(), env, jobs());
-    assert.equal(a.seen.calls, 1);
-    const r2 = await worker.fetch(reviewReq(1), env, jobs());
-    assert.ok(r2.status >= 400); assert.equal(a.seen.calls, 1);
-    // även betalda generationer stoppas av samma halt
-    const cap = await budget.capacity(env, { caps: { joint: 50_000_000, scope: 40_000_000 }, scope: "paid" });
-    assert.equal(cap.halted, true);
-  } finally { a.restore(); }
-});
-
-test("gate PÅ: HTTP-fel från leverantören frigör reservationen", async () => {
-  const env = gateEnv(GATE); const a = aiFetch(env, { status: 529 });
-  try {
-    await worker.fetch(reviewReq(), env, jobs());
-    const cap = await budget.capacity(env, { caps: { joint: 50_000_000, scope: 40_000_000 }, scope: "free" });
-    assert.equal(cap.remaining, 40_000_000);
-  } finally { a.restore(); }
-});
-
-// ===================== 2. Uttömda försök (alarm exhausted) =====================
 test("exhausted: betald order running, attempts=3, lease null → alarm → failed, återbetalning behövs, rådata rensad, inget modellanrop", async () => {
   const f = installFetch();
   try {
@@ -441,61 +313,6 @@ test("datatäckning: före köp säger config/erbjudande att omdömen inte ingå
 });
 
 // ===================== Root-QA punkt 10 (B): gate mäter alltid, halt även vid känd överskridning =====================
-test("P1-B: rootprob – gate PÅ, tak 100 000 µUSD, uppmätt 60 000 tokens → NEKAS före anrop (ingen generation, ingen överskridning)", async () => {
-  const env = gateEnv({ COST_GATE: "1", COMPARE_MONTH_CAP_MICRO: "100000", COMPARE_FREE_CAP_MICRO: "100000" });
-  const real = globalThis.fetch; const seen = { count: 0, gen: 0 };
-  globalThis.fetch = async (u) => {
-    if (String(u).includes("count_tokens")) { seen.count++; return Response.json({ input_tokens: 60000 }); }
-    if (String(u).includes("anthropic")) { seen.gen++; return Response.json({ usage: { input_tokens: 60000, output_tokens: 6000 }, content: [{ type: "tool_use", name: "submit_review", input: fakeReview }] }); }
-    throw new Error("oväntat " + u);
-  };
-  try {
-    const r = await worker.fetch(new Request("https://x/review", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "CF-Connecting-IP": "203.0.113.88" }, body: JSON.stringify({ kind: "text", text: "Offert " + "界".repeat(18000), path: "mottagare" }) }), env, jobs());
-    assert.ok(r.status >= 400);
-    assert.equal(seen.count, 1, "texten mättes med count_tokens");
-    assert.equal(seen.gen, 0);
-    const st = await budget.stats(env);
-    assert.equal((st.month && st.month.total) || 0, 0);
-  } finally { globalThis.fetch = real; }
-});
-
-test("P1-B: gate PÅ + count_tokens misslyckas för text → fail closed, inget anrop; gate AV beter sig som förut (ingen mätning av text)", async () => {
-  const env = gateEnv(GATE);
-  const real = globalThis.fetch; const seen = { gen: 0, count: 0 };
-  globalThis.fetch = async (u) => {
-    if (String(u).includes("count_tokens")) { seen.count++; return new Response("{}", { status: 500 }); }
-    if (String(u).includes("anthropic")) { seen.gen++; return Response.json({ usage: { input_tokens: 10, output_tokens: 5 }, content: [{ type: "tool_use", name: "submit_review", input: fakeReview }] }); }
-    throw new Error("oväntat");
-  };
-  try {
-    const r = await worker.fetch(reviewReq(), env, jobs());
-    assert.equal(r.status, 503); assert.equal(seen.gen, 0);
-    const env2 = gateEnv(); // gate AV
-    const r2 = await worker.fetch(reviewReq(1), env2, jobs());
-    assert.equal(r2.status, 200); assert.equal(seen.count, 1); assert.equal(seen.gen, 1); // ingen ny mätning med gate AV
-  } finally { globalThis.fetch = real; }
-});
-
-test("P1-B: känd men oväntad överskridning av reservationen → halt för ALLA fortsatta generationer (fri och betald)", async () => {
-  const env = gateEnv(GATE);
-  const real = globalThis.fetch; let gen = 0;
-  globalThis.fetch = async (u) => {
-    if (String(u).includes("count_tokens")) return Response.json({ input_tokens: 500 });
-    if (String(u).includes("anthropic")) { gen++; return Response.json({ usage: { input_tokens: 50_000_000, output_tokens: 10 }, content: [{ type: "tool_use", name: "submit_review", input: fakeReview }] }); }
-    throw new Error("oväntat");
-  };
-  try {
-    await worker.fetch(reviewReq(), env, jobs());
-    assert.equal(gen, 1);
-    const cap = await budget.capacity(env, { caps: { joint: 50_000_000, scope: 40_000_000 }, scope: "free" });
-    assert.equal(cap.halted, true);
-    const r2 = await worker.fetch(reviewReq(1), env, jobs());
-    assert.ok(r2.status >= 400); assert.equal(gen, 1);
-    const paid = await budget.reserve(env, { key: "ext:o_" + "b".repeat(32) + ":0:1", scope: "paid", orderId: "o_" + "b".repeat(32), micro: 10, caps: { joint: 50_000_000, scope: 40_000_000, order: 1000 } });
-    assert.equal(paid.ok, false); assert.equal(paid.reason, "stopp_oklar_anvandning");
-  } finally { globalThis.fetch = real; }
-});
-
 test("P1-B: budget – settle med känd användning ≤ reservation halterar inte; > reservation halterar", async () => {
   const env = makeEnv(); const caps = { joint: 1000, scope: 1000 };
   assert.ok((await budget.reserve(env, { key: "g:1", scope: "free", orderId: null, micro: 100, caps })).ok);

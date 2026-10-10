@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { signForTest } from "../src/compare_stripe.js";
 import { fixtureResponse, offerText, baseVars, WH_SECRET, ORIGIN } from "./helpers/compare_env.mjs";
 
+import { gateVars } from "./helpers/free_gate.mjs";
 let Miniflare = null;
 for (const cand of [process.env.MINIFLARE_DIR, "miniflare", "/home/claude/gmo/mf/node_modules/miniflare"].filter(Boolean)) {
   try { Miniflare = (await import(cand.startsWith("/") ? pathToFileURL(path.join(cand, "dist/src/index.js")).href : cand)).Miniflare; if (Miniflare) break; } catch { /* */ }
@@ -33,9 +34,9 @@ function boot(vars = {}, calls) {
     mf: new Miniflare({
       modules: true, scriptPath: entry, modulesRoot: path.dirname(entry), compatibilityDate: "2026-08-01",
       modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
-      durableObjects: { COMPARE_ORDERS: { className: "CompareOrders", useSQLite: true }, COMPARE_BUDGET: { className: "CompareBudget", useSQLite: true }, QUOTA: { className: "QuotaCounter", useSQLite: true } },
+      durableObjects: { COMPARE_ORDERS: { className: "CompareOrders", useSQLite: true }, COMPARE_BUDGET: { className: "CompareBudget", useSQLite: true }, QUOTA: { className: "QuotaCounter", useSQLite: true }, FREE_BUDGET: { className: "FreeBudget", useSQLite: true } },
       kvNamespaces: ["REVIEWS_KV"],
-      bindings: Object.fromEntries(Object.entries({ ...baseVars(), ...vars }).filter(([, v]) => v !== undefined)),
+      bindings: Object.fromEntries(Object.entries({ ...baseVars(), ...(({ FREE_BUDGET, ...g }) => g)(gateVars()), ...vars }).filter(([, v]) => v !== undefined)),
       outboundService: async (req) => {
         const u = new URL(req.url);
         const body = req.method === "POST" ? await req.text() : "";

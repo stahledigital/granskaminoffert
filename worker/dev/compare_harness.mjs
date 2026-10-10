@@ -124,12 +124,15 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
   const bindings = {
     COMPARE_ENABLED: "1", COMPARE_PAYMENTS: "test", STRIPE_SECRET_KEY: "sk_test_devdevdev1234", STRIPE_WEBHOOK_SECRET: WH_SECRET,
     COMPARE_MONTH_CAP_MICRO: "20000000", COMPARE_PAID_CAP_MICRO: "10000000", COMPARE_ORDER_CAP_MICRO: "2000000", COMPARE_DAY_ORDERS: "200",
-    COMPARE_RETURN_URL: base + "/jamfor/", ANTHROPIC_API_KEY: "sk-ant-dev-inte-riktig", COMPARE_MAILER_MODE: "mock", ALLOWED_ORIGIN: base, ANTHROPIC_MODEL: "claude-sonnet-5-5", ...vars,
+    COMPARE_RETURN_URL: base + "/jamfor/", ANTHROPIC_API_KEY: "sk-ant-dev-inte-riktig", COMPARE_MAILER_MODE: "mock", ALLOWED_ORIGIN: base, ANTHROPIC_MODEL: "claude-sonnet-5-5",
+    // D12: gemensam pott även i dev-harness (lokal, ingen riktig modell). Giltig pilot runt "nu"; tak 20 USD.
+    FREE_PILOT_ENABLED: "1", FREE_PILOT_ID: "dev-harness-" + Date.now(), FREE_PILOT_CAP_MICRO: "20000000",
+    FREE_PILOT_FROM: new Date(Date.now() - 86400000).toISOString().replace(/\.\d{3}Z$/, "Z"), FREE_PILOT_UNTIL: new Date(Date.now() + 30 * 86400000).toISOString().replace(/\.\d{3}Z$/, "Z"), FREE_PILOT_MANDATE: "DEV-HARNESS-ENDAST-LOKALT", ...vars,
   };
   const mf = new miniflareMod.Miniflare({
     modules: true, scriptPath: out, modulesRoot: path.dirname(out), compatibilityDate: "2026-08-01",
     modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
-    durableObjects: { COMPARE_ORDERS: { className: "CompareOrders", useSQLite: true }, COMPARE_BUDGET: { className: "CompareBudget", useSQLite: true }, QUOTA: { className: "QuotaCounter", useSQLite: true } },
+    durableObjects: { COMPARE_ORDERS: { className: "CompareOrders", useSQLite: true }, COMPARE_BUDGET: { className: "CompareBudget", useSQLite: true }, QUOTA: { className: "QuotaCounter", useSQLite: true }, FREE_BUDGET: { className: "FreeBudget", useSQLite: true } },
     kvNamespaces: ["REVIEWS_KV"],
     bindings: Object.fromEntries(Object.entries(bindings).filter(([, v]) => v !== undefined)),
     outboundService: async (req) => {

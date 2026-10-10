@@ -1,6 +1,7 @@
 // D03 (GMO-REVISION-20261009-01): paket B (validering), E (kvot/indatagräns), F1 (modell/hälsa),
 // mätning. Allt mot mock: INGET anrop till Anthropic, ingen nyckel, inget nätverk.
 // Mock-körningar bevisar kodvägarna, aldrig AI:ns träffsäkerhet (EJ TESTAT).
+import { gateVars } from "./helpers/free_gate.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker, { buildPriceReport, degradedPriceReport, normalizeClientEvent, tratt } from "../src/index.js";
@@ -20,7 +21,7 @@ function fakeKV({ delay = 0, failGet = false, failPut = false } = {}) {
     async put(k, v) { await wait(); if (failPut) throw new Error("kv put nere"); m.set(k, v); },
   };
 }
-const env = (over = {}) => ({ REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_API_KEY: "test", ...over });
+const env = (over = {}) => ({ REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), ...gateVars(), ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_API_KEY: "test", ...over });
 const ctx = () => { const jobs = []; return { jobs, waitUntil: (p) => jobs.push(p) }; };
 const fakeAE = () => { const p = []; return { p, writeDataPoint: (x) => p.push(x) }; };
 const req = (body, extra = {}) => new Request("https://api.test/review", {
@@ -165,7 +166,7 @@ test("F1: kostnad ur faktisk användning, okänd modell = okänd kostnad (inte n
 });
 
 test("F1: Worker använder rätt anropsform och loggar modell + kostnadsstatus; okänd modell loggas som okänd", async () => {
-  for (const [model, tc, temp, status] of [["claude-sonnet-4-5-20250929", "tool", 0, "känd"], ["claude-sonnet-5-5", "auto", undefined, "känd"], ["claude-framtid-9", "auto", undefined, "okand"]]) {
+  for (const [model, tc, temp, status] of [["claude-sonnet-4-5-20250929", "tool", 0, "känd"], ["claude-sonnet-5-5", "auto", undefined, "känd"]]) {
     const m = mockAnthropic();
     const ae = fakeAE();
     try {
@@ -181,6 +182,12 @@ test("F1: Worker använder rätt anropsform och loggar modell + kostnadsstatus; 
       assert.equal(u.doubles[2] === 0, status === "okand");
     } finally { m.restore(); }
   }
+  // D12: okänd modell = okänt värsta fall ⇒ ingen reservation och ingen generation (tidigare: 200 med "okand" kostnad).
+  const m = mockAnthropic();
+  try {
+    const r = await worker.fetch(req({ kind: "text", text: "Offert" }, { "CF-Connecting-IP": "198.51.100.77" }), env({ ANTHROPIC_MODEL: "claude-framtid-9" }), ctx());
+    assert.equal(r.status, 503); assert.equal(m.calls.messages, 0, "inget generationsanrop");
+  } finally { m.restore(); }
 });
 
 test("F1: /health visar modell, referensversion, bygge och kvotläge", async () => {

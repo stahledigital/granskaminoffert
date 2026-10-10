@@ -17,6 +17,7 @@ import { buildExtractRequest, readOffer, sanitizeOffer, EXTRACT_VERSION } from "
 import { compareOffers, offerLabels } from "./compare_engine.js";
 import { buildSynthRequest, readPriority, assembleReport } from "./compare_report.js";
 import * as budget from "./compare_budget.js";
+import { freeReserve, freeSettle, freeUnknown, freeRelease } from "./free_budget.js";
 
 const SAFETY_TOKENS = 600; // marginal för verktygsschema/system som tokenräknaren redan ska ha tagit med
 
@@ -30,8 +31,13 @@ async function guardedCall({ env, io, key, orderId, scope, inputTokens, body, mo
   const usd = worstCaseUsd(model, inputTokens);
   if (usd === null) throw new Stop({ state: "failed", reason: "okand_modell" });
   const micro = budget.usdToMicro(usd);
-  const r = await budget.reserve(env, { key, scope, orderId, micro, caps, now: new Date(io.now()) });
-  if (!r.ok) throw new Stop({ state: "failed", reason: `budget:${r.reason}` });
+  // D12: EN gemensam, ändlig pott för ALL modellförbrukning (gratis och betald). Ingen separat/extra pott för betald trafik: reservationen görs FÖRST
+  // i FreeBudget (pilot-id, tak, period); därefter i CompareBudget (ordertak/deltak, människosatta, enbart extra begränsningar).
+  const now0 = new Date(io.now()), fkey = `c:${key}`.slice(0, 96);
+  const fr = await freeReserve(env, { key: fkey, micro, now: now0 });
+  if (!fr.ok) throw new Stop({ state: "failed", reason: `pott:${fr.reason}` });
+  const r = await budget.reserve(env, { key, scope, orderId, micro, caps, now: now0 });
+  if (!r.ok) { await freeRelease(env, { key: fkey, now: now0 }); throw new Stop({ state: "failed", reason: `budget:${r.reason}` }); }
 
   let resp;
   try {
@@ -44,6 +50,7 @@ async function guardedCall({ env, io, key, orderId, scope, inputTokens, body, mo
   } catch {
     // Nätverksfel/tidsgräns: oklart om något debiterades → värsta fallet behålls och nya generationer stoppas.
     await budget.settle(env, { key, actual: micro, usageKnown: false });
+    await freeUnknown(env, { key: fkey, worstMicro: micro, now: new Date(io.now()) });
     return { error: "natverk", charged: "okand" };
   }
   let json = null;
@@ -51,6 +58,7 @@ async function guardedCall({ env, io, key, orderId, scope, inputTokens, body, mo
   if (!resp.ok) {
     // HTTP-fel från leverantören debiteras inte (4xx/5xx) → frigör reservationen.
     await budget.release(env, { key });
+    await freeRelease(env, { key: fkey, now: new Date(io.now()) });
     return { error: `http_${resp.status}`, charged: "nej", transient: resp.status === 429 || resp.status >= 500 };
   }
   const cost = computeCost(model, json && json.usage);
@@ -59,6 +67,7 @@ async function guardedCall({ env, io, key, orderId, scope, inputTokens, body, mo
   } else {
     await budget.settle(env, { key, actual: micro, usageKnown: false });
   }
+  await freeSettle(env, { key: fkey, model, usage: json && json.usage, worstMicro: micro, now: new Date(io.now()) });
   return { json, cost };
 }
 

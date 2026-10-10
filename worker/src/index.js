@@ -11,19 +11,19 @@
 import REFERENCE from "./reference.json" with { type: "json" };
 import { runRules, checkNormalAddons, compareToBands, findForbidden, scrubForbidden } from "./rules.js";
 import { sanitizeExtracted, sanitizeReview, FIELD_LABELS } from "./sanitize.js";
-import { DEFAULT_MODEL, modelInfo, buildAnthropicRequest, computeCost, worstCaseUsd } from "./models.js";
+import { DEFAULT_MODEL, modelInfo, buildAnthropicRequest, computeCost } from "./models.js";
+import { freeGateStatus, freeReserve, freeSettle, freeUnknown, freeRelease, worstMicroFor } from "./free_budget.js";
 import { reserve, quotaMode, parseLimit, QuotaCounter } from "./quota.js";
 import { sniffFile, countInputTokens, DEFAULT_INPUT_TOKEN_LIMIT } from "./limits.js";
 
 // Durable Object-klassen måste exporteras härifrån för att kunna bindas (wrangler.toml, avsnittet QUOTA).
 export { QuotaCounter };
 export { ExplainBudget } from "./explain_budget.js";
+export { FreeBudget } from "./free_budget.js";
 export { CompareOrders } from "./compare_orders.js";
 export { CompareBudget } from "./compare_budget.js";
 import { handleCompare } from "./compare_routes.js";
 import { compareEnabled } from "./compare_config.js";
-import { gateEnabled, gateReserve, gateSettle, gateUnknown, gateRelease } from "./cost_gate.js";
-import { usdToMicro } from "./compare_budget.js";
 import { probeCreditOrg, creditExpired } from "./org_probe.js";
 import { handleExplain, explainCors, explainOrigins } from "./explain.js";
 
@@ -273,7 +273,7 @@ function corsHeaders(origin, allowedOrigins) {
 // Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
 // Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
 // aldrig underlag för fakturering.
-const WORKER_VERSION = "gmo-api-v12";
+const WORKER_VERSION = "gmo-api-v13";
 
 function dayKey(d = new Date()) {
   return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
@@ -632,6 +632,10 @@ async function handleReview(request, env, ctx, allowedOrigins) {
 
   const unavailable = () => jsonResponse({ error: "Tjänsten kan just nu inte kontrollera sina gränser och är därför tillfälligt stängd. Försök igen senare." }, 503, headers);
 
+  // D12: gratis-kostnadsskyddet. Stängd pilot (ej aktiverad/utgången/halt/slut/konfig/lagringsfel) ⇒ ingen tokenmätning, ingen kvot, inget anrop.
+  const gs = await freeGateStatus(env, new Date());
+  if (!gs.open) { console.log(JSON.stringify({ route: "review", warn: "free_gate_closed", state: gs.state })); return unavailable(); }
+
   const rl = await rateLimit(env, ip);
   if (!rl.ok) {
     if (rl.reason === "fel") return unavailable();
@@ -646,8 +650,7 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   // Indatagräns före betalt anrop: mät med Anthropics (kostnadsfria) tokenräknare.
   // Fil-anrop som inte går att mäta nekas; text är redan begränsad till 20 000 tecken.
   let inputTokens = null;
-  // Med gaten PÅ mäts även text (ingen teckenheuristik): kan det inte mätas nekas anropet.
-  if (kind !== "text" || gateEnabled(env)) {
+  { // D12: ALLA anrop mäts (även text) – utan mätning ingen reservation och ingen generation.
     const tokenLimit = parseInt(env.INPUT_TOKEN_LIMIT || String(DEFAULT_INPUT_TOKEN_LIMIT), 10);
     try {
       inputTokens = await countInputTokens(env, anthropicBody);
@@ -660,26 +663,21 @@ async function handleReview(request, env, ctx, allowedOrigins) {
     }
   }
 
+  // D12: reservation av värsta fallet i det gemensamma, atomära pilottaket FÖRE dagsräknaren och FÖRE anropet.
+  const gateMicro = worstMicroFor(model, inputTokens);
+  if (gateMicro === null) return unavailable();
+  const gateKey = `rev:${debugId}`;
+  const gres = await freeReserve(env, { key: gateKey, micro: gateMicro, now: new Date() });
+  if (!gres.ok) { console.log(JSON.stringify({ route: "review", warn: "free_gate_denied", reason: gres.reason })); return unavailable(); }
+
   const globalRes = await globalDailyLimitOk(env);
   if (!globalRes.ok) {
+    await freeRelease(env, { key: gateKey });
     if (globalRes.reason === "fel" || globalRes.reason === "ingen_atomar_kvot") return unavailable();
     return jsonResponse({ error: "Tjänsten har nått sitt dagliga tak för granskningar. Försök igen imorgon." }, 429, headers);
   }
 
-  // Gemensam kostnadsgate (AV som standard, COST_GATE="1"): reservation före anropet, annars inget anrop.
-  let gateKey = null, gateMicro = 0;
-  if (gateEnabled(env)) {
-    if (inputTokens === null) return unavailable(); // aldrig en gissad mängd
-    const estTokens = inputTokens;
-    const worst = worstCaseUsd(model, estTokens + 600);
-    if (worst === null) return unavailable();
-    gateMicro = usdToMicro(worst);
-    gateKey = `rev:${debugId}`;
-    const g = await gateReserve(env, { key: gateKey, micro: gateMicro });
-    if (!g.ok) return unavailable();
-  }
-
-  let review, usage, rawStatus, errorDetail;
+  let review, usage, rawStatus, errorDetail, gateDone = false;
   try {
     const resp = await fetch(ANTHROPIC_URL, {
       method: "POST",
@@ -695,14 +693,15 @@ async function handleReview(request, env, ctx, allowedOrigins) {
     const respJson = await resp.json();
     if (!resp.ok) {
       errorDetail = respJson;
-      if (gateKey) { await gateRelease(env, { key: gateKey }); gateKey = null; } // HTTP-fel debiteras inte
+      await freeRelease(env, { key: gateKey }); // HTTP-fel debiteras inte
+      gateDone = true;
       throw new Error(`Anthropic API ${resp.status}: ${JSON.stringify(respJson).slice(0, 500)}`);
     }
     usage = respJson.usage;
-    if (gateKey) { await gateSettle(env, { key: gateKey, model, usage, worstMicro: gateMicro }); gateKey = null; }
+    await freeSettle(env, { key: gateKey, model, usage, worstMicro: gateMicro }); gateDone = true; // uppmätt kostnad (saknas usage: värsta fallet + halt)
     review = sanitizeReview(readReview(respJson));
   } catch (e) {
-    if (gateKey) { await gateUnknown(env, { key: gateKey, worstMicro: gateMicro }); gateKey = null; } // nät-/tidsfel: oklar användning
+    if (!gateDone) await freeUnknown(env, { key: gateKey, worstMicro: gateMicro }); // nät-/tidsfel/ogiltigt svar: oklar användning
     ctx.waitUntil(
       kvPut(
         env,
@@ -848,6 +847,7 @@ export default {
       try { counters = await readCounters(env); } catch (e) { /* KV nere: svara ändå */ }
       const model = env.ANTHROPIC_MODEL || DEFAULT_MODEL;
       const info = modelInfo(model);
+      const fg = await freeGateStatus(env, new Date()); // D12: bara läget, aldrig belopp/mandat
       return jsonResponse(
         {
           ok: true, hasApiKey: Boolean(env.ANTHROPIC_API_KEY), ...counters, version: WORKER_VERSION,
@@ -857,6 +857,7 @@ export default {
           referenceVersion: REFERENCE.version,
           // AI-förklaring (S3): av som standard. Visar bara läget, aldrig hemligheter.
           explain: { enabled: env.EXPLAIN_ENABLED === "1", budgetBinding: Boolean(env.EXPLAIN_BUDGET && typeof env.EXPLAIN_BUDGET.get === "function"), turnstileSecret: Boolean(env.TURNSTILE_SECRET_KOLLAR) },
+          freeGate: { open: fg.open, state: fg.state },
           compare: { enabled: compareEnabled(env) },
           quotaMode: quotaMode(env), quotaHardCap: quotaMode(env) === "durable_object", paidTrafficAllowed: quotaMode(env) === "durable_object",
         },

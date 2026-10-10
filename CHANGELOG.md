@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1n – D12 integrerad i betalkedjan (KANDIDAT – AV, ej släppt; ovanpå D11-P2c 1552eda7 + D12 8da1c644)
+- EN gemensam ändlig pott (FreeBudget, D12 exakt källa) för ALL modellförbrukning: gratis /review,/explain och betald jämförelse. Ingen separat/extra 20 USD-pott när betalgrenen kopplas in; CompareBudget-taken (månad/betald/order) är enbart extra begränsningar. Betalda generationer stoppar vid pilotens slut eller tak; ordern får `pott:<orsak>`.
+- d04:s egen COST_GATE/cost_gate.js är borttagen till förmån för D12 (samma reservera→avräkna→frigör/halt-semantik, atomär transaktion). /health visar bara freeGate {open,state}.
+- wrangler: FreeBudget migration v3 (live sedan gmo-api-v13) orörd; compare-migreringen (utkommenterad) numrerad v4 vid framtida släpp. Frontend b04e90ab/gmo-v21 orört.
+- Test: compare_pot (betald trafik delar potten, ej aktiv/litet tak ⇒ inget anrop), compare_runtime/harness med FREE_BUDGET-DO. Offline; ingen deploy/push/riktigt modellanrop.
+
 ## jamfor-v1m – D11-P2c företag läses ur offerten (KANDIDAT – AV, ej släppt; ovanpå D11-P2b a4054d91)
 - Efter köpet föreslås firman per offert ur utställaridentiteten (GET /compare/orders/:id/sources/identity, bara efter leverans): komplett identitet + utförare + bolag + ort + ingen namnkrock ⇒ läggs in automatiskt (origin "dokument"), annars kort "Stämmer det?"; enskild firma ⇒ inget namn/ort lämnar servern och inga källor; ej avläst/saknas ⇒ kort rad + "Lägg till företag". Normalt ingen manuell inmatning.
 - "Ändra företag" per firma (origin "kund" vinner över dokumentförslag); ändrad identitet nollställer gammal Google-/Trustpilot-matchning. Manuell ruta före köp är valfri och hopfälld. Förslagen bär aldrig orgnr/adress/telefon.
@@ -52,6 +58,13 @@
 - Serverpris, hostad Stripe Checkout (adapter), signerad webhook, idempotens, kontroll av belopp/valuta/order, atomisk arbetsclaim (DO + lease) och atomisk kostnadsreservation (DO, µUSD) utan standardtak (fail closed). Jämförelsemotor som aldrig rangordnar när omfattningen är okänd eller olika. Datakort finns bara som avstängd offlinemodul.
 - Ny sida `jamfor/index.html` (noindex) och villkorsutkast `jamfor/villkor/`. Refaktor utan beteendeändring: `extracted_schema.js` och `user_content.js` ut ur `index.js`.
 - **EJ TESTAT/EJ GJORT:** riktiga modellanrop, riktig Stripe (test/live), Google/Trustpilot, riktig mobil/VoiceOver, produktionsbeständighet, juridiska texter. Se COMPARE.md för externa steg.
+
+## gmo-api-v13 – D12 kostnadsskydd för gratisversionen (KANDIDAT – ej släppt, ej deployad; separat gren från livebacbb6a, frontend orörd)
+- Ny `worker/src/free_budget.js` (`FreeBudget`, SQLite-DO, enda skrivare): ÄNDLIG pilot med explicit period [FROM, UNTIL) och ETT totalt tak i µUSD – ingen ny pott vid månadsskifte/kalenderomslag. Saknad/ogiltig/utgången konfiguration, saknad bindning, lagringsfel, halt eller slut ⇒ ingen gratisgeneration (503). Tak/slut för samma pilot-id kan bara sänkas; ny pott kräver nytt id + spårbar mandatreferens; ingen reset-/påfyllningsrutt.
+- `/review`: alla anrop mäts med count_tokens (även text), reservation av värsta fallet före dagsräknaren och anropet, avräkning mot uppmätt kostnad, release vid HTTP-fel/nekad dagsräknare, halt vid okänd användning/överskridning. Okänd modell ⇒ ingen generation. `/explain` (AV) delar samma pott. `/health` visar `freeGate:{open,state}`. Befintliga 300/dag, IP-/filgränser och REVIEW_RL består.
+- Bindning `FREE_BUDGET`, migration `v3`, `FREE_PILOT_ENABLED="0"` i wrangler.toml; inga värden/secrets i repo. Se `worker/FREE_GATE.md` (config, importer, operatörssteg, rollback). 172/172 offline-tester inkl. samtidighet, exakt slut, periodslut/månadsskifte, lagringsfel och workerd-DO.
+- UNKNOWN/EJ TESTAT: riktig workerd/Anthropic-usage i produktion, faktisk fakturering; inga riktiga modellanrop gjorda.
+- **Rättning (root-QA P1):** `FreeBudget` utför varje operation i EN `storage.transaction`; halvskrivningar (m skriven, r-skrivning felar) rullas tillbaka och retry räknar aldrig bort förbrukning två gånger; saknad transaktion ⇒ nekat. Halt-policy, tak och period oförändrade. Fake-adaptern har riktig rollback + faultinjektion; nya facit (root-scenariot, faultmatris) och verklig workerd/SQLite-kontroll (`free_gate_runtime.test.mjs`). 177/177.
 
 ## gmo-api-v12 – S3-rättning (slutna ID, fast text) + S4 org-kontroll + kreditstopp i /explain (KANDIDAT 11 – ej släppt, bas 646ff79 (live frontend gmo-v20, alla fem frontendfiler orörda), EN squash-commit)
 - **S3-rättning (Codex `S3_RATTNINGAR.md`):** modellen returnerar bara `priority_ids` (1–3, enum ur serverns giltiga åtgärder). Fri intro finns inte längre; varje annat fält i modellsvaret avvisas. ALL synlig text (intro `AI_INTRO`, etikett, åtgärder) är fast servertext, så obelagda påståenden (lösenordsläckage, betalningsanmärkningar, dataläckage) aldrig kan nå kunden. Ordlistevalideringen är borttagen. Cacheposter med gamla fria fält avvisas (`explain-v2`). Codex `explain_acceptance.mjs`: **8/8** (var 5/8), positivt ID-fall fungerar.

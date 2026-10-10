@@ -192,7 +192,7 @@ export const methodsKey = (m) => (m.kind === "dynamic" ? "dyn" : m.types.join("+
 export function budgetConfig(env) {
   const month = intOrNaN(env && env.COMPARE_MONTH_CAP_MICRO);
   const paid = intOrNaN(env && env.COMPARE_PAID_CAP_MICRO);
-  const free = intOrNaN(env && env.COMPARE_FREE_CAP_MICRO);
+  const free = intOrNaN(env && env.COMPARE_FREE_CAP_MICRO); // äldre fält, oanvänt av D12-potten (ingen separat gratispott); bevaras för kompatibilitet
   const order = intOrNaN(env && env.COMPARE_ORDER_CAP_MICRO);
   const dayOrders = intOrNaN(env && env.COMPARE_DAY_ORDERS);
   const ok = [month, paid, order, dayOrders].every((v) => Number.isSafeInteger(v) && v > 0) && paid <= month;

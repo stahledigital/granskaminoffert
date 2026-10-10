@@ -1,3 +1,4 @@
+import { gateVars } from "./helpers/free_gate.mjs";
 import { readFileSync } from "node:fs";
 // Kör: node --test worker/test/  (Node 20+). Ingen nätverksåtkomst, ingen nyckel.
 import { test } from "node:test";
@@ -17,7 +18,7 @@ function fakeKV() {
 }
 const ORIGIN = "https://granskaminoffert.se";
 function env(over = {}) {
-  return { REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_API_KEY: "test", ...over };
+  return { REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), ...gateVars(), ALLOWED_ORIGIN: ORIGIN, ANTHROPIC_API_KEY: "test", ...over };
 }
 function ctx() { const jobs = []; return { jobs, waitUntil: (p) => jobs.push(p) }; }
 const fakeReview = {
@@ -47,7 +48,7 @@ test("/health utan granskningar", async () => {
   const j = await r.json();
   assert.equal(j.ok, true); assert.equal(j.hasApiKey, true);
   assert.equal(j.reviewsToday, 0); assert.equal(j.reviewsTotal, 0);
-  assert.equal(j.version, "gmo-api-v12");
+  assert.equal(j.version, "gmo-api-v13");
   assert.equal(j.dailyLimit, 300);
   assert.deepEqual(j.shares.email, { total: 0, today: 0 });
   assert.deepEqual(j.byPath.hantverkare, { total: 0, today: 0 });
@@ -70,7 +71,7 @@ test("lyckad granskning: räknare och anonym statistikpost, inga personuppgifter
   const e = env();
   const c = ctx();
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({
+  globalThis.fetch = async (u) => String(u).endsWith("/count_tokens") ? Response.json({ input_tokens: 1000 }) : new Response(JSON.stringify({
     content: [{ type: "tool_use", name: "submit_review", input: fakeReview }],
     usage: { input_tokens: 1000, output_tokens: 500 },
   }), { status: 200 });
@@ -122,7 +123,7 @@ test("delningsklick räknas per kanal, bara från vår origin", async () => {
 test("granskning räknas per väg", async () => {
   const e = env(); const c = ctx();
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({ content: [{ type: "tool_use", name: "submit_review", input: fakeReview }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 });
+  globalThis.fetch = async (u) => String(u).endsWith("/count_tokens") ? Response.json({ input_tokens: 1000 }) : new Response(JSON.stringify({ content: [{ type: "tool_use", name: "submit_review", input: fakeReview }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 });
   try {
     const r = await worker.fetch(new Request("https://x/review", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "CF-Connecting-IP": "203.0.113.9" }, body: JSON.stringify({ kind: "text", text: "Offert 42 820 kr", path: "mottagare" }) }), e, c);
     assert.equal(r.status, 200);
@@ -140,7 +141,7 @@ test("prislager i svaret, förbjudna ord tvättas, prisstatistik bara vid opt-in
     customerType: "privatperson", workDescription: "Byte av takpannor", county: "Kronoberg", areaM2: 32, unitCount: null };
   const dirty = { ...fakeReview, calcNote: "Detta verkar vara ett överpris, kanske svart.", extracted };
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({ content: [{ type: "tool_use", name: "submit_review", input: dirty }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 });
+  globalThis.fetch = async (u) => String(u).endsWith("/count_tokens") ? Response.json({ input_tokens: 1000 }) : new Response(JSON.stringify({ content: [{ type: "tool_use", name: "submit_review", input: dirty }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 });
   const call = async (e, c, stats) => {
     const r = await worker.fetch(new Request("https://x/review", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "CF-Connecting-IP": "203.0.113.9" }, body: JSON.stringify({ kind: "text", text: "Offert", path: "mottagare", stats }) }), e, c);
     assert.equal(r.status, 200);
@@ -268,7 +269,7 @@ test("tratt: uppladdning_start + granskning_fel med orsak, test märks separat, 
 test("tratt: granskning_klar vid 200, och inget räknas från främmande origin", async () => {
   const ae = fakeAE();
   const orig = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({
+  globalThis.fetch = async (u) => String(u).endsWith("/count_tokens") ? Response.json({ input_tokens: 1000 }) : new Response(JSON.stringify({
     stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 },
     content: [{ type: "tool_use", name: "submit_review", input: fakeReview }],
   }), { status: 200, headers: { "content-type": "application/json" } });

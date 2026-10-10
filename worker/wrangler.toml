@@ -23,6 +23,10 @@ binding = "GRANSKA_H"
 dataset = "granska_handelser"
 
 [vars]
+# D12: gratis-kostnadsskyddet är AV (nekar all gratisgenerering) tills en människa sätter ALLA fem värdena:
+#   FREE_PILOT_ENABLED="1", FREE_PILOT_ID (a-z0-9-, 3–41 tecken), FREE_PILOT_CAP_MICRO (µUSD, TOTALT för perioden),
+#   FREE_PILOT_FROM och FREE_PILOT_UNTIL (ISO med Z eller +hh:mm, max 92 dygn), FREE_PILOT_MANDATE (spårbar referens, 8–120 tecken, inga hemligheter).
+FREE_PILOT_ENABLED = "0"
 # Kommaseparerad lista om fler origins behövs (t.ex. under test).
 ALLOWED_ORIGIN = "https://granskaminoffert.se"
 # Modell. claude-sonnet-4-5-20250929 är "Deprecated" sedan 2026-09-30 med preliminärt
@@ -79,6 +83,18 @@ class_name = "ExplainBudget"
 tag = "v2"
 new_sqlite_classes = ["ExplainBudget"]
 
+# D12: ÄNDLIGT, atomärt kostnadsskydd för gratisgenerationer (/review och /explain), src/free_budget.js. EN pott per pilot-id (en SQLite-DO-instans
+# per id, enda skrivare), ett TOTALT tak i µUSD och en giltighetsperiod [FROM, UNTIL) – inget kalenderomslag, ingen ny pott vid månadsskifte.
+# Utan aktivering och giltig konfiguration NEKAS alla gratisgenerationer (503, tillfälligt stängd). Sätt värdena via `wrangler deploy --var`
+# eller dashboard först efter ett MÄNSKLIGT beslut; inga värden finns här. Se worker/FREE_GATE.md. Taket/slutet kan för samma pilot-id bara sänkas.
+[[durable_objects.bindings]]
+name = "FREE_BUDGET"
+class_name = "FreeBudget"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["FreeBudget"]
+
 # ---- Valfritt, INTE aktiverat ----
 # Begränsning av klienthändelser (/event), samma slags bindning som REVIEW_RL:
 #   [[ratelimits]]
@@ -99,9 +115,9 @@ new_sqlite_classes = ["ExplainBudget"]
 #   name = "COMPARE_BUDGET"
 #   class_name = "CompareBudget"
 #   [[migrations]]
-#   tag = "v3"
+#   tag = "v4"   # v3 = FreeBudget (D12, LIVE sedan 2026-10-11); betalmigrationen måste komma EFTER den
 #   new_sqlite_classes = ["CompareOrders", "CompareBudget"]
-# Gemensam kostnadsgate för /review och /explain (AV som standard): COST_GATE="1" + COMPARE_MONTH_CAP_MICRO + COMPARE_FREE_CAP_MICRO (människosatta, se COMPARE.md). Inget sätts här.
+# Kostnadsgate: /review, /explain OCH betalda jämförelsegenerationer reserverar i EN gemensam pott (D12 FreeBudget, pilot-id). Ingen separat/extra pott för betald trafik; COMPARE_*_CAP_MICRO är ENDAST extra, lägre per-scope/order-tak (människosatta).
 # OBS: koden exporterar redan klasserna, men utan bindningarna ovan och COMPARE_ENABLED="1" gör /compare ingenting (503).
 # Valfritt: [[ratelimits]] name = "COMPARE_RL" namespace_id = "1004" simple = { limit = 6, period = 60 }
 
