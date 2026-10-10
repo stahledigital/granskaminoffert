@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1f – rättning efter root-QA 20:38 (KANDIDAT – AV, ej släppt; separat commit ovanpå D07 f96a7b0)
+- D06: order+ledger+utkorg skrivs i en lagringstransaktion med idempotent reparation av delskrivning; ångerlänk på startsidan; full säljarinfo och fullständig villkorssnapshot i samtyckeshash/avtalspost/bekräftelse (villkorssidan renderar serverns text); verklig retention-svep (lazy + admin, fail closed).
+- D07: Googles element rättade till `gmp-advanced-place-details`, native `gmp-place-search`-val (server Text Search AV bakom extra flagga), nativa `gmp-load`/`gmp-error` + timeout + versionsbunden mount, visningsfel i täckningen, domänkonflikt separeras, identitetsändring rensar bekräftelser, Trustpilot-schemafel ⇒ källfel. Se `worker/COMPARE.md`.
+
 ## jamfor-v1b – D04 rättning efter root-QA (KANDIDAT – AV, ej släppt; ovanpå commit 2de6569)
 - Gemensam kostnadsgate (AV som standard) för `/review` och `/explain`; alarm vid uttömda försök ⇒ failed; oföränderliga dokumentnycklar + manifest (sen PUT kan inte radera låst original); återbetalning bara `done` vid Stripe `succeeded` (+ avstämning/webhook); checkout-intent frusen per försök; samtycke bundet till version/hash med tydligt UTKASTläge (live stängd); datatäckning “inga omdömen” före köp; ytskillnad utan tolerans och alla omfattningsskillnader stoppar rangordning; UI-testets väntvillkor. Se `worker/COMPARE.md`.
 

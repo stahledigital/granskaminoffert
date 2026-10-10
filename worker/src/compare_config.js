@@ -61,14 +61,48 @@ export function retentionPolicy(env) {
   const avtal = dayCount(env && env.COMPARE_LEDGER_RETENTION_DAYS), bokforing = dayCount(env && env.COMPARE_BOOKKEEPING_RETENTION_DAYS);
   return { ok: avtal !== null && bokforing !== null, avtalDays: avtal, bokforingDays: bokforing };
 }
-// Säljaruppgifter till avtalsbekräftelsen. Saknas de i testläge används tydligt märkta platshållare; live kräver riktiga.
+// Säljaruppgifter till avtalsbekräftelsen/villkoren. ALLT kommer från konfiguration (miljövariabler) – inga riktiga identifierare finns i koden.
+// Saknas fält i testläge används tydligt märkta platshållare; live kräver ALLA obligatoriska fält (telefon är valfri).
+const clip = (v, n) => String((v == null ? "" : v)).replace(/[\r\n\t]+/g, " ").trim().slice(0, n);
 export function sellerInfo(env) {
-  const name = String((env && env.COMPARE_SELLER_NAME) || "").trim().slice(0, 120);
-  const orgnr = String((env && env.COMPARE_SELLER_ORGNR) || "").trim().slice(0, 20);
-  const email = String((env && env.COMPARE_SELLER_EMAIL) || "").trim().slice(0, 120);
-  const complete = !!(name && /^\d{6}-?\d{4}$/.test(orgnr) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-  return complete ? { name, orgnr, email, placeholder: false } : { name: name || "[Säljare – fylls i före skarp drift]", orgnr: orgnr || "[org.nr]", email: email || "[kontakt-e-post]", placeholder: true };
+  const g = (k, n) => clip(env && env[k], n);
+  const name = g("COMPARE_SELLER_NAME", 120), orgnr = g("COMPARE_SELLER_ORGNR", 20), email = g("COMPARE_SELLER_EMAIL", 120);
+  const address = g("COMPARE_SELLER_ADDRESS", 200), phone = g("COMPARE_SELLER_PHONE", 30), vat = g("COMPARE_SELLER_VAT", 20).replace(/\s+/g, "");
+  const ok = {
+    name: !!name, orgnr: /^\d{6}-?\d{4}$/.test(orgnr), email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
+    address: address.length >= 8, vat: /^SE\d{12}$/.test(vat), phone: phone === "" || /^[+0-9][0-9 ()-]{5,29}$/.test(phone),
+  };
+  const complete = Object.values(ok).every(Boolean);
+  const ph = (v, label) => v || `[${label} – fylls i före skarp drift]`;
+  return {
+    name: ph(name, "Säljare"), orgnr: ph(orgnr, "org.nr"), email: ph(email, "kontakt-e-post"), address: ph(address, "adress"), vat: ph(vat, "momsreg.nr"), phone: phone || null,
+    placeholder: !complete, missing: Object.entries(ok).filter(([, v]) => !v).map(([k]) => k),
+  };
 }
+export function sellerLines(sel) {
+  return [`Säljare: ${sel.name}`, `Organisationsnummer: ${sel.orgnr}`, `Momsregistreringsnummer: ${sel.vat}`, `Adress: ${sel.address}`, `E-post: ${sel.email}`, ...(sel.phone ? [`Telefon: ${sel.phone}`] : [])];
+}
+const krText = (ore) => `${(ore / 100).toFixed(2).replace(".", ",")} kr`;
+// Fullständig villkors-/avtalstext (UTKAST) ägd av servern. Den som kunden ser, godkänner (hash) och får i bekräftelsen är EXAKT denna snapshot.
+// Ingen slutlig juridisk text: öppna beslut står som [hakparentes]-platshållare och live är stängt (CONSENT.draft) tills människa fastställt dem.
+export const TERMS_VERSION = "villkor-utkast-1";
+export function termsSnapshot(env) {
+  const seller = sellerInfo(env), pol = retentionPolicy(env), copy = offerCopy(env);
+  const vatOre = vatPart(OFFER.priceOre, OFFER.vatPct);
+  const days = (d, what) => (d === null ? `[lagringstid för ${what} är inte fastställd]` : `${d} dagar`);
+  const sections = [
+    { id: "saljare", title: "Säljare", text: sellerLines(seller).join("\n") },
+    { id: "tjansten", title: "Tjänsten", text: [`${OFFER.product} jämför innehåll i ${OFFER.minDocs}–${OFFER.maxDocs} offerter som du själv laddar upp.`, "Det här ingår:", ...copy.gets.map((t) => `- ${t}`), "Det här ingår inte:", ...copy.getsNot.map((t) => `- ${t}`), "Så går det till:", ...copy.how.map((t) => `- ${t}`)].join("\n") },
+    { id: "pris", title: "Pris och betalning", text: `Pris: ${krText(OFFER.priceOre)} inklusive moms (varav moms ${krText(vatOre)}, ${OFFER.vatPct} %). Engångsköp. Betalningen sker hos betalleverantören Stripe; kvittot därifrån är en separat handling.` },
+    { id: "avtal", title: "Avtalsbekräftelse", text: "När betalningen är genomförd skickas en avtalsbekräftelse med de här villkoren, det du godkände och en länk för att ångra köpet till den e-postadress du angav." },
+    { id: "angerratt", title: "Ångra köpet och start direkt", text: "[UTKAST – hur ångerrätt och start direkt bedöms är inte slutligt fastställt.] Du kan begära att ångra köpet via länken i bekräftelsen, från sidan med ditt resultat eller på /jamfor/angra/. Begäran sparas med tidpunkt. Har jämförelsen inte levererats stoppas den och hela beloppet ska betalas tillbaka. Är rapporten redan levererad prövas begäran manuellt; mottagningsbeviset avgör inte om ångerrätt finns eller inte." },
+    { id: "aterbetalning", title: "Om något går fel", text: "Går något fel och du inte får ditt resultat ska du få pengarna tillbaka." },
+    { id: "personuppgifter", title: "Personuppgifter och lagring", text: `Offerterna skickas till Anthropic för avläsning. Filer, avläsning och rapport raderas efter ${OFFER.retentionHours} timmar eller direkt när du raderar. Order-, betal- och samtyckespost sparas utan offerttext: avtalspost ${days(pol.avtalDays, "avtalspost")}, bokföringsunderlag ${days(pol.bokforingDays, "bokföringsunderlag")}. Betaluppgifter hanteras av Stripe och lagras inte av oss.` },
+    { id: "kontakt", title: "Kontakt och klagomål", text: `Kontakta ${seller.email} om du har frågor, klagomål eller vill ha hjälp med återbetalning. [Information om tvistlösning fastställs av det kommersiella spåret.]` },
+  ];
+  return { version: TERMS_VERSION, draft: true, seller, sections };
+}
+export function termsPlain(t) { return t.sections.map((x) => `${x.title}\n${x.text}`).join("\n\n"); }
 export const DATA_COVERAGE = Object.freeze({ reviews: false, text: "Omdömen om företagen ingår inte i den här versionen." });
 // D07: källvisning av omdömen (Google/Trustpilot) är en SEPARAT, avstängd funktion. Aktiv bara när en människa satt BÅDA flaggorna
 // (COMPARE_REVIEWS=1 och COMPARE_REVIEWS_VERIFIED=1 = villkor/licens/kostnad verifierade). Texten som kunden godkänner följer läget,
@@ -89,7 +123,7 @@ export function consentSnapshot(env) {
   return {
     consentVersion: CONSENT.version, draft: CONSENT.draft,
     offerVersion: OFFER.version, priceOre: OFFER.priceOre, currency: OFFER.currency, vatPct: OFFER.vatPct,
-    copy: offerCopy(env), texts: CONSENT.texts, dataCoverage: dataCoverage(env),
+    copy: offerCopy(env), texts: CONSENT.texts, dataCoverage: dataCoverage(env), terms: termsSnapshot(env),
   };
 }
 

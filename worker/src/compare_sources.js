@@ -32,12 +32,14 @@ export function sourcesConfig(env) {
   const active = reviewsActive(env);
   const gKey = env && typeof env.GOOGLE_MAPS_BROWSER_KEY === "string" && MAPS_KEY_RE.test(env.GOOGLE_MAPS_BROWSER_KEY) ? env.GOOGLE_MAPS_BROWSER_KEY : null;
   const googleOn = active && env.GOOGLE_UI_KIT === "1" && !!gKey;
-  const searchOn = googleOn && env.GOOGLE_CANDIDATES === "1" && typeof env.GOOGLE_PLACES_SERVER_KEY === "string" && env.GOOGLE_PLACES_SERVER_KEY.length >= 20;
+  // Servermässig Text Search (Places API) täcks INTE av UI Kit-undantaget (EEA-villkor 15.3 gäller UI Kit-komponenter). Därför kräver den
+  // en EXTRA mänsklig verifieringsflagga utöver GOOGLE_CANDIDATES och får aldrig tolkas som att licensen är godkänd. Standardvägen är native UI Kit-sök.
+  const searchOn = googleOn && env.GOOGLE_CANDIDATES === "1" && env.GOOGLE_PLACES_API_SEARCH_VERIFIED === "1" && typeof env.GOOGLE_PLACES_SERVER_KEY === "string" && env.GOOGLE_PLACES_SERVER_KEY.length >= 20;
   const tpBase = httpsBase(env && env.TRUSTPILOT_API_BASE);
   const tpOn = active && env.TRUSTPILOT_DISPLAY === "1" && !!tpBase && typeof env.TRUSTPILOT_API_KEY === "string" && env.TRUSTPILOT_API_KEY.length >= 8 && typeof env.TRUSTPILOT_AUTH_HEADER === "string" && /^[A-Za-z][A-Za-z0-9-]{1,40}$/.test(env.TRUSTPILOT_AUTH_HEADER);
   return {
     active,
-    google: { on: googleOn, mapsKey: googleOn ? gKey : null, search: searchOn, searchDayCap: dayCap(env && env.COMPARE_SOURCES_SEARCH_DAY_CAP) },
+    google: { on: googleOn, mapsKey: googleOn ? gKey : null, search: searchOn, select: googleOn ? (searchOn ? "server" : "native") : null, searchDayCap: dayCap(env && env.COMPARE_SOURCES_SEARCH_DAY_CAP) },
     trustpilot: { on: tpOn, base: tpBase, fetchDayCap: dayCap(env && env.COMPARE_TP_DAY_CAP), cacheMs: Math.min(LIM.tpCacheMs, dayCap(env && env.COMPARE_TP_CACHE_MIN) ? dayCap(env.COMPARE_TP_CACHE_MIN) * 60_000 : LIM.tpCacheMs) },
   };
 }
@@ -45,7 +47,7 @@ export function publicSourcesConfig(env) {
   const c = sourcesConfig(env);
   return {
     active: c.active,
-    google: { state: c.google.on ? "paslagen" : STATUS.OFF, mapsKey: c.google.mapsKey, search: c.google.search },
+    google: { state: c.google.on ? "paslagen" : STATUS.OFF, mapsKey: c.google.mapsKey, search: c.google.search, select: c.google.select },
     trustpilot: { state: c.trustpilot.on ? "paslagen" : STATUS.OFF },
   };
 }
@@ -72,21 +74,37 @@ export async function firmIdentity(f) {
 // Per offert (index) → paneler: samma firma i flera offerter ger EN panel; filialer/liknamnade hålls isär.
 export async function buildFirms(inputs) {
   const list = Array.isArray(inputs) ? inputs.slice(0, 8) : [];
-  const byId = new Map();
+  const groups = new Map(); // namn|ort -> poster
   for (const f of list) {
     const idx = Number.isInteger(f && f.offerIndex) && f.offerIndex >= 0 && f.offerIndex <= 3 ? f.offerIndex : null;
     if (idx === null) return { error: "index" };
     const id = await firmIdentity(f);
     if (!id) continue; // namnlös offert: ingen källpanel (inget gissas)
     if (id.error) return { error: id.error };
-    const cur = byId.get(id.id);
-    if (cur) { if (!cur.offers.includes(idx)) cur.offers.push(idx); if (!cur.domain && id.domain) cur.domain = id.domain; }
-    else byId.set(id.id, { ...id, offers: [idx] });
+    if (!groups.has(id.key)) groups.set(id.key, []);
+    groups.get(id.key).push({ ...id, idx });
   }
-  if (byId.size > LIM.maxFirms) return { error: "for_manga" };
-  return { firms: [...byId.values()] };
+  const out = [];
+  for (const items of groups.values()) {
+    const domains = [...new Set(items.map((i) => i.domain).filter(Boolean))];
+    if (domains.length <= 1) { // samma namn+ort och högst en webbplats: EN firma (offerter utan webbplats ansluts)
+      const first = items[0];
+      out.push({ ...first, domain: domains[0] || "", offers: [...new Set(items.map((i) => i.idx))].sort((x, y) => x - y), conflict: false });
+      continue;
+    }
+    // KONFLIKT: samma namn+ort men olika webbplatser. Slås aldrig ihop tyst – varje webbplats blir en egen firma som kunden bekräftar separat,
+    // och offerter utan webbplats blir en egen post (okänt vilken firma de avser).
+    const parts = [...domains, ""];
+    for (const d of parts) {
+      const its = items.filter((i) => i.domain === d);
+      if (!its.length) continue;
+      out.push({ ...its[0], id: "f_" + (await sha256Hex(its[0].key + "|" + d)).slice(0, 12), domain: d, offers: [...new Set(its.map((i) => i.idx))].sort((x, y) => x - y), conflict: true });
+    }
+  }
+  if (out.length > LIM.maxFirms) return { error: "for_manga" };
+  return { firms: out };
 }
-const freshFirm = (f) => ({ id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers, google: { candidateIds: [], searches: 0, searchOutcome: null, placeId: null, confirmedAt: null, via: null }, trustpilot: { candidateIds: [], searches: 0, searchOutcome: null, buId: null, confirmedAt: null } });
+const freshFirm = (f) => ({ id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict, google: { candidateIds: [], searches: 0, searchOutcome: null, placeId: null, confirmedAt: null, via: null, renderOutcome: null }, trustpilot: { candidateIds: [], searches: 0, searchOutcome: null, buId: null, confirmedAt: null } });
 export const emptySources = () => ({ firms: [], providerRequests: 0, views: 0 });
 
 // ---------- tillståndsmaskin per firma/källa ----------
@@ -95,7 +113,7 @@ export function providerState(cfg, firm, provider) {
   const p = firm[provider];
   if (provider === "google") {
     if (!cfg.google.on) return STATUS.OFF;
-    if (p.placeId) return STATUS.OK;
+    if (p.placeId) return p.renderOutcome === "fel" ? STATUS.ERROR : STATUS.OK; // visningen i webbläsaren kunde inte laddas ⇒ källfel, aldrig "tomt"
     if (p.searchOutcome === "kostnadsstopp") return STATUS.COST;
     if (p.searchOutcome === "fel") return STATUS.ERROR;
     if (p.searchOutcome === "tomt") return STATUS.EMPTY;
@@ -119,7 +137,7 @@ export const stateText = (s) => STATE_TEXT[s] || "okänt";
 
 export function sourcesView(cfg, st) {
   const firms = (st.firms || []).map((f) => ({
-    id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers,
+    id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict,
     google: { state: providerState(cfg, f, "google"), text: stateText(providerState(cfg, f, "google")), placeId: f.google.placeId || null, confirmed: !!f.google.placeId, searchesLeft: Math.max(0, LIM.searchesPerFirm - f.google.searches) },
     trustpilot: { state: providerState(cfg, f, "trustpilot"), text: stateText(providerState(cfg, f, "trustpilot")), confirmed: !!f.trustpilot.buId, searchesLeft: Math.max(0, LIM.searchesPerFirm - f.trustpilot.searches) },
   }));
@@ -133,7 +151,8 @@ export function coverageSummary(cfg, viewFirms) {
   if (!cfg.active) return { active: false, firms: firms.length, lines: ["Omdömen visas inte i den här versionen."], google: {}, trustpilot: {} };
   for (const f of firms) {
     const where = f.city ? `${f.name} (${f.city})` : f.name;
-    lines.push(`${where}: Google – ${f.google.text}; Trustpilot – ${f.trustpilot.text}.`);
+    const dom = f.conflict ? (f.domain ? ` [webbplats ${f.domain}]` : " [utan webbplats]") : "";
+    lines.push(`${where}${dom}: Google – ${f.google.text}; Trustpilot – ${f.trustpilot.text}.${f.conflict ? " Samma namn och ort med olika webbplatser: kontrollera att det är rätt firma." : ""}`);
   }
   if (!firms.length) lines.push("Ange firmans namn (och gärna ort och webbplats) för att se vilka källor som kan visas.");
   const tally = (prov) => Object.fromEntries(Object.values(STATUS).map((s) => [s, count(prov, s)]).filter(([, n]) => n > 0));
@@ -147,7 +166,15 @@ export async function applyOp(cfg, st, op) {
     const r = await buildFirms(op.firms);
     if (r.error) return { error: r.error };
     const keep = new Map(s.firms.map((f) => [f.id, f]));
-    s.firms = r.firms.map((f) => { const old = keep.get(f.id); return old ? { ...old, name: f.name, city: f.city, domain: f.domain || old.domain, offers: f.offers } : freshFirm(f); });
+    s.firms = r.firms.map((f) => {
+      const old = keep.get(f.id);
+      if (!old) return freshFirm(f);
+      // Identitetsgrunden (namn+ort via id, samt webbplats) ändrad ⇒ tidigare bekräftelser gäller inte längre: rensa och kräv ny bekräftelse.
+      // (Att lägga till en webbplats där ingen fanns ändrar inte grunden för en redan bekräftad Google-profil, men Trustpilot kan inte ha bekräftats utan webbplats.)
+      const domainChanged = !!old.domain && old.domain !== f.domain;
+      const fresh = freshFirm(f);
+      return domainChanged ? { ...fresh } : { ...old, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict };
+    });
     return { state: s };
   }
   const f = s.firms.find((x) => x.id === op.firmId);
@@ -162,9 +189,10 @@ export async function applyOp(cfg, st, op) {
   if (op.type === "confirm_google") {
     const g = f.google;
     if (op.via === "candidate") { if (!g.candidateIds.includes(op.placeId)) return { error: "okand_traff" }; }
-    else if (op.via === "manual") { if (op.seen !== true) return { error: "bekrafta_profil" }; }
+    else if (op.via === "native") { if (g.searchOutcome !== "nativ") return { error: "sok_forst" }; if (op.seen !== true) return { error: "bekrafta_profil" }; }
+    else if (op.via === "manual") { if (op.seen !== true) return { error: "bekrafta_profil" }; } // kunden har sett den riktiga profilen (laddad av Google) och intygat
     else return { error: "via" };
-    g.placeId = op.placeId; g.via = op.via; g.confirmedAt = op.now; g.searchOutcome = "bekraftad";
+    g.placeId = op.placeId; g.via = op.via; g.confirmedAt = op.now; g.searchOutcome = "bekraftad"; g.renderOutcome = null;
     return { state: s };
   }
   if (op.type === "confirm_trustpilot") {
@@ -173,12 +201,26 @@ export async function applyOp(cfg, st, op) {
     t.buId = op.buId; t.confirmedAt = op.now; t.searchOutcome = "bekraftad"; t.lastOutcome = null;
     return { state: s };
   }
+  if (op.type === "google_render") { // klientrapporterat (REPORTED): kunde Googles element visa profilen? Påverkar bara ärlig täckning
+    if (!f.google.placeId || (op.outcome !== "ok" && op.outcome !== "fel")) return { error: "op" };
+    f.google.renderOutcome = op.outcome; return { state: s };
+  }
   if (op.type === "tp_outcome") { f.trustpilot.lastOutcome = op.outcome; return { state: s }; }
-  if (op.type === "unconfirm") { if (f[op.provider]) { const p = f[op.provider]; p.searchOutcome = null; p.candidateIds = []; if (op.provider === "google") { p.placeId = null; p.via = null; } else { p.buId = null; p.lastOutcome = null; } p.confirmedAt = null; } return { state: s }; }
+  if (op.type === "unconfirm") { if (f[op.provider]) { const p = f[op.provider]; p.searchOutcome = null; p.candidateIds = []; if (op.provider === "google") { p.placeId = null; p.via = null; p.renderOutcome = null; } else { p.buId = null; p.lastOutcome = null; } p.confirmedAt = null; } return { state: s }; }
   return { error: "op" };
 }
 
-// ---------- Google: kandidatsökning (server) ----------
+// ---------- Google: native UI Kit-sök (webbläsaren) ----------
+// Webbläsaren kör Googles eget sökelement (gmp-place-search). Servern äger BARA kostnadsgrinden: dygnstak (människosatt, annars kostnadsstopp) och
+// per-firma/per-order-gränser räknas INNAN kunden får starta sökningen. Inget företagsdata passerar servern i den här vägen.
+export async function nativeSearchGate(env, cfg, { now = new Date() } = {}) {
+  if (!cfg.google.on || cfg.google.search) return { outcome: "fel" };
+  if (!cfg.google.searchDayCap) return { outcome: "kostnadsstopp" };
+  const c = await countToday(env, { name: "gsearch", limit: cfg.google.searchDayCap, now });
+  return c.ok ? { outcome: "nativ" } : { outcome: "kostnadsstopp" };
+}
+
+// ---------- Google: kandidatsökning (server; kräver extra mänsklig verifieringsflagga, se sourcesConfig) ----------
 export const PLACE_ID_RE = /^[A-Za-z0-9_-]{20,200}$/;
 export async function googleCandidates(env, cfg, firm, { orderId, now = new Date() } = {}) {
   if (!cfg.google.search) return { outcome: "fel", candidates: [] };
@@ -235,11 +277,14 @@ const httpsTpLink = (u) => { try { const x = new URL(String(u)); return x.protoc
 const isoDate = (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) && !Number.isNaN(Date.parse(v)) ? v.slice(0, 10) : null);
 // Normaliserar svaret oförändrat i innehållet (text/stjärnor/datum/källänk). Ingen omsortering, inget eget betyg, ingen sammanfattning.
 export function normalizeTrustpilot(json, { domain } = {}) {
-  const arr = Array.isArray(json && json.reviews) ? json.reviews : Array.isArray(json && json.items) ? json.items : [];
+  // Schemakontroll: bara ett svar med en faktisk omdömeslista (array) räknas som giltigt. Okänt schema eller någon ogiltig post ⇒ schemaOk:false
+  // (blir källfel, aldrig "inga omdömen"). Ett giltigt tomt svar (tom lista) är det enda som kan bli "verifierat tomt".
+  const arr = Array.isArray(json && json.reviews) ? json.reviews : Array.isArray(json && json.items) ? json.items : null;
   const reviews = [];
-  for (const r of arr.slice(0, 5)) {
+  let schemaOk = arr !== null;
+  for (const r of (arr || []).slice(0, 5)) {
     const stars = r && (r.stars ?? r.rating), date = r && isoDate(r.createdAt || r.publishedAt || r.createdDateTime);
-    if (!Number.isInteger(stars) || stars < 1 || stars > 5 || !date) continue;
+    if (!Number.isInteger(stars) || stars < 1 || stars > 5 || !date) { schemaOk = false; continue; }
     reviews.push({ stars, date, title: cleanText(r.title, 140), text: cleanText(r.text, 1200), link: httpsTpLink(r.link || r.url) || null });
   }
   const dates = reviews.map((r) => r.date);
@@ -247,11 +292,13 @@ export function normalizeTrustpilot(json, { domain } = {}) {
   const bu = (json && (json.businessUnit || json)) || {};
   const score = bu.trustScore ?? (bu.score && bu.score.trustScore);
   const total = bu.numberOfReviews && typeof bu.numberOfReviews === "object" ? bu.numberOfReviews.total : bu.numberOfReviews ?? bu.reviewCount;
+  if (schemaOk && reviews.length === 0 && Number.isInteger(total) && total > 0) schemaOk = false; // tom lista men källan uppger omdömen: motstridigt svar
   return {
+    schemaOk,
     source: "trustpilot", sourceName: "Trustpilot",
     trustScore: typeof score === "number" && score >= 1 && score <= 5 ? Math.round(score * 10) / 10 : null,
     totalReviews: Number.isInteger(total) && total >= 0 ? total : null,
-    reviews, latestState: reviews.length === 0 ? "inga_omdomen" : newestFirst ? "visas" : "ej_senaste_tillgangliga",
+    reviews, latestState: !schemaOk ? "okant_schema" : reviews.length === 0 ? "inga_omdomen" : newestFirst ? "visas" : "ej_senaste_tillgangliga",
     sourceUrl: domain ? `https://www.trustpilot.com/review/${domain}` : null,
     note: "Visas som Trustpilot levererar dem (nyast först, högst fem). Antalet kan vara färre. Datumet är omdömets publiceringsdatum. Vi räknar inga egna betyg och bedömer inte företaget.",
   };
@@ -264,7 +311,7 @@ export async function tpLatest(env, cfg, { buId, domain }, { now = Date.now() } 
   const key = `cmptp:${buId}`;
   try {
     const hit = env.REVIEWS_KV ? await env.REVIEWS_KV.get(key, "json") : null;
-    if (hit && typeof hit.fetchedAt === "number" && now - hit.fetchedAt >= 0 && now - hit.fetchedAt < cfg.trustpilot.cacheMs && hit.card) return { outcome: hit.card.reviews.length === 0 && hit.card.totalReviews === 0 ? "tomt" : "ok", card: hit.card, fetchedAt: hit.fetchedAt, fromCache: true };
+    if (hit && typeof hit.fetchedAt === "number" && now - hit.fetchedAt >= 0 && now - hit.fetchedAt < cfg.trustpilot.cacheMs && hit.card && hit.card.schemaOk === true) return { outcome: hit.card.reviews.length === 0 ? "tomt" : "ok", card: hit.card, fetchedAt: hit.fetchedAt, fromCache: true };
   } catch { /* cache otillgänglig: fortsätt till hämtning om budget finns */ }
   if (!cfg.trustpilot.fetchDayCap) return { outcome: "kostnadsstopp" };
   if (inflight.has(key)) return inflight.get(key); // dubblettladdning i samma isolat delar EN hämtning
@@ -275,8 +322,9 @@ export async function tpLatest(env, cfg, { buId, domain }, { now = Date.now() } 
       const r = await tpFetch(env, cfg, `/v1/business-units/${encodeURIComponent(buId)}/reviews/latest?limit=5`);
       if (!r.ok) return { outcome: "fel" };
       const card = normalizeTrustpilot(await r.json(), { domain });
+      if (!card.schemaOk) return { outcome: "fel" }; // fel schema/ogiltiga poster: källfel, cachas inte
       try { await env.REVIEWS_KV.put(key, JSON.stringify({ fetchedAt: now, card }), { expirationTtl: Math.ceil(LIM.tpCacheMs / 1000) }); } catch { /* ingen cache: nästa visning hämtar igen inom budget */ }
-      return { outcome: card.reviews.length === 0 && card.totalReviews === 0 ? "tomt" : "ok", card, fetchedAt: now, fromCache: false };
+      return { outcome: card.reviews.length === 0 ? "tomt" : "ok", card, fetchedAt: now, fromCache: false };
     } catch { return { outcome: "fel" }; }
   })().finally(() => inflight.delete(key));
   inflight.set(key, p);

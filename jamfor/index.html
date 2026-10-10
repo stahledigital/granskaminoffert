@@ -475,7 +475,7 @@ function renderReport(R,o){
 
 
 // ---------- D07: källor för senaste originalomdömen (Google UI Kit i webbläsaren, Trustpilot via servern) ----------
-var SRC={view:null,cands:{},mounted:{},gmp:null};
+var SRC={view:null,cands:{},mounted:{},gmp:null,ver:0};
 function srcCfg(){return (state.cfg&&state.cfg.sources)||null}
 function srcActive(){var c=srcCfg();return !!(c&&c.active&&(c.google.state!=='ej_aktiverad'||c.trustpilot.state!=='ej_aktiverad')&&state.order)}
 function srcApi(method,sub,body){return api(method,'/compare/orders/'+state.order.id+'/sources'+(sub||''),{token:state.order.token,body:body})}
@@ -496,36 +496,65 @@ function gmpLoad(key){
   SRC.gmp.catch(function(){SRC.gmp=null});
   return SRC.gmp;
 }
-// Nativt Googleelement. Inga egna filter: bara rank-preference=newest. Ingen query, ingen stjärn-/språk-/sentimentfiltrering, inga sammanfattningar.
+// Googles egna UI Kit-element (beta-kanalen). Källa: developers.google.com/maps/documentation/javascript/places-ui-kit/advanced-place-details.
+// <gmp-advanced-place-details> med <gmp-place-details-place-request place=...>; innehållselementen är direkta barn. Granskad: reviews med
+// rank-preference="newest" (senaste först). Ingen query/filter/språk-/sentimentfiltrering och inga AI-sammanfattningar. Attribution visas.
+var GMP_TIMEOUT=window.__GMP_TIMEOUT||15000; // __GMP_TIMEOUT: bara för offlineprov
 function gmpBuild(placeId){
-  var d=document.createElement('gmp-place-details');
+  var d=document.createElement('gmp-advanced-place-details');
   var rq=document.createElement('gmp-place-details-place-request');rq.setAttribute('place',placeId);d.appendChild(rq);
-  var cf=document.createElement('gmp-place-content-config');
-  var rv=document.createElement('gmp-place-reviews');rv.setAttribute('rank-preference','newest');
-  ['gmp-place-address','gmp-place-rating','gmp-place-website'].forEach(function(t){cf.appendChild(document.createElement(t))});
-  cf.appendChild(rv);cf.appendChild(document.createElement('gmp-place-attribution'));
-  d.appendChild(cf);return d;
+  ['gmp-place-name','gmp-place-address','gmp-place-rating','gmp-place-website'].forEach(function(t){d.appendChild(document.createElement(t))});
+  var rv=document.createElement('gmp-place-reviews');rv.setAttribute('rank-preference','newest');d.appendChild(rv);
+  d.appendChild(document.createElement('gmp-place-attribution'));
+  return d;
 }
-function gmpUnmount(firmId){var m=SRC.mounted[firmId];if(m){try{if(m.el&&m.el.parentNode)m.el.parentNode.removeChild(m.el)}catch(e){}if(m.box)m.box.textContent=''}delete SRC.mounted[firmId]}
+function gmpUnmount(id){var m=SRC.mounted[id];if(m){if(m.timer)clearTimeout(m.timer);try{if(m.el&&m.el.parentNode)m.el.parentNode.removeChild(m.el)}catch(e){}if(m.box)m.box.textContent=''}delete SRC.mounted[id]}
 function gmpUnmountAll(){Object.keys(SRC.mounted).forEach(gmpUnmount)}
-async function gmpMount(f,box,note){
-  var c=srcCfg();if(!c||!c.google.mapsKey||SRC.mounted[f.id]&&SRC.mounted[f.id].loading)return;
-  gmpUnmount(f.id);SRC.mounted[f.id]={loading:true,box:box};
-  box.textContent='';box.appendChild(el('p',{class:'hint',text:'Laddar Googles omdömen…'}));
-  try{
-    await gmpLoad(c.google.mapsKey);
-    if(!SRC.mounted[f.id])return; // under tiden avbrutet (byte av firma/stängt)
-    box.textContent='';var d=gmpBuild(f.google.placeId);box.appendChild(d);SRC.mounted[f.id]={el:d,box:box,placeId:f.google.placeId};
-  }catch(e){
-    delete SRC.mounted[f.id];box.textContent='';
-    box.appendChild(el('p',{class:'warnbox',text:'Googles omdömen kunde inte laddas just nu. Det betyder inte att omdömen saknas – försök igen om en stund.'}));
-    var rb=el('button',{type:'button',class:'btn ghost',text:'Försök igen'});rb.addEventListener('click',function(){gmpMount(f,box)});box.appendChild(rb);
-  }
+function gmpCur(id,ver){return SRC.mounted[id]&&SRC.mounted[id].ver===ver}
+// Asynkron mount är versionsbunden: ett senare mount/unmount gör att en sen laddning/händelse ignoreras. Googles egna händelser (gmp-load/gmp-error,
+// båda icke-bubblande) lyssnas på själva elementet. Tystnad = timeout = fel – aldrig "inga omdömen".
+function gmpFail(id,ver,box,retry,cb,renderFirm){
+  if(!gmpCur(id,ver))return;
+  gmpUnmount(id);
+  box.appendChild(el('p',{class:'warnbox',text:'Googles omdömen kunde inte visas just nu. Det betyder inte att omdömen saknas – försök igen om en stund.'}));
+  var rb=el('button',{type:'button',class:'btn ghost',text:'Försök igen'});rb.addEventListener('click',retry);box.appendChild(rb);
+  if(cb&&cb.onFail)cb.onFail();
+  gmpReport(renderFirm,'fel');
 }
+function gmpReport(f,outcome){
+  if(!f||!f.google||!f.google.confirmed||!SRC.view)return;
+  srcApi('POST','/google/render',{firmId:f.id,outcome:outcome}).then(function(r){if(r&&r.status===200&&r.json&&r.json.sources){SRC.view=r.json.sources;srcCov(r.json.sources)}},function(){});
+}
+async function gmpMountElement(id,box,build,cb,renderFirm){
+  var c=srcCfg();if(!c||!c.google.mapsKey)return;
+  var ver=(SRC.ver=(SRC.ver||0)+1);
+  gmpUnmount(id);SRC.mounted[id]={ver:ver,loading:true,box:box};
+  box.textContent='';var ld=el('p',{class:'hint',text:'Laddar Googles omdömen…'});box.appendChild(ld);
+  var retry=cb&&cb.retry?cb.retry:function(){gmpMountElement(id,box,build,cb,renderFirm)};
+  try{await gmpLoad(c.google.mapsKey)}catch(e){gmpFail(id,ver,box,retry,cb,renderFirm);return}
+  if(!gmpCur(id,ver))return; // under tiden avbrutet (byte av firma/stängt/ny mount)
+  var d=build();
+  d.addEventListener('gmp-load',function(){if(!gmpCur(id,ver))return;var m=SRC.mounted[id];if(m.timer)clearTimeout(m.timer);m.loading=false;m.ok=true;if(ld.parentNode)ld.parentNode.removeChild(ld);if(cb&&cb.onLoad)cb.onLoad(d);gmpReport(renderFirm,'ok')});
+  d.addEventListener('gmp-error',function(){gmpFail(id,ver,box,retry,cb,renderFirm)});
+  SRC.mounted[id]={ver:ver,loading:true,box:box,el:d,timer:setTimeout(function(){var m=SRC.mounted[id];if(m&&m.ver===ver&&!m.ok)gmpFail(id,ver,box,retry,cb,renderFirm)},GMP_TIMEOUT)};
+  box.appendChild(d);
+}
+function gmpMount(f,box,cb,renderFirm){return gmpMountElement(f.id,box,function(){return gmpBuild(f.google.placeId)},cb,renderFirm===undefined?f:renderFirm)}
+// Native sök: Googles eget <gmp-place-search selectable> (UI Kit). Query sätts via textQuery-egenskapen (krävs för att elementet ska ladda).
+// Kunden väljer själv i Googles resultat (gmp-select → event.place.id); inget väljs automatiskt.
+function gmpBuildSearch(query,onSelect){
+  var s=document.createElement('gmp-place-search');s.setAttribute('selectable','');
+  s.appendChild(document.createElement('gmp-place-all-content'));
+  var rq=document.createElement('gmp-place-text-search-request');rq.setAttribute('max-result-count','5');rq.textQuery=query;s.appendChild(rq);
+  s.addEventListener('gmp-select',function(ev){var id=ev&&ev.place&&ev.place.id;if(typeof id==='string'&&/^[A-Za-z0-9_-]{20,200}$/.test(id))onSelect(id)});
+  return s;
+}
+function srcCov(view){var cv=$('srccov');if(cv&&view&&view.coverage){cv.textContent='';(view.coverage.lines||[]).forEach(function(l){cv.appendChild(el('li',{text:l}))})}}
 function srcFirmCard(f,mode){
   var c=srcCfg();
   var card=el('div',{class:'srcfirm','data-firm':f.id});
   card.appendChild(el('h4',{text:f.name+(f.city?' ('+f.city+')':'')}));
+  if(f.conflict)card.appendChild(el('p',{class:'warnbox',text:'Samma namn och ort men olika webbplatser ('+(f.domain||'ingen angiven')+'). Bekräfta källorna för just den här firman.'}));
   card.appendChild(el('p',{class:'hint',text:'Gäller '+f.offers.map(function(i){return 'offert '+(i+1)}).join(' och ')}));
   // ---- Google ----
   if(c.google.state!=='ej_aktiverad'){
@@ -553,13 +582,37 @@ function srcFirmCard(f,mode){
         });
         g.appendChild(sb);
       }else{
+        // Native väg (standard): Googles eget sökelement. Servern räknar bara kostnadsgrinden innan sökningen får köras.
+        var sbox=el('div',{class:'gmpbox hidden','data-gmp-search':f.id});var pbox=el('div',{class:'gmpbox hidden','data-gmp-picked':f.id});
+        var cbn=el('button',{type:'button',class:'btn acc','data-confirm':'native',text:'Det här är rätt firma',disabled:'disabled'});var picked=null;
+        var nb=el('button',{type:'button',class:'btn ghost',text:'Sök firman hos Google'});if(f.google.searchesLeft<=0)nb.disabled=true;
+        nb.addEventListener('click',async function(){
+          nb.disabled=true;holder.textContent='';cbn.disabled=true;picked=null;pbox.classList.add('hidden');gmpUnmount(f.id+'-pv');
+          var r=await srcApi('POST','/google/search',{firmId:f.id});
+          if(r.status!==200){holder.appendChild(el('p',{class:'err',text:(r.json&&r.json.error)||'Sökningen gick inte.'}));nb.disabled=false;return}
+          SRC.view=r.json.sources;srcCov(r.json.sources);
+          if(!r.json.allowed){holder.appendChild(el('p',{class:'warnbox',text:'Googles sökning är stoppad av kostnadsskäl just nu. Det betyder inte att firman saknas.'}));return}
+          sbox.classList.remove('hidden');
+          await gmpMountElement(f.id+'-sr',sbox,function(){return gmpBuildSearch([f.name,f.city].filter(Boolean).join(' '),function(id){
+            picked=id;cbn.disabled=true;pbox.classList.remove('hidden');
+            gmpMount({id:f.id+'-pv',google:{placeId:id}},pbox,{onLoad:function(){if(picked===id)cbn.disabled=false},onFail:function(){cbn.disabled=true}},null);
+          })},{onLoad:function(sr){var pl=sr&&sr.places;if(Array.isArray(pl)&&pl.length===0)sbox.appendChild(el('p',{class:'hint',text:'Googles sökning visade ingen träff för firmans namn och ort. Det är ingen bedömning av firman.'}))},onFail:function(){},retry:function(){nb.disabled=f.google.searchesLeft-1<=0;if(!nb.disabled)nb.click()}},null);
+          nb.disabled=f.google.searchesLeft-1<=0;
+        });
+        cbn.addEventListener('click',async function(){
+          if(!picked||cbn.disabled)return;cbn.disabled=true;
+          var r=await srcApi('POST','/google/confirm',{firmId:f.id,placeId:picked,via:'native',seen:true});
+          if(r.status===200)srcRender(r.json.sources,mode);else{cbn.disabled=false;err((r.json&&r.json.error)||'Gick inte.')}
+        });
+        g.appendChild(nb);g.appendChild(sbox);g.appendChild(pbox);g.appendChild(cbn);
+        // Reserv: kunden har firmans Google-ID. Bekräftelsen låses upp först när Googles riktiga profil faktiskt har laddats och visats.
         var det=el('details',{},el('summary',{text:'Jag har firmans Google-ID'}));
         var inp=el('input',{type:'text',id:'pid-'+f.id,maxlength:'200',autocomplete:'off',placeholder:'Företags-ID från Google'});
         var pv=el('button',{type:'button',class:'btn ghost',text:'Visa profilen'});
         var prev=el('div',{class:'gmpbox hidden'});var okc=el('input',{type:'checkbox',id:'seen-'+f.id,disabled:'disabled'});var cb=el('button',{type:'button',class:'btn acc',text:'Det här är rätt firma',disabled:'disabled'});
-        pv.addEventListener('click',function(){var v=(inp.value||'').trim();if(!/^[A-Za-z0-9_-]{20,200}$/.test(v))return;prev.classList.remove('hidden');gmpMount({id:f.id+'-pv',google:{placeId:v}},prev);okc.disabled=false});
+        pv.addEventListener('click',function(){var v=(inp.value||'').trim();if(!/^[A-Za-z0-9_-]{20,200}$/.test(v))return;okc.checked=false;okc.disabled=true;cb.disabled=true;prev.classList.remove('hidden');gmpMount({id:f.id+'-pv2',google:{placeId:v}},prev,{onLoad:function(){okc.disabled=false},onFail:function(){okc.disabled=true;okc.checked=false;cb.disabled=true}},null)});
         okc.addEventListener('change',function(){cb.disabled=!okc.checked});
-        cb.addEventListener('click',async function(){var v=(inp.value||'').trim();gmpUnmount(f.id+'-pv');var r=await srcApi('POST','/google/confirm',{firmId:f.id,placeId:v,via:'manual',seen:okc.checked});if(r.status===200)srcRender(r.json.sources,mode);else err((r.json&&r.json.error)||'Gick inte.')});
+        cb.addEventListener('click',async function(){var v=(inp.value||'').trim();gmpUnmount(f.id+'-pv2');var r=await srcApi('POST','/google/confirm',{firmId:f.id,placeId:v,via:'manual',seen:okc.checked});if(r.status===200)srcRender(r.json.sources,mode);else err((r.json&&r.json.error)||'Gick inte.')});
         det.appendChild(inp);det.appendChild(pv);det.appendChild(prev);det.appendChild(el('label',{class:'opt','for':'seen-'+f.id},okc,el('span',{text:'Profilen ovan är rätt firma och plats.'})));det.appendChild(cb);g.appendChild(det);
       }
       g.appendChild(holder);

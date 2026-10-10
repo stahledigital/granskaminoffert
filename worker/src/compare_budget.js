@@ -109,6 +109,12 @@ export class CompareBudget {
         await s.put(`x:${month}:${orderId}`, 1);
         return { body: { ok: true } };
       }
+      if (path === "/ledger-unindex") {
+        const { orderId, month } = b;
+        if (!okKey(orderId) || !okMonth(month)) return { status: 400 };
+        await s.delete(`x:${month}:${orderId}`);
+        return { body: { ok: true } };
+      }
       if (path === "/ledger-list") {
         const { month } = b;
         if (!okMonth(month)) return { status: 400 };
@@ -142,6 +148,9 @@ async function call(env, path, payload) {
 
 export async function ledgerIndex(env, { orderId, now = Date.now() }) {
   return call(env, "/ledger-index", { orderId, month: monthKey(new Date(now)) });
+}
+export async function ledgerUnindex(env, { orderId, at }) {
+  return call(env, "/ledger-unindex", { orderId, month: monthKey(new Date(at)) });
 }
 export async function ledgerList(env, { month }) {
   const j = await call(env, "/ledger-list", { month });

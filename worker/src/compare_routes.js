@@ -7,7 +7,7 @@
 // Betalningsbevis kommer bara från signerad webhook eller serveravstämning mot Stripe – returadressen
 // (success_url) bevisar ingenting.
 
-import { OFFER, LIMITS, compareEnabled, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy } from "./compare_config.js";
+import { OFFER, LIMITS, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
@@ -16,7 +16,7 @@ import { offerLabels } from "./compare_engine.js";
 import { validEmail, parseWithdrawToken } from "./compare_ledger.js";
 import { timingSafeEqual } from "./compare_util.js";
 import { createCheckoutSession, retrieveSession, retrieveRefund, verifyWebhook } from "./compare_stripe.js";
-import { sourcesConfig, publicSourcesConfig, googleCandidates, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
+import { sourcesConfig, publicSourcesConfig, googleCandidates, nativeSearchGate, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
 import * as budget from "./compare_budget.js";
 
 const MAX_BODY_CHARS = 11_600_000; // 8 MB binärt ≈ 10,7 MB base64
@@ -91,6 +91,7 @@ async function publicConfig(env, allowedOrigins) {
     offerCopy: offerCopy(env),
     consent: { version: CONSENT.version, draft: CONSENT.draft, hash: await consentHash(env), texts: CONSENT.texts },
     dataCoverage: dataCoverage(env),
+    terms: termsSnapshot(env), // fullständig villkorstext (UTKAST) som ingår i samtyckeshashen och i bekräftelsen
     draft: CONSENT.draft,
     requiresEmail: true,
     withdrawUrl: "/jamfor/angra/",
@@ -180,6 +181,27 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     return reply({ ok: true, month, count: rows.length, rows, note: "Ingen utbetalning/bankinsättning är avstämd här (settlement.status = ej_avstamt)." });
   }
 
+  // ---- Retention-svep (skyddad): kör den verkliga rensningen för en månads poster. Utan fullständig policy görs ingenting. ----
+  if (path === "/compare/admin/retention-sweep" && request.method === "POST") {
+    const tok = String(env.COMPARE_ADMIN_TOKEN || "");
+    const given = (request.headers.get("authorization") || "").replace(/^Bearer /, "");
+    if (tok.length < 24 || !compareEnabled(env) || !bindingsOk(env) || !timingSafeEqual(tok, given)) return reply({ error: "Not found" }, 404);
+    if (!retentionPolicy(env).ok) return reply({ ok: true, ran: false, reason: "policy_saknas", note: "Retention-längder för avtal och bokföring är inte fastställda; inget raderas." });
+    const month = url.searchParams.get("month") || "";
+    if (!/^\d{4}-\d{2}$/.test(month)) return reply({ error: "month=YYYY-MM krävs" }, 400);
+    let ids = [];
+    try { ids = await budget.ledgerList(env, { month }); } catch { return reply({ error: "Tillfälligt fel." }, 503); }
+    const out = { ok: true, ran: true, month, checked: 0, purged: 0, stripped: 0, held: {}, errors: 0 };
+    for (const oid of ids) {
+      if (!ORDER_ID_RE.test(oid)) continue;
+      const r = await orderCall(env, oid, "/retention-sweep", { now: Date.now() });
+      out.checked++;
+      if (r.status !== 200 || !r.json.ok) { if (r.status !== 404) out.errors++; continue; }
+      if (r.json.purged) out.purged++; else if (r.json.stripped) out.stripped++; else if (r.json.action === "hallen") out.held[r.json.reason] = (out.held[r.json.reason] || 0) + 1;
+    }
+    return reply(out);
+  }
+
   // ---- Config (öppen, ingen hemlighet) ----
   if (path === "/compare/config" && request.method === "GET") return reply(await publicConfig(env, allowedOrigins));
 
@@ -196,6 +218,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (!pt) return reply({ error: "Ångerlänken stämmer inte." }, 404);
     const r = await orderCall(env, pt.orderId, "/withdraw", { via: "token", secret: pt.secret, now: Date.now() });
     if (r.status === 404) return reply({ error: "Ångerlänken stämmer inte." }, 404);
+    if (r.status === 410) return reply({ error: "Avtalet är arkiverat och kan inte ångras här. Kontakta säljaren." }, 410);
     if (r.status !== 200 || !r.json.ok) return reply({ error: "Tillfälligt fel. Försök igen." }, 503);
     return reply({ ok: true, duplicate: !!r.json.duplicate, withdrawal: r.json.withdrawal });
   }
@@ -228,7 +251,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   }
 
   // ---- D07: källor för senaste omdömen (avstängda om inte COMPARE_REVIEWS + COMPARE_REVIEWS_VERIFIED) ----
-  const sm = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})\/sources(?:\/(firms|google\/search|google\/confirm|trustpilot\/search|trustpilot\/confirm|trustpilot\/latest|unconfirm))?$/);
+  const sm = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})\/sources(?:\/(firms|google\/search|google\/confirm|google\/render|trustpilot\/search|trustpilot\/confirm|trustpilot\/latest|unconfirm))?$/);
   if (sm) {
     const oid = sm[1], ssub = sm[2] || "";
     const tok = request.headers.get("x-order-token") || "";
@@ -242,7 +265,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (body.tooLarge || body.bad) return reply({ error: "Ogiltig förfrågan." }, 400);
     const bv = body.value || {};
     const op = async (o) => orderCall(env, oid, "/sources-op", { tokenHash: th, op: o, now: Date.now() });
-    const out = (r) => (r.status === 404 ? reply({ error: "Ordern hittades inte." }, 404) : r.status === 429 ? reply({ error: "Gränsen för källsökningar för den här ordern är nådd." }, 429) : r.status === 409 ? reply({ error: "Ordern är raderad." }, 409) : r.status !== 200 || !r.json.ok ? reply({ error: r.json && r.json.error === "okand_traff" ? "Den träffen finns inte bland förslagen. Sök igen." : r.json && r.json.error === "bekrafta_profil" ? "Bekräfta först att profilen som visas är rätt firma." : "Ogiltig förfrågan." }, 400) : null);
+    const out = (r) => (r.status === 404 ? reply({ error: "Ordern hittades inte." }, 404) : r.status === 429 ? reply({ error: "Gränsen för källsökningar för den här ordern är nådd." }, 429) : r.status === 409 ? reply({ error: "Ordern är raderad." }, 409) : r.status !== 200 || !r.json.ok ? reply({ error: r.json && r.json.error === "okand_traff" ? "Den träffen finns inte bland förslagen. Sök igen." : r.json && r.json.error === "sok_forst" ? "Sök först firman hos Google." : r.json && r.json.error === "bekrafta_profil" ? "Bekräfta först att profilen som visas är rätt firma." : "Ogiltig förfrågan." }, 400) : null);
     if (!ssub && request.method === "GET") {
       const r = await orderCall(env, oid, "/sources-get", { tokenHash: th, countView: true, now: Date.now() });
       const e = out(r); if (e) return e;
@@ -262,12 +285,23 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (!firm && ssub !== "firms") return reply({ error: "Firman hittades inte. Ladda om sidan." }, 404);
     if (ssub === "google/search" && request.method === "POST") {
       if (!cfgS.google.on) return reply({ error: "Googles omdömen visas inte i den här versionen." }, 503);
-      if (!cfgS.google.search) return reply({ ok: true, candidates: [], manual: true, sources: g.json.sources });
       if (firm.google.searches >= SRC_LIM.searchesPerFirm) return reply({ error: "Du har sökt så många gånger du kan för den här firman." }, 429);
+      if (!cfgS.google.search) { // native UI Kit-sök i webbläsaren: servern räknar bara budget/gränser innan kunden får köra Googles eget sökelement
+        const gate = await nativeSearchGate(env, cfgS);
+        const rec = await op({ type: "record_search", firmId: firm.id, provider: "google", outcome: gate.outcome, candidateIds: [] });
+        const e = out(rec); if (e) return e;
+        return reply({ ok: true, native: true, outcome: gate.outcome, allowed: gate.outcome === "nativ", candidates: [], sources: rec.json.sources });
+      }
       const r = await googleCandidates(env, cfgS, firm, { orderId: oid });
       const rec = await op({ type: "record_search", firmId: firm.id, provider: "google", outcome: r.outcome, candidateIds: r.candidates.map((c) => c.id) });
       const e = out(rec); if (e) return e;
       return reply({ ok: true, outcome: r.outcome, candidates: r.candidates, sources: rec.json.sources });
+    }
+    if (ssub === "google/render" && request.method === "POST") {
+      if (!cfgS.google.on) return reply({ error: "Googles omdömen visas inte i den här versionen." }, 503);
+      const r = await op({ type: "google_render", firmId: firm.id, outcome: bv.outcome === "ok" ? "ok" : bv.outcome === "fel" ? "fel" : "" });
+      const e = out(r); if (e) return e;
+      return reply({ ok: true, sources: r.json.sources });
     }
     if (ssub === "google/confirm" && request.method === "POST") {
       if (!cfgS.google.on) return reply({ error: "Googles omdömen visas inte i den här versionen." }, 503);
@@ -364,6 +398,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   if (sub === "withdraw" && request.method === "POST") {
     const r = await orderCall(env, id, "/withdraw", { via: "order", tokenHash, now: Date.now() });
     if (r.status === 404) return reply({ error: "Det finns inget köp att ångra för den här ordern." }, 404);
+    if (r.status === 410) return reply({ error: "Avtalet är arkiverat och kan inte ångras här. Kontakta säljaren." }, 410);
     if (r.status !== 200 || !r.json.ok) return reply({ error: "Tillfälligt fel. Försök igen." }, 503);
     return reply({ ok: true, duplicate: !!r.json.duplicate, withdrawal: r.json.withdrawal, order: r.json.order });
   }

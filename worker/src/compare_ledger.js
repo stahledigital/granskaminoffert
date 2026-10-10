@@ -9,7 +9,7 @@
 // Inget här är slutlig juridisk text, slutlig klassning eller beslutad retention (UTKAST). Extern mejlsändning
 // är AV; bara ett gränssnitt (env.COMPARE_MAILER) som tester ersätter med en attrapp.
 
-import { OFFER, OFFER_COPY, CONSENT, RETENTION_CLASSES, sellerInfo, retentionPolicy, vatPart } from "./compare_config.js";
+import { OFFER, OFFER_COPY, CONSENT, RETENTION_CLASSES, sellerInfo, sellerLines, termsPlain, retentionPolicy, vatPart } from "./compare_config.js";
 import { sha256Hex, randomToken, timingSafeEqual } from "./compare_util.js";
 
 export const WITHDRAW_PREFIX = "ang_";
@@ -42,12 +42,12 @@ export async function buildAgreement(order, { env, now, session }) {
   const agreement = {
     version: "avtal-utkast-1", draft: true,
     orderId: order.id,
-    seller: sellerInfo(env),
+    seller: (snap.terms && snap.terms.seller) || sellerInfo(env), // säljaren som kunden accepterade (frusen), inte dagens konfiguration
     price,
     product: OFFER.product,
     docCount: order.docCount,
     scope: { gets: snap.copy.gets, getsNot: snap.copy.getsNot, how: snap.copy.how },
-    accepted: { at: a.acceptedAt, version: a.consentVersion, hash: a.consentHash, draft: !!a.draft, texts: snap.texts, dataCoverage: snap.dataCoverage, coverage: a.coverage || null, offerVersion: snap.offerVersion },
+    accepted: { at: a.acceptedAt, version: a.consentVersion, hash: a.consentHash, draft: !!a.draft, texts: snap.texts, fullTerms: snap.terms || null, dataCoverage: snap.dataCoverage, coverage: a.coverage || null, offerVersion: snap.offerVersion },
     contact: { email: a.contactEmail },
     payment: { sessionId: session.sessionId || null, paymentIntentId: session.paymentIntentId || null, amountTotal: session.amountTotal ?? null, currency: snap.currency, paidAt: now },
   };
@@ -61,6 +61,18 @@ export function newLedger({ agreement, agreementHash, withdrawTokenHash, env, no
     agreement, agreementHash, withdrawTokenHash, withdrawal: null,
     retention: { class: "avtal", policyDays: pol.avtalDays, bookkeepingClass: "bokforing", bookkeepingDays: pol.bokforingDays, classes: Object.keys(RETENTION_CLASSES) },
     events: [{ at: now, type: "avtal_skapat" }],
+  };
+}
+// Avtalsklassens utgång: behåll bara det bokföringsklassen behöver (belopp, moms, tider, Stripe-referenser, ångerbegäran som tid/utfall). Inga uppgifter om kund,
+// e-post, villkorstext, samtyckestexter eller token-hash finns kvar.
+export function stripLedger(ledger, now) {
+  const ag = ledger.agreement, w = ledger.withdrawal;
+  return {
+    v: 1, orderId: ledger.orderId, agreementId: ledger.agreementId, createdAt: ledger.createdAt, stripped: true, strippedAt: now,
+    agreement: { orderId: ag.orderId, product: ag.product, price: ag.price, payment: ag.payment },
+    agreementHash: null, withdrawTokenHash: null,
+    withdrawal: w ? { requestId: w.requestId, at: w.at, outcome: w.outcome } : null,
+    retention: ledger.retention, events: [{ at: now, type: "avtalsdel_rensad" }],
   };
 }
 export function addEvent(ledger, type, now, extra = {}) {
@@ -77,7 +89,7 @@ export function confirmationMail(ledger) {
     `Avtalsbekräftelse – ${ag.product}`,
     `Utkast: villkoren är inte slutgiltiga.`,
     ``,
-    `Säljare: ${ag.seller.name}, org.nr ${ag.seller.orgnr}, ${ag.seller.email}`,
+    ...sellerLines(ag.seller),
     `Avtals-ID: ${ledger.agreementId}   Ordernummer: ${ag.orderId}`,
     `Köpt: ${iso(ag.payment.paidAt)}`,
     `Antal offerter: ${ag.docCount}`,
@@ -89,6 +101,9 @@ export function confirmationMail(ledger) {
     ``,
     `Du godkände (version ${ag.accepted.version}, kontrollsumma ${ag.accepted.hash}, ${iso(ag.accepted.at)}):`,
     `- ${ag.accepted.texts.sameJob}`, `- ${ag.accepted.texts.terms}`, `- ${ag.accepted.texts.immediate}`,
+    ``,
+    `Villkor (version ${ag.accepted.fullTerms ? ag.accepted.fullTerms.version : "saknas"}${ag.accepted.fullTerms && ag.accepted.fullTerms.draft ? ", UTKAST" : ""}) – exakt den text du godkände:`,
+    ag.accepted.fullTerms ? termsPlain(ag.accepted.fullTerms) : "(villkorstexten saknas i snapshoten)",
     ``,
     `Kvittot från betalleverantören är en separat handling.`,
     ``,

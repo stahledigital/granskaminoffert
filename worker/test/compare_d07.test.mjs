@@ -164,7 +164,7 @@ test("Trustpilot: sök på domän → välj (tvetydig) → senaste 1–5 med ori
     assert.equal(card.sourceUrl, "https://www.trustpilot.com/review/byggnord.se");
     assert.ok(f.log.tp.at(-1).url.endsWith("/v1/business-units/bu00000001/reviews/latest?limit=5"));
     assert.ok(!/sentiment|stars=|language|query|filter|orderBy/i.test(f.log.tp.at(-1).url));
-    assert.deepEqual(Object.keys(card).sort(), ["latestState", "note", "reviews", "source", "sourceName", "sourceUrl", "totalReviews", "trustScore"].sort());
+    assert.deepEqual(Object.keys(card).sort(), ["latestState", "note", "reviews", "schemaOk", "source", "sourceName", "sourceUrl", "totalReviews", "trustScore"].sort());
   } finally { f.restore(); }
 });
 
