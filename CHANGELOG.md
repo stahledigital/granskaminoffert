@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## gmo-v21 – tydlig avgränsning till hantverkaroffert (endast copy; frontend, ingen API-ändring; föregående gmo-v20)
+- Rubrik "Granska din hantverkaroffert.", ingress "För bygg, renovering och installation i hemmet. Få hjälp att upptäcka oklarheter, motsägelser och uppgifter som behöver förtydligas.", uppladdning "Släpp din hantverkaroffert här", title/description/OG anpassade. Rad om avgränsning: material som ingår i hantverkarens offert omfattas; materialinköp, produktköp och abonnemang stöds ännu inte.
+- Ingen logik-, API-, pris- eller betalningsändring. Mottagare/hantverkare-vägar, gratis och dataskyddstext oförändrade.
+
 ## gmo-api-v12 – S3-rättning (slutna ID, fast text) + S4 org-kontroll + kreditstopp i /explain (KANDIDAT 11 – ej släppt, bas 646ff79 (live frontend gmo-v20, alla fem frontendfiler orörda), EN squash-commit)
 - **S3-rättning (Codex `S3_RATTNINGAR.md`):** modellen returnerar bara `priority_ids` (1–3, enum ur serverns giltiga åtgärder). Fri intro finns inte längre; varje annat fält i modellsvaret avvisas. ALL synlig text (intro `AI_INTRO`, etikett, åtgärder) är fast servertext, så obelagda påståenden (lösenordsläckage, betalningsanmärkningar, dataläckage) aldrig kan nå kunden. Ordlistevalideringen är borttagen. Cacheposter med gamla fria fält avvisas (`explain-v2`). Codex `explain_acceptance.mjs`: **8/8** (var 5/8), positivt ID-fall fungerar.
 - **Turnstile:** används bara om `TURNSTILE_SECRET_KOLLAR` finns; då krävs success + hostname (tillåtna origins) + action `forklaring`. Utan secret ingen påhittad spärr: vägen är serverbegränsad som `/review` (riktig CF-IP, atomisk budget 20 USD/månad, dag 100, IP 5). Inga nya secrets/konton/rotationer.
