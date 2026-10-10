@@ -102,6 +102,19 @@ export class CompareBudget {
         await s.put(k, n + 1);
         return { body: { ok: true, n: n + 1 } };
       }
+      if (path === "/ledger-index") {
+        // Register över betalda ordrar per månad för bokföringsexport. Bara order-ID och tid, aldrig innehåll.
+        const { orderId, month } = b;
+        if (!okKey(orderId) || !okMonth(month)) return { status: 400 };
+        await s.put(`x:${month}:${orderId}`, 1);
+        return { body: { ok: true } };
+      }
+      if (path === "/ledger-list") {
+        const { month } = b;
+        if (!okMonth(month)) return { status: 400 };
+        const all = await s.list({ prefix: `x:${month}:` });
+        return { body: { ok: true, orders: [...all.keys()].map((k) => k.split(":")[2]).slice(0, 2000) } };
+      }
       if (path === "/stats") {
         // Skrivskyddad läsning för test/drift: aldrig hemligheter eller orderinnehåll.
         const { month } = b;
@@ -127,6 +140,13 @@ async function call(env, path, payload) {
   return resp.json();
 }
 
+export async function ledgerIndex(env, { orderId, now = Date.now() }) {
+  return call(env, "/ledger-index", { orderId, month: monthKey(new Date(now)) });
+}
+export async function ledgerList(env, { month }) {
+  const j = await call(env, "/ledger-list", { month });
+  return j && j.ok ? j.orders : [];
+}
 export const budgetBindingAvailable = (env) => Boolean(env && env.COMPARE_BUDGET && typeof env.COMPARE_BUDGET.idFromName === "function" && typeof env.COMPARE_BUDGET.get === "function");
 
 export const monthKey = (d = new Date()) => d.toISOString().slice(0, 7);

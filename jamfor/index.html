@@ -31,7 +31,7 @@ h3{font-size:17px;margin:18px 0 6px}
 .seg button{flex:1;min-height:48px;border:1px solid var(--line);background:var(--paper);border-radius:10px;font:600 18px Barlow,sans-serif;cursor:pointer}
 .seg button[aria-pressed="true"]{border-color:var(--acc);background:#fff4ee;box-shadow:inset 0 0 0 2px var(--acc)}
 label.t{display:block;font-weight:600;font-size:14px;margin:12px 0 4px}
-input[type=text],textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:12px;font:16px/1.4 Barlow,sans-serif;background:#fff;color:var(--ink)}
+input[type=text],input[type=email],textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:12px;font:16px/1.4 Barlow,sans-serif;background:#fff;color:var(--ink)}
 textarea{min-height:110px}
 .btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--ink);background:var(--ink);color:var(--bg);font:600 16px Barlow,sans-serif;padding:12px 18px;min-height:48px;border-radius:10px;cursor:pointer;text-decoration:none}
 .btn.acc{background:var(--acc);border-color:var(--acc);color:#161616}
@@ -108,6 +108,9 @@ footer{margin-top:36px;font-size:13px;color:var(--ink2)}
     <ul class="tight" id="copy-getsnot"></ul>
     <h3>Så går det till</h3>
     <ul class="tight" id="copy-how"></ul>
+    <label for="email" style="display:block;font-weight:600;margin:12px 0 4px">E-postadress för avtalsbekräftelsen</label>
+    <input type="email" id="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="namn@exempel.se" aria-describedby="emailhint">
+    <p class="hint" id="emailhint">Bekräftelsen med din ångerlänk skickas hit. Adressen används bara för det.</p>
     <label class="chk"><input type="checkbox" id="terms"><span id="t-terms"></span> <a href="/jamfor/villkor/" target="_blank" rel="noopener">Läs villkoren</a></label>
     <label class="chk"><input type="checkbox" id="immediate"><span id="t-immediate"></span></label>
     <button type="button" class="btn acc block" id="pay">Betala 49 kr</button>
@@ -131,7 +134,7 @@ footer{margin-top:36px;font-size:13px;color:var(--ink2)}
 <!-- RAPPORT -->
 <section id="rep" class="hidden" aria-labelledby="h-rep"></section>
 
-<footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. Beloppen är avlästa ur dokumenten och kan innehålla avläsningsfel. Det som inte framgår av en offert är inte detsamma som att det saknas.</p></footer>
+<footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. Beloppen är avlästa ur dokumenten och kan innehålla avläsningsfel. Det som inte framgår av en offert är inte detsamma som att det saknas. <a href="/jamfor/angra/">Ångra ett köp</a></p></footer>
 </main>
 
 <script>
@@ -252,6 +255,8 @@ $('check').addEventListener('click',async function(){
 
 $('pay').addEventListener('click',async function(){
   err('');
+  if(!EMAIL_OK.test(($('email').value||'').trim())){err('Ange en giltig e-postadress för avtalsbekräftelsen.');$('email').focus();return}
+  state.email=$('email').value.trim();
   if(!$('terms').checked||!$('immediate').checked){err('Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
   var b=$('pay');b.disabled=true;b.textContent='Öppnar betalning…';
   try{
@@ -263,7 +268,8 @@ $('pay').addEventListener('click',async function(){
   b.disabled=false;b.textContent='Betala 49 kr';
 });
 
-function acceptBody(){var c=(state.cfg&&state.cfg.consent)||{};return {terms:true,immediateDelivery:true,consentHash:c.hash,consentVersion:c.version}}
+function acceptBody(){var c=(state.cfg&&state.cfg.consent)||{};var em=$('email');return {terms:true,immediateDelivery:true,consentHash:c.hash,consentVersion:c.version,email:((em&&em.value)||state.email||'').trim()}}
+var EMAIL_OK=/^[^\s@,;<>()"]{1,64}@[^\s@,;<>()"]{1,190}\.[A-Za-z]{2,}$/;
 
 // ---------- återupptagning och väntan ----------
 function recoveryLink(){return location.origin+location.pathname+'#o='+encodeURIComponent(state.order.id)+'&t='+encodeURIComponent(state.order.token)}
@@ -301,11 +307,37 @@ async function tick(cancelled){
   }else if(o.status==='failed'){
     var rs=o.refund&&o.refund.state;
     var rt={done:' Återbetalningen är genomförd hos betalleverantören.',pending:' Återbetalningen är begärd och väntar på att slutföras hos betalleverantören – den är inte klar än.',requested:' Återbetalningen begärs just nu.',action_required:' Återbetalningen kräver en åtgärd som vi måste ta hand om.',failed:' Återbetalningen gick inte igenom automatiskt och måste göras för hand.',needed:' Återbetalningen görs för hand.',none:''}[rs];
-    box.appendChild(el('div',{class:'err',text:'Jämförelsen kunde inte slutföras. Du ska få pengarna tillbaka.'+(rt===undefined?'':rt)}));
+    if(o.error==='angrat')box.appendChild(el('div',{class:'okbox',text:'Du har ångrat köpet. Jämförelsen är stoppad och ditt innehåll raderat.'+(rt===undefined?'':rt)}));
+    else box.appendChild(el('div',{class:'err',text:'Jämförelsen kunde inte slutföras. Du ska få pengarna tillbaka.'+(rt===undefined?'':rt)}));
     box.appendChild(el('p',{text:'Ordernummer: '+o.id.slice(2,10).toUpperCase()+(rs&&rs!=='done'?'. Kontakta oss med ordernumret om pengarna inte kommit tillbaka inom några dagar.':'')}));
     if(rs==='pending'||rs==='action_required'||rs==='requested')next=15000;
   }else if(o.status==='deleted'){box.appendChild(el('p',{text:'Jämförelsen är raderad.'}));store('jamfor_order',null)}
+  if(['paid','running','failed'].indexOf(o.status)>=0){var wb=withdrawBlock(o);if(wb)box.appendChild(wb)}
   if(next)state.timer=setTimeout(tick,next);
+}
+function mailText(st){return st==='sent'?'skickad':st==='failed'?'kunde inte skickas (vi hanterar det manuellt)':'köad (ännu inte skickad)'}
+function withdrawBlock(o){
+  var box=el('div',{class:'card',id:'agreement'});
+  if(!o.agreement)return null;
+  box.appendChild(el('h3',{style:'margin-top:0',text:'Ditt avtal'}));
+  var conf=(o.agreement.mails||[]).filter(function(m){return m.kind==='avtalsbekraftelse'})[0];
+  box.appendChild(el('p',{class:'hint',text:'Avtals-ID '+o.agreement.id+'. Avtalsbekräftelse till '+o.agreement.contact+': '+(conf?mailText(conf.state):'köad')+'. Utkast: villkoren är inte slutgiltiga.'}));
+  var w=o.withdrawal;
+  if(w&&w.requested){
+    var txt=w.outcome==='avbrutet_fore_leverans'?'Köpet är ångrat och jämförelsen stoppad. Hela beloppet ska betalas tillbaka.':w.outcome==='redan_avslutad'?'Din ånger är mottagen. Jämförelsen kunde redan inte slutföras; återbetalningen hanteras separat.':'Din ånger är mottagen och sparad med tidpunkten nedan. Den prövas manuellt – det här är ingen bekräftelse på att ångerrätten gäller eller inte gäller.';
+    box.appendChild(el('p',{id:'wdtext',text:txt}));
+    box.appendChild(el('p',{class:'hint',text:'Begäran '+w.requestId+', mottagen '+new Date(w.at).toLocaleString('sv-SE')+'. Mottagningsbevis skickas till din e-post.'}));
+  }else{
+    var b=el('button',{type:'button',class:'btn ghost',id:'withdraw',text:'Ångra köpet'});
+    b.addEventListener('click',async function(){
+      if(!confirm('Vill du ångra köpet?'))return;
+      b.disabled=true;
+      var r=await api('POST','/compare/orders/'+state.order.id+'/withdraw',{token:state.order.token});
+      if(r.status===200&&r.json.ok){clearTimeout(state.timer);tick()}else{b.disabled=false;err((r.json&&r.json.error)||'Det gick inte att ta emot ångern just nu. Försök igen.')}
+    });
+    box.appendChild(b);
+  }
+  return box;
 }
 function setStatus(t,bad){var b=$('statusbox');b.textContent='';b.appendChild(el('p',{text:t}));if(bad)b.appendChild(restartBtn())}
 function restartBtn(){var b=el('button',{type:'button',class:'btn ghost',text:'Börja om'});b.addEventListener('click',function(){store('jamfor_order',null);location.href=location.pathname});return b}
@@ -322,10 +354,14 @@ async function consentAgain(msg){
   box.appendChild(el('p',{text:msg||'Läs och godkänn villkoren igen innan du betalar.'}));
   if(cfg.consent&&cfg.consent.draft)box.appendChild(el('p',{class:'warnbox',text:'Utkast: villkorstexterna är inte slutgiltiga.'}));
   function chk(id,text){var l=el('label',{class:'chk'});l.appendChild(el('input',{type:'checkbox',id:id}));l.appendChild(el('span',{text:text}));return l}
+  var le=el('label',{for:'email2',style:'display:block;font-weight:600;margin:10px 0 4px',text:'E-postadress för avtalsbekräftelsen'});box.appendChild(le);
+  box.appendChild(el('input',{type:'email',id:'email2',autocomplete:'email',maxlength:'254'}));
   box.appendChild(chk('terms2',t.terms||''));box.appendChild(chk('immediate2',t.immediate||''));
   var b=el('button',{type:'button',class:'btn acc',id:'pay2',text:'Godkänn och gå till betalning'});
   b.addEventListener('click',async function(){
     err('');
+    if(!EMAIL_OK.test(($('email2').value||'').trim())){err('Ange en giltig e-postadress för avtalsbekräftelsen.');return}
+    state.email=$('email2').value.trim();
     if(!$('terms2').checked||!$('immediate2').checked){err('Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
     b.disabled=true;
     var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:acceptBody()}});
@@ -418,6 +454,7 @@ function renderReport(R,o){
   });
   act.appendChild(pb);act.appendChild(jb);act.appendChild(db);host.appendChild(act);
   host.appendChild(el('p',{class:'hint noprint',text:'Resultatet finns kvar till '+new Date(R.expiresAt).toLocaleString('sv-SE')+'. Ladda ner om du vill spara det.'}));
+  var wbk=withdrawBlock(o);if(wbk){wbk.classList.add('noprint');host.appendChild(wbk)}
   host.scrollIntoView({block:'start'});
 }
 

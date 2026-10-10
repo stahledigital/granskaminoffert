@@ -40,7 +40,7 @@ test("serverpris: priset i config och i Stripe-anropet är 4900 öre SEK; klient
     await upload(env, orderId, token, 0, S(100000, ALLSCOPE));
     await upload(env, orderId, token, 1, S(110000, ALLSCOPE));
     const cs = await consentOf(env);
-    const co = await api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { priceOre: 1, amount: 1, accept: { terms: true, immediateDelivery: true, consentHash: cs.hash, consentVersion: cs.version } } });
+    const co = await api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { priceOre: 1, amount: 1, accept: { terms: true, immediateDelivery: true, consentHash: cs.hash, consentVersion: cs.version, email: "kund@example.test" } } });
     assert.equal(co.status, 200);
     assert.equal(f.log.stripeCreate.length, 1);
     const p = new URLSearchParams(f.log.stripeCreate[0].body);

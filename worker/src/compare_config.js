@@ -36,7 +36,8 @@ export const OFFER_COPY = Object.freeze({
     "Efter betalning startar jämförelsen direkt och tar oftast några minuter. Du kan stänga fliken – du får tillbaka resultatet via en länk som visas här.",
     "Offerterna skickas till Anthropic (Claude) för avläsning. Inga namn eller offerttexter går till betalleverantören.",
     "Dina filer och resultatet raderas efter 24 timmar, eller direkt när du själv raderar.",
-    "Går något fel och du inte får ditt resultat ska du få pengarna tillbaka. Du anger ingen e-post för detta; kontakta oss med ordernumret.",
+    "Du anger en e-postadress. Vi skickar en avtalsbekräftelse dit, med en länk för att ångra köpet. Adressen används bara för det.",
+    "Går något fel och du inte får ditt resultat ska du få pengarna tillbaka.",
   ],
 });
 export const CONSENT = Object.freeze({
@@ -48,6 +49,26 @@ export const CONSENT = Object.freeze({
     immediate: "Jag vill att jämförelsen startar direkt efter betalning och förstår att ångerrätten därmed kan gå förlorad när tjänsten är levererad.",
   }),
 });
+// Retentionklasser (explicita). Innehåll = offertfiler/rapport (24 h, kod). Avtalspost/ledger och bokföringsunderlag
+// har INGEN förvald tid: längderna sätts av en människa efter slutlig GDPR-/bokföringsbedömning (live fail closed utan dem).
+export const RETENTION_CLASSES = Object.freeze({
+  innehall: { hours: 24, note: "Offertfiler, avläsning och rapport. Raderas efter 24 h eller direkt vid kundens radering." },
+  avtal: { note: "Minimal order-/betal-/samtyckespost och ångerbegäran (ingen offerttext). Längd väntar fastställd policy." },
+  bokforing: { note: "Belopp, moms, datum och Stripe-referenser för bokföring/återbetalning (ingen offerttext). Längd väntar fastställd policy." },
+});
+const dayCount = (v) => { const n = Number(v); return typeof v === "string" && /^[1-9][0-9]{0,4}$/.test(v) && n <= 36500 ? n : null; };
+export function retentionPolicy(env) {
+  const avtal = dayCount(env && env.COMPARE_LEDGER_RETENTION_DAYS), bokforing = dayCount(env && env.COMPARE_BOOKKEEPING_RETENTION_DAYS);
+  return { ok: avtal !== null && bokforing !== null, avtalDays: avtal, bokforingDays: bokforing };
+}
+// Säljaruppgifter till avtalsbekräftelsen. Saknas de i testläge används tydligt märkta platshållare; live kräver riktiga.
+export function sellerInfo(env) {
+  const name = String((env && env.COMPARE_SELLER_NAME) || "").trim().slice(0, 120);
+  const orgnr = String((env && env.COMPARE_SELLER_ORGNR) || "").trim().slice(0, 20);
+  const email = String((env && env.COMPARE_SELLER_EMAIL) || "").trim().slice(0, 120);
+  const complete = !!(name && /^\d{6}-?\d{4}$/.test(orgnr) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+  return complete ? { name, orgnr, email, placeholder: false } : { name: name || "[Säljare – fylls i före skarp drift]", orgnr: orgnr || "[org.nr]", email: email || "[kontakt-e-post]", placeholder: true };
+}
 export const DATA_COVERAGE = Object.freeze({ reviews: false, text: "Omdömen om företagen ingår inte i den här versionen." });
 
 // Det kunden accepterar: pris, produkt, erbjudandetext och samtyckestexter. Hashen bindes till ordern.
@@ -132,6 +153,7 @@ export function acceptingOrders(env, allowedOrigins) {
   const mode = compareEnabled(env) ? paymentsMode(env) : null;
   if (mode === null) return false;
   if (mode === "live" && CONSENT.draft) return false; // utkasttext: ingen skarp betalning
+  if (mode === "live" && (!retentionPolicy(env).ok || sellerInfo(env).placeholder)) return false; // retention och säljare måste vara satta
   return budgetConfig(env).ok && returnUrl(env, allowedOrigins) !== null;
 }
 

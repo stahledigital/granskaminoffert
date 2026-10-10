@@ -29,6 +29,7 @@ function fakeNs(Cls, env) {
           async get(k) { const v = store.get(k); return v === undefined ? undefined : structuredClone(v); },
           async put(k, v) { store.set(k, structuredClone(v)); },
           async delete(k) { store.delete(k); },
+          async list({ prefix = "" } = {}) { return new Map([...store].filter(([k]) => k.startsWith(prefix)).map(([k, v]) => [k, structuredClone(v)])); },
           async setAlarm(t) { alarm = t; },
           async getAlarm() { return alarm; },
         },
@@ -180,9 +181,10 @@ export async function readyOrder(env, specs) {
 }
 export async function consentOf(env) { const c = await api(env, "GET", "/compare/config"); return c.json.consent; }
 // accept: undefined = kunden kryssar nuvarande texter (hash från servern); null = ingen body ("betala igen"); objekt = som angivet.
+export const TEST_EMAIL = "kund@example.test";
 export async function startCheckout(env, orderId, token, accept) {
   if (accept === null) return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token });
-  if (accept === undefined) { const c = await consentOf(env); accept = { terms: true, immediateDelivery: true, consentHash: c.hash, consentVersion: c.version }; }
+  if (accept === undefined) { const c = await consentOf(env); accept = { terms: true, immediateDelivery: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL }; }
   return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { accept } });
 }
 

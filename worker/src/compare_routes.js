@@ -7,12 +7,14 @@
 // Betalningsbevis kommer bara från signerad webhook eller serveravstämning mot Stripe – returadressen
 // (success_url) bevisar ingenting.
 
-import { OFFER, LIMITS, compareEnabled, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, OFFER_COPY, DATA_COVERAGE } from "./compare_config.js";
+import { OFFER, LIMITS, compareEnabled, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, OFFER_COPY, DATA_COVERAGE, RETENTION_CLASSES, retentionPolicy } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
 import { buildExtractRequest } from "./compare_extract.js";
 import { offerLabels } from "./compare_engine.js";
+import { validEmail, parseWithdrawToken } from "./compare_ledger.js";
+import { timingSafeEqual } from "./compare_util.js";
 import { createCheckoutSession, retrieveSession, retrieveRefund, verifyWebhook } from "./compare_stripe.js";
 import * as budget from "./compare_budget.js";
 
@@ -89,6 +91,9 @@ async function publicConfig(env, allowedOrigins) {
     consent: { version: CONSENT.version, draft: CONSENT.draft, hash: await consentHash(), texts: CONSENT.texts },
     dataCoverage: DATA_COVERAGE,
     draft: CONSENT.draft,
+    requiresEmail: true,
+    withdrawUrl: "/jamfor/angra/",
+    retention: { classes: Object.fromEntries(Object.entries(RETENTION_CLASSES).map(([k, v]) => [k, v.hours ? `${v.hours} h` : "policy ej fastställd"])), policyOk: retentionPolicy(env).ok },
     dataCards: false, // datakort är avstängda tills åtkomst, villkor och budget är verifierade
     refund: env.COMPARE_AUTO_REFUND === "1" ? "auto" : "manual",
   };
@@ -148,10 +153,50 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     return reply({ ok: true, ignored: "typ" });
   }
 
+  // ---- Bokförings-/refundexport (skyddad; aldrig offertinnehåll eller e-post) ----
+  if (path === "/compare/admin/ledger" && request.method === "GET") {
+    const tok = String(env.COMPARE_ADMIN_TOKEN || "");
+    const given = (request.headers.get("authorization") || "").replace(/^Bearer /, "");
+    if (tok.length < 24 || !compareEnabled(env) || !bindingsOk(env) || !timingSafeEqual(tok, given)) return reply({ error: "Not found" }, 404);
+    const month = url.searchParams.get("month") || "";
+    if (!/^\d{4}-\d{2}$/.test(month)) return reply({ error: "month=YYYY-MM krävs" }, 400);
+    let ids = [];
+    try { ids = await budget.ledgerList(env, { month }); } catch { return reply({ error: "Tillfälligt fel." }, 503); }
+    const rows = [];
+    const mode = paymentsMode(env);
+    for (const oid of ids) {
+      if (!ORDER_ID_RE.test(oid)) continue;
+      const r = await orderCall(env, oid, "/ledger-export", { mode, now: Date.now() });
+      if (r.status === 200 && r.json.row) rows.push(r.json.row);
+    }
+    if (url.searchParams.get("format") === "csv") {
+      const cols = ["orderId", "agreementId", "paidAt", "amountOre", "currency", "vatPct", "vatOre", "stripeSessionId", "stripePaymentIntentId", "orderStatus", "refundState", "refundId", "refundProviderStatus", "withdrawalAt", "withdrawalOutcome", "source", "retentionClass"];
+      const esc = (v) => { const t = v === null || v === undefined ? "" : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+      const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
+      return new Response(csv, { status: 200, headers: { ...headers, "content-type": "text/csv; charset=utf-8" } });
+    }
+    return reply({ ok: true, month, count: rows.length, rows, note: "Ingen utbetalning/bankinsättning är avstämd här (settlement.status = ej_avstamt)." });
+  }
+
   // ---- Config (öppen, ingen hemlighet) ----
   if (path === "/compare/config" && request.method === "GET") return reply(await publicConfig(env, allowedOrigins));
 
   if (!compareEnabled(env) || !bindingsOk(env)) return closed();
+
+  // ---- Ångra via ångerlänk (token ur avtalsbekräftelsen) ----
+  if (path === "/compare/withdraw" && request.method === "POST") {
+    if (!originOk) return reply({ error: "Otillåten källa." }, 403);
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const rlb = env.COMPARE_RL || env.REVIEW_RL;
+    if (rlb) { try { const { success } = await rlb.limit({ key: "w:" + ip }); if (!success) return reply({ error: "För många försök just nu. Vänta en stund." }, 429); } catch { /* bindning nere */ } }
+    const body = await readJson(request, 2_000);
+    const pt = body.value && parseWithdrawToken(body.value.token);
+    if (!pt) return reply({ error: "Ångerlänken stämmer inte." }, 404);
+    const r = await orderCall(env, pt.orderId, "/withdraw", { via: "token", secret: pt.secret, now: Date.now() });
+    if (r.status === 404) return reply({ error: "Ångerlänken stämmer inte." }, 404);
+    if (r.status !== 200 || !r.json.ok) return reply({ error: "Tillfälligt fel. Försök igen." }, 503);
+    return reply({ ok: true, duplicate: !!r.json.duplicate, withdrawal: r.json.withdrawal });
+  }
 
   // ---- Skapa order ----
   if (path === "/compare/orders" && request.method === "POST") {
@@ -181,7 +226,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   }
 
   // ---- Per order ----
-  const m = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})(?:\/(docs\/([0-3])|checkout|report))?$/);
+  const m = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})(?:\/(docs\/([0-3])|checkout|report|withdraw))?$/);
   if (!m) return reply({ error: "Not found" }, 404);
   const id = m[1];
   const sub = m[2] || "";
@@ -233,6 +278,13 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     return reply({ ok: r.json.ok === true, order: r.json.order });
   }
 
+  if (sub === "withdraw" && request.method === "POST") {
+    const r = await orderCall(env, id, "/withdraw", { via: "order", tokenHash, now: Date.now() });
+    if (r.status === 404) return reply({ error: "Det finns inget köp att ångra för den här ordern." }, 404);
+    if (r.status !== 200 || !r.json.ok) return reply({ error: "Tillfälligt fel. Försök igen." }, 503);
+    return reply({ ok: true, duplicate: !!r.json.duplicate, withdrawal: r.json.withdrawal, order: r.json.order });
+  }
+
   if (sub === "report" && request.method === "GET") {
     const g = await orderCall(env, id, "/internal", { now: Date.now() });
     if (g.status !== 200 || !g.json.order) return reply({ error: "Ordern hittades inte." }, 404);
@@ -258,7 +310,8 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (acc) {
       if (acc.terms !== true || acc.immediateDelivery !== true || typeof acc.consentHash !== "string") return reply({ error: "Du behöver godkänna villkoren och att leveransen startar direkt.", needAccept: true }, 400);
       if (acc.consentHash !== hash || acc.consentVersion !== snap.consentVersion) return reply({ error: "Villkoren eller erbjudandet har ändrats sedan du läste dem. Läs och godkänn igen.", needAccept: true, consentChanged: true }, 409);
-      const ac = await orderCall(env, id, "/accept", { tokenHash, accept: { terms: true, immediateDelivery: true, consentHash: hash, consentVersion: snap.consentVersion, draft: snap.draft, offerVersion: snap.offerVersion, priceOre: snap.priceOre, currency: snap.currency }, now: Date.now() });
+      if (!validEmail(acc.email)) return reply({ error: "Ange en giltig e-postadress för avtalsbekräftelsen.", needAccept: true, needEmail: true }, 400);
+      const ac = await orderCall(env, id, "/accept", { tokenHash, accept: { terms: true, immediateDelivery: true, consentHash: hash, consentVersion: snap.consentVersion, contactEmail: acc.email, draft: snap.draft, offerVersion: snap.offerVersion, priceOre: snap.priceOre, currency: snap.currency }, now: Date.now() });
       if (ac.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
       if (ac.status !== 200) return reply({ error: "Ordern kan inte betalas i det här läget." }, 409);
     } else {

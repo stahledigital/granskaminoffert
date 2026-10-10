@@ -69,9 +69,12 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_2_erbjudande.png`), fullPage: true });
       // betalning kräver båda samtycken
       await page.click("#pay");
+      assert.match(await page.textContent("#err"), /e-post/i);
+      await page.fill("#email", "kund@example.test");
+      await page.click("#pay");
       assert.match(await page.textContent("#err"), /villkoren/);
       assert.equal(h.stats.stripeCreate, 0);
-      await page.check("#terms"); await page.check("#immediate");
+      await page.fill("#email", "kund@example.test"); await page.check("#terms"); await page.check("#immediate");
       await page.click("#pay");
       await page.waitForURL("https://checkout.stripe.test/**");
       await page.click("#pay");
@@ -101,7 +104,7 @@ test("avbruten betalning, dröjande webhook, återupptagning via länk och 2 off
     await page.goto(h.base + "/jamfor/");
     await page.waitForSelector("#s1:not(.hidden)");
     await fillAndCheck(page, [OFFERS[0], "Offert badrum\nRivning och bortforsling ingår. Material och arbete ingår. Resor ingår.\nTotalt 120 000 kr inkl. moms före ROT"]);
-    await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
+    await page.fill("#email", "kund@example.test"); await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
     await page.waitForURL("https://checkout.stripe.test/**");
     await page.click("#cancel");
     await page.waitForURL(h.base + "/jamfor/**");
@@ -147,7 +150,7 @@ test("före köp: datatäckning (inga omdömen) och utkastmärkning syns; texter
     assert.match(await page.textContent("#t-terms"), /utkast/i);
     assert.ok(await noSideScroll(page));
     await page.screenshot({ path: join(EVIDENCE, "jamfor_mobil390_erbjudande_utkast.png"), fullPage: true });
-    await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
+    await page.fill("#email", "kund@example.test"); await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
     await page.waitForURL("https://checkout.stripe.test/**");
     await page.click("#cancel");
     await page.waitForURL(h.base + "/jamfor/**");
@@ -163,9 +166,9 @@ test("före köp: datatäckning (inga omdömen) och utkastmärkning syns; texter
     await page.waitForSelector("#terms2");
     assert.match(await page.textContent("#statusbox"), /Läs och godkänn villkoren igen/);
     assert.equal(await page.isChecked("#terms2"), false); assert.equal(await page.isChecked("#immediate2"), false);
-    await page.click("#pay2");
+    await page.fill("#email2", "kund@example.test"); await page.click("#pay2");
     assert.match(await page.textContent("#err"), /Godkänn villkoren/);
-    await page.check("#terms2"); await page.check("#immediate2"); await page.click("#pay2");
+    await page.fill("#email2", "kund@example.test"); await page.check("#terms2"); await page.check("#immediate2"); await page.click("#pay2");
     await page.waitForURL("https://checkout.stripe.test/**");
     assert.ok(h.stats.stripeCreate >= 1);
     assert.deepEqual(errors, []);
@@ -192,11 +195,118 @@ test("misslyckad leverans visas ärligt med återbetalningsbesked", async () => 
     await page.goto(h.base + "/jamfor/");
     await page.waitForSelector("#s1:not(.hidden)");
     await fillAndCheck(page, [OFFERS[0], OFFERS[1]]);
-    await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
+    await page.fill("#email", "kund@example.test"); await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
     await page.waitForURL("https://checkout.stripe.test/**"); await page.click("#pay");
     await page.waitForURL(h.base + "/jamfor/**");
     await page.waitForSelector("text=kunde inte slutföras", { timeout: 60000 });
     assert.match(await page.textContent("#statusbox"), /pengarna tillbaka/);
     await page.screenshot({ path: join(EVIDENCE, "jamfor_mobil390_misslyckad.png"), fullPage: true });
+  } finally { await ctx.close(); await h.close(); }
+});
+
+async function payFlow(page, h, offers) {
+  await page.goto(h.base + "/jamfor/");
+  await page.waitForSelector("#s1:not(.hidden)");
+  await fillAndCheck(page, offers);
+  await page.fill("#email", "kund@example.test"); await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
+  await page.waitForURL("https://checkout.stripe.test/**"); await page.click("#pay");
+  await page.waitForURL(h.base + "/jamfor/**");
+}
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`ånger efter levererad rapport (${name}): knapp i rapporten, begäran sparas utan automatiskt avslag`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors } = await newPage(h, w, hgt);
+    try {
+      await payFlow(page, h, OFFERS);
+      await page.waitForSelector("#rep:not(.hidden)", { timeout: 30000 });
+      assert.ok(await page.isVisible("#rep #withdraw"), "ångerknapp i rapporten");
+      assert.match(await page.textContent("#agreement"), /Avtals-ID avt_/);
+      assert.match(await page.textContent("#agreement"), /Utkast/);
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_4_rapport_med_anger.png`), fullPage: true });
+      await page.click("#rep #withdraw");
+      await page.waitForSelector("#wdtext", { timeout: 15000 });
+      const t = await page.textContent("#wdtext");
+      assert.match(t, /prövas manuellt|ingen bekräftelse|mottagen/i);
+      assert.doesNotMatch(t, /avslag|avslagen|har inte rätt/i);
+      assert.ok(await noSideScroll(page), "ingen sidoscroll efter ånger");
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_5_anger_efter_leverans.png`), fullPage: true });
+      assert.equal(await page.locator("#rep #withdraw").count(), 0, "knappen ersätts av begärans status");
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
+test("ånger under pågående jämförelse (mobil390): stoppas före leverans, ingen rapport, hela beloppet ska tillbaka", async () => {
+  const h = await startHarness();
+  h.ctl.anthropicDelayMs = 4000;
+  const { ctx, page, errors } = await newPage(h, 390, 844);
+  try {
+    await payFlow(page, h, OFFERS);
+    await page.waitForSelector("#agreement #withdraw", { timeout: 30000 });
+    await page.click("#agreement #withdraw");
+    await page.waitForSelector("#wdtext", { timeout: 15000 });
+    const t = await page.textContent("#wdtext");
+    assert.match(t, /Hela beloppet ska betalas tillbaka|återbetalning|prövas manuellt/);
+    assert.equal(await page.locator("#rep:not(.hidden)").count(), 0, "ingen rapport efter ånger före leverans");
+    assert.ok(await noSideScroll(page));
+    await page.screenshot({ path: join(EVIDENCE, "jamfor_mobil390_6_anger_under_korning.png"), fullPage: true });
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`ångersidan /jamfor/angra/ (${name}): kod från länken, felaktig kod, 404, lyckad och upprepad ånger`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors } = await newPage(h, w, hgt);
+    const GOOD = "ang_o_" + "a".repeat(32) + "." + "B".repeat(32);
+    const UNKNOWN = "ang_o_" + "c".repeat(32) + "." + "B".repeat(32);
+    try {
+      let calls = 0, okCalls = 0, lastBody = null;
+      await page.route("**/compare/withdraw", async (route) => {
+        calls++; lastBody = JSON.parse(route.request().postData() || "{}");
+        if (lastBody.token === UNKNOWN) return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "okänd" }) });
+        const dup = okCalls++ > 0;
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, duplicate: dup, withdrawal: { requestId: "ang_test1", at: Date.now(), outcome: "manuell_prövning" } }) });
+      });
+      await page.goto(h.base + "/jamfor/angra/");
+      await page.waitForSelector("#tok");
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_7_angra_sida.png`), fullPage: true });
+      await page.fill("#tok", "fel");
+      await page.click("#go");
+      assert.match(await page.textContent("#err"), /ser inte rätt ut/);
+      assert.equal(calls, 0, "ogiltigt format skickas aldrig till servern");
+      await page.fill("#tok", UNKNOWN);
+      await page.click("#go");
+      await page.waitForFunction(() => /stämmer inte/.test(document.getElementById("err").textContent));
+      // koden i länkens fragment fylls i och tas bort ur adressfältet
+      await page.goto("about:blank"); await page.goto(h.base + "/jamfor/angra/#t=" + GOOD);
+      await page.waitForSelector("#tok");
+      assert.equal(await page.inputValue("#tok"), GOOD);
+      assert.ok(!page.url().includes("ang_o_"), "koden ligger inte kvar i adressen");
+      await page.click("#go");
+      await page.waitForSelector("#done:not(.hidden)");
+      assert.match(await page.textContent("#done"), /Din ånger är mottagen/);
+      assert.match(await page.textContent("#done"), /ingen bekräftelse på att ångerrätten/);
+      assert.equal(lastBody.token, GOOD);
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_8_angra_mottagen.png`), fullPage: true });
+      await page.goto("about:blank"); await page.goto(h.base + "/jamfor/angra/#t=" + GOOD);
+      await page.click("#go");
+      await page.waitForSelector("#done:not(.hidden)");
+      assert.match(await page.textContent("#done"), /redan tagit emot/);
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
+test("startsidans och jämförsidans sidfot länkar till ångersidan", async () => {
+  const h = await startHarness();
+  const { ctx, page } = await newPage(h, 390, 844);
+  try {
+    await page.goto(h.base + "/jamfor/");
+    await page.waitForSelector("#s1:not(.hidden)");
+    assert.ok(await page.locator('footer a[href="/jamfor/angra/"]').count() >= 1);
   } finally { await ctx.close(); await h.close(); }
 });

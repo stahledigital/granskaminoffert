@@ -3,6 +3,9 @@
 ## jamfor-v1b – D04 rättning efter root-QA (KANDIDAT – AV, ej släppt; ovanpå commit 2de6569)
 - Gemensam kostnadsgate (AV som standard) för `/review` och `/explain`; alarm vid uttömda försök ⇒ failed; oföränderliga dokumentnycklar + manifest (sen PUT kan inte radera låst original); återbetalning bara `done` vid Stripe `succeeded` (+ avstämning/webhook); checkout-intent frusen per försök; samtycke bundet till version/hash med tydligt UTKASTläge (live stängd); datatäckning “inga omdömen” före köp; ytskillnad utan tolerans och alla omfattningsskillnader stoppar rangordning; UI-testets väntvillkor. Se `worker/COMPARE.md`.
 
+## jamfor-v1d – D06 kundkedja (KANDIDAT – AV, ej släppt; ovanpå 6afa4ec)
+- Minimal avtalspost skild från 24 h-innehåll, autentiserad ångerväg (knapp + `/jamfor/angra/` med högentropisk kod, hash lagrad), idempotent mottagningsbevis, atomiskt avbrott före leverans, ingen automatisk juridisk avvisning, lokal utkorg med mocktransport (extern adapter AV), skyddad bokförings-/återbetalningsexport utan offerttext, uttryckliga retentionklasser (live stängt utan beslutad policy). E-postadress krävs vid köp. UTKAST; se `worker/COMPARE.md`.
+
 ## jamfor-v1c – D04 rättning 2 (KANDIDAT – AV, ej släppt; ovanpå 36e93df)
 - Rangordning stoppas även vid asymmetrisk oklarhet i icke-kärn-omfattningsposter (villkor blockerar inte). Gate PÅ mäter alltid med count_tokens (fail closed), reserverar värsta fallet före anrop, och budgeten halterar även vid känd överskridning. Betald jämförelse mäter text som fil och synth-gränsen räknas i bytes. Default AV oförändrad.
 

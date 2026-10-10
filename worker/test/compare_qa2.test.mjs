@@ -7,7 +7,7 @@ import * as budget from "../src/compare_budget.js";
 import { gateEnabled, gateCaps } from "../src/cost_gate.js";
 import { CONSENT, consentSnapshot } from "../src/compare_config.js";
 import { fakeQuotaNamespace } from "./helpers/quota_do.mjs";
-import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheckout, paidSession, webhook, docKeys, consentOf, ORIGIN, offerText } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheckout, paidSession, webhook, docKeys, consentOf, ORIGIN, offerText, TEST_EMAIL } from "./helpers/compare_env.mjs";
 
 const S = (total, scope = {}) => ({ extracted: { totalBeforeRotSek: total, totalVatBasis: "inkl" }, scope });
 const ALL = { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" };
@@ -389,7 +389,7 @@ test("samtycke: checkout utan hash/version, fel hash eller ändrad text nekas; o
     const env = makeEnv();
     const { orderId, token } = await readyOrder(env, [S(100000, ALL), S(110000, ALL)]);
     const cs = await consentOf(env);
-    const base = { terms: true, immediateDelivery: true };
+    const base = { terms: true, immediateDelivery: true, email: TEST_EMAIL };
     assert.equal((await startCheckout(env, orderId, token, { ...base })).status, 400);
     assert.equal((await startCheckout(env, orderId, token, { ...base, consentHash: "0".repeat(64), consentVersion: cs.version })).status, 409);
     assert.equal((await startCheckout(env, orderId, token, { ...base, consentHash: cs.hash, consentVersion: "gammal" })).status, 409);

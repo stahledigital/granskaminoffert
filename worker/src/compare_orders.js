@@ -17,8 +17,9 @@
 //   draft|ready|awaiting_payment → expired | cancelled(=ready igen vid avbruten kassa)
 //   delivered|failed|… → deleted (innehållet raderat på kundens begäran)
 
-import { OFFER, LIMITS, refundMode, budgetConfig } from "./compare_config.js";
-import { timingSafeEqual } from "./compare_util.js";
+import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot } from "./compare_config.js";
+import { timingSafeEqual, sha256Hex } from "./compare_util.js";
+import { validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow } from "./compare_ledger.js";
 import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } from "./compare_stripe.js";
 import { runPipeline } from "./compare_run.js";
 
@@ -113,13 +114,16 @@ export class CompareOrders {
     }
     if (path === "/internal") return { body: { ok: true, order: o } };
     if (path === "/refund-update") return this._refundUpdate(o, b, now);
+    if (path === "/withdraw") return this._withdraw(o, b, now);
+    if (path === "/ledger-export") { const l = await this.state.storage.get("ledger"); return l ? { body: { ok: true, row: exportRow(o, l, b.mode) } } : NOT_FOUND; }
 
     // ---- Publika (kräver åtkomstnyckel) ----
     if (!this._auth(o, b.tokenHash)) return NOT_FOUND;
 
     if (path === "/get") {
       const after = (o.status === "paid" || o.status === "running") ? async () => this._ensureAlarm(o, now) : undefined;
-      return { body: { ok: true, order: publicView(o, now), reconcile: this._shouldReconcile(o, now), refundCheck: this._shouldRefundCheck(o, now) ? { refundId: o.refund.id } : null }, after };
+      const extras = await this._extras();
+      return { body: { ok: true, order: { ...publicView(o, now), ...extras }, reconcile: this._shouldReconcile(o, now), refundCheck: this._shouldRefundCheck(o, now) ? { refundId: o.refund.id } : null }, after };
     }
     if (path === "/doc") {
       // Manifest-commit: enda stället som avgör vilken fil som hör till ordern. Avslag returnerar `keep` =
@@ -145,14 +149,18 @@ export class CompareOrders {
       if (!["draft", "ready", "awaiting_payment"].includes(o.status)) return { status: 409, body: { ok: false, error: "status" } };
       const a = b.accept;
       if (!a || a.terms !== true || a.immediateDelivery !== true || typeof a.consentHash !== "string" || a.consentHash.length !== 64 || typeof a.consentVersion !== "string") return { status: 400, body: { ok: false, error: "ogiltig" } };
+      if (!validEmail(a.contactEmail)) return { status: 400, body: { ok: false, error: "epost" } };
+      // De FAKTISKT visade texterna fryses här: hashen måste stämma mot texten som sparas (inte bara en hash som senare saknar text).
+      const snapshot = consentSnapshot();
+      if ((await sha256Hex(JSON.stringify(snapshot))) !== a.consentHash) return { status: 409, body: { ok: false, error: "samtycke_andrat" } };
       // Vad kunden accepterade: version + hash av exakt de texter/priser som visades, när, och för hur många offerter.
-      o.accept = { ...(o.accept || {}), terms: true, immediateDelivery: true, acceptedAt: now, consentVersion: a.consentVersion, consentHash: a.consentHash, draft: a.draft === true, offerVersion: a.offerVersion, priceOre: a.priceOre, currency: a.currency, docCount: o.docCount };
+      o.accept = { ...(o.accept || {}), terms: true, immediateDelivery: true, contactEmail: a.contactEmail, snapshot, acceptedAt: now, consentVersion: a.consentVersion, consentHash: a.consentHash, draft: a.draft === true, offerVersion: a.offerVersion, priceOre: a.priceOre, currency: a.currency, docCount: o.docCount };
       await this._save(o);
       return { body: { ok: true } };
     }
     if (path === "/consent-status") {
       // Finns ett samtycke som matchar den aktuella texten (hash)? Används av "betala igen" utan ny presentation.
-      const same = !!(o.accept && o.accept.terms && o.accept.immediateDelivery && o.accept.consentHash === b.consentHash && o.accept.docCount === o.docCount);
+      const same = !!(o.accept && o.accept.terms && o.accept.immediateDelivery && o.accept.snapshot && validEmail(o.accept.contactEmail) && o.accept.consentHash === b.consentHash && o.accept.docCount === o.docCount);
       return { body: { ok: true, same } };
     }
     if (path === "/checkout-begin") {
@@ -214,8 +222,16 @@ export class CompareOrders {
     o.paidAt = now;
     o.status = "paid";
     o.stripe = { ...(o.stripe || {}), paymentIntentId: ev.paymentIntentId, amountTotal: ev.amountTotal };
+    // Avtalsposten fryses ur orderns snapshot och bevaras skild från dokument/rapport. Misslyckas den fryses ordern inte som betald utan avtal.
+    const { agreement, agreementHash } = await buildAgreement(o, { env: this.env, now, session: { sessionId: o.stripe.sessionId, paymentIntentId: ev.paymentIntentId, amountTotal: ev.amountTotal } });
+    const wt = await newWithdrawToken(o.id);
+    const ledger = newLedger({ agreement, agreementHash, withdrawTokenHash: wt.secretHash, env: this.env, now });
+    const origin = (() => { try { return new URL(this.env.COMPARE_RETURN_URL).origin; } catch { return ""; } })();
+    const mail = confirmationMail(ledger);
+    await this.state.storage.put("ledger", ledger);
+    await this.state.storage.put(`outbox:${mail.id}`, await outboxEntry(mail, { to: o.accept.contactEmail, now, secrets: { ANGERLANK: `${origin}/jamfor/angra/#t=${wt.token}` } }));
     await this._save(o);
-    return { body: { ok: true, status: "paid" }, after: async () => this._ensureAlarm(o, now, true) };
+    return { body: { ok: true, status: "paid" }, after: async () => { await this._ensureAlarm(o, now, true); await this._indexLedger(o.id, now); } };
   }
 
   async _ensureAlarm(o, now, force = false) {
@@ -228,6 +244,7 @@ export class CompareOrders {
   // ---- Arbetet ----
   async alarm() {
     const now = Date.now();
+    await this._drainOutbox(now);
     // Atomär arbetsclaim: bara om betald, ej levererad och ingen annan har en giltig lease.
     const claim = await this._tx(async () => {
       const o = await this._load();
@@ -324,6 +341,7 @@ export class CompareOrders {
     const retryAt = await this._tx(async () => {
       const o = await this._load();
       if (!o) return null;
+      if (owner !== null && o.work.error === "angrat" && r.reportKey) { try { await this.env.REVIEWS_KV.delete(r.reportKey); } catch { /* TTL */ } } // resultat som blev klart efter ångrande lämnas aldrig kvar
       if (owner === null) {
         if (!["paid", "running"].includes(o.status) || (o.work.lease && o.work.lease.until > Date.now())) return null;
       } else if (!o.work.lease || o.work.lease.owner !== owner) return null; // lease förlorad: nästa ägare tar över
@@ -348,27 +366,33 @@ export class CompareOrders {
       o.contentDeleted = true;
       o.purgeKeys = [...new Set([...(o.purgeKeys || []), ...o.docs.map((d) => d.key).filter(Boolean)])];
       o.docs = o.docs.map((d) => ({ ...d, key: null }));
-      if (o.refund.state === "none") o.refund.state = o.refund.mode === "auto" && o.stripe && o.stripe.paymentIntentId ? "requested" : "needed";
-      if (o.refund.state === "requested") refundCall = { paymentIntentId: o.stripe.paymentIntentId, orderId: o.id };
+      refundCall = this._planRefund(o);
       await this._save(o);
       return null;
     });
     if (retryAt) { await this.state.storage.setAlarm(retryAt); return; }
-    if (refundCall) {
-      let res = null;
-      try { res = await refundPayment(this.env, { ...refundCall, fetchImpl: (u, i) => fetch(u, i) }); } catch { res = null; }
-      await this._tx(async () => {
-        const o = await this._load();
-        if (!o) return;
-        this._applyRefund(o, res);
-        await this._save(o);
-      });
-    }
+    await this._runRefund(refundCall);
     // Rensa rå offertdata så fort ärendet är avslutat (levererat eller misslyckat).
     try {
       const o = await this._load();
       if (o && ["delivered", "failed"].includes(o.status)) await this._purgeDocs(o);
     } catch { /* TTL 24 h är reservvägen */ }
+  }
+
+  _planRefund(o) {
+    if (o.refund.state === "none") o.refund.state = o.refund.mode === "auto" && o.stripe && o.stripe.paymentIntentId ? "requested" : "needed";
+    return o.refund.state === "requested" ? { paymentIntentId: o.stripe.paymentIntentId, orderId: o.id } : null;
+  }
+  async _runRefund(refundCall) {
+    if (!refundCall) return;
+    let res = null;
+    try { res = await refundPayment(this.env, { ...refundCall, fetchImpl: (u, i) => fetch(u, i) }); } catch { res = null; }
+    await this._tx(async () => {
+      const o = await this._load();
+      if (!o) return;
+      this._applyRefund(o, res);
+      await this._save(o);
+    });
   }
 
   // Bara leverantörens "succeeded" är lyckad. Övriga får egna, sanningsenliga tillstånd:
@@ -398,6 +422,104 @@ export class CompareOrders {
     this._applyRefund(o, b.refund);
     await this._save(o);
     return { body: { ok: true, state: o.refund.state } };
+  }
+
+  // ---- Ledger, ånger, mejl ----
+  async _extras() {
+    const ledger = await this.state.storage.get("ledger");
+    if (!ledger) return { agreement: null, withdrawal: null };
+    const mails = [];
+    for (const [k, v] of await this.state.storage.list({ prefix: "outbox:" })) mails.push({ kind: v.kind, state: v.state, attempts: v.attempts, sentAt: v.sentAt });
+    const w = ledger.withdrawal;
+    return {
+      agreement: { id: ledger.agreementId, hash: ledger.agreementHash, paidAt: ledger.agreement.payment.paidAt, contact: maskEmail(ledger.agreement.contact.email), draft: true, mails },
+      withdrawal: w ? { requested: true, requestId: w.requestId, at: w.at, outcome: w.outcome, via: w.via } : { requested: false },
+    };
+  }
+
+  async _indexLedger(orderId, now) {
+    try {
+      const { ledgerIndex } = await import("./compare_budget.js");
+      await ledgerIndex(this.env, { orderId, now });
+    } catch { /* indexet kan återskapas; betalningen påverkas inte */ }
+  }
+
+  // Ångerbegäran. Idempotent: första begäran och dess tidpunkt ligger fast. Ingen automatisk juridisk avvisning:
+  // efter leverans eller i race med resultatet sparas begäran för manuell prövning (UTKAST).
+  async _withdraw(o, b, now) {
+    const NF = { status: 404, body: { ok: false, error: "hittas_inte" } };
+    const ledger = await this.state.storage.get("ledger");
+    if (!ledger) return NF;
+    const authed = b.via === "order" ? this._auth(o, b.tokenHash) : b.via === "token" ? (typeof b.secret === "string" && (await withdrawSecretMatches(ledger, b.secret))) : false;
+    if (!authed) return NF;
+    const view = () => ({ requested: true, requestId: ledger.withdrawal.requestId, at: ledger.withdrawal.at, outcome: ledger.withdrawal.outcome });
+    if (ledger.withdrawal) {
+      // Upprepad begäran: samma kvitto; mejlet köas bara om det saknas (ingen dubbel återbetalning, ingen ny tidpunkt).
+      await this._queueReceipt(ledger, now);
+      return { body: { ok: true, duplicate: true, withdrawal: view(), order: publicView(o, now) } };
+    }
+    const wd = { requestId: `begaran_${o.id.slice(2, 18)}`, at: now, via: b.via, stateAtRequest: o.status, outcome: null };
+    let refundCall = null, purge = false;
+    if (o.status === "paid" || o.status === "running") {
+      // Atomiskt: avbryt arbetsclaimen. En pågående körning förlorar sin lease och gör inga fler steg.
+      o.work.lease = null; o.work.error = "angrat"; o.status = "failed"; o.contentDeleted = true;
+      o.purgeKeys = [...new Set([...(o.purgeKeys || []), ...o.docs.map((d) => d.key).filter(Boolean)])];
+      o.docs = o.docs.map((d) => ({ ...d, key: null }));
+      refundCall = this._planRefund(o);
+      wd.outcome = "avbrutet_fore_leverans"; purge = true;
+    } else if (o.status === "failed") wd.outcome = "redan_avslutad";
+    else wd.outcome = "manuell_provning"; // levererad/raderad/utgången: ingen automatisk bedömning
+    ledger.withdrawal = wd;
+    addEvent(ledger, "angerbegaran", now, { via: b.via, outcome: wd.outcome, stateAtRequest: wd.stateAtRequest });
+    await this.state.storage.put("ledger", ledger);
+    await this._save(o);
+    await this._queueReceipt(ledger, now);
+    return {
+      body: { ok: true, duplicate: false, withdrawal: view(), order: publicView(o, now) },
+      after: async () => { await this._runRefund(refundCall); if (purge) await this._purgeDocs(await this._load()); await this._ensureAlarm(o, now, true); },
+    };
+  }
+
+  async _queueReceipt(ledger, now) {
+    const m = receiptMail(ledger, ledger.withdrawal);
+    if (await this.state.storage.get(`outbox:${m.id}`)) return;
+    await this.state.storage.put(`outbox:${m.id}`, await outboxEntry(m, { to: ledger.agreement.contact.email, now }));
+  }
+
+  // Lokal utkorg. Extern sändning är AV: utan env.COMPARE_MAILER ligger meddelandena kvar som "queued" (inget påstås skickat).
+  // "sent" sätts bara efter transportens kvittens. Samma meddelande-ID vid omförsök (transporten ska deduplicera), så en förlorad
+  // kvittens ger omsändning av SAMMA meddelande, aldrig ett nytt eller ett falskt "skickat".
+  async _drainOutbox(now) {
+    const mailer = this.env.COMPARE_MAILER;
+    if (!mailer || typeof mailer.send !== "function") return;
+    const entries = [...(await this.state.storage.list({ prefix: "outbox:" }))];
+    let retryAt = null;
+    for (const [key] of entries) {
+      const claim = await this._tx(async () => {
+        const m = await this.state.storage.get(key);
+        if (!m || m.state === "sent" || m.state === "failed") return null;
+        if (m.attempts >= 5) { m.state = "failed"; await this.state.storage.put(key, m); return null; }
+        if (m.nextAt && m.nextAt > now) return { wait: m.nextAt };
+        m.attempts += 1; m.lastAttemptAt = now; await this.state.storage.put(key, m);
+        return { m: { ...m } };
+      });
+      if (!claim) continue;
+      if (claim.wait) { retryAt = Math.min(retryAt ?? claim.wait, claim.wait); continue; }
+      let ack = null;
+      try {
+        let text = claim.m.body;
+        for (const [k, v] of Object.entries(claim.m.secrets || {})) text = text.split(`{{${k}}}`).join(v);
+        ack = await mailer.send({ id: claim.m.id, to: claim.m.to, subject: claim.m.subject, body: text });
+      } catch { ack = null; }
+      await this._tx(async () => {
+        const m = await this.state.storage.get(key);
+        if (!m || m.state === "sent") return;
+        if (ack && ack.ok === true) { m.state = "sent"; m.sentAt = Date.now(); m.providerRef = typeof ack.ref === "string" ? ack.ref.slice(0, 80) : null; m.secrets = null; m.lastError = null; }
+        else { m.lastError = "transport"; m.nextAt = Date.now() + Math.min(60_000, 2_000 * 2 ** m.attempts); retryAt = Math.min(retryAt ?? m.nextAt, m.nextAt); }
+        await this.state.storage.put(key, m);
+      });
+    }
+    if (retryAt && this.state.storage.setAlarm) await this.state.storage.setAlarm(Math.max(retryAt, Date.now() + 10));
   }
 
   async _purgeDocs(o) {
