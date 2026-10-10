@@ -1013,3 +1013,90 @@ test("D11-P2d: kompakt källrad vid offerten (★ betyg · antal · Trustpilot),
     assert.doesNotMatch(await page.textContent("table.cmp thead"), /Google[^ ]* ★|★ [0-9,]+ av 5 · [0-9]+ omdömen · Google/);
   } finally { await ctx.close(); await h.close(); }
 });
+
+// ---- D11-P2d rättning (root-QA P1): betygscachen är bunden till firmans aktuella identitet/koppling ----
+const tpSeed = (h) => {
+  seedSources(h);
+  h.ctl.tpFind = { "byggfirma.se": [{ id: "bu00000001", displayName: "Byggfirma", websiteUrl: "https://byggfirma.se" }], "syd.se": [{ id: "bu00000002", displayName: "Syd", websiteUrl: "https://syd.se" }] };
+  const RV = [1, 2, 3].map((n) => ({ stars: 4, title: "S" + n, text: "SYNT " + n, createdAt: `2026-09-${30 - n}T10:00:00Z`, link: "https://www.trustpilot.com/reviews/s" + n }));
+  h.ctl.tpLatest = { bu00000001: { businessUnit: { trustScore: 3.9, numberOfReviews: { total: 12 } }, reviews: RV }, bu00000002: { businessUnit: { trustScore: 4.6, numberOfReviews: { total: 310 } }, reviews: RV } };
+};
+async function tpConfirm(page, name, dom) {
+  let card = page.locator(`#srcrep .srcfirm:has-text("${name}")`);
+  await card.locator("button:has-text('Ändra företag')").click();
+  await page.fill(".srcedit input[id^=se-d]", dom); await page.click(".srcedit button:has-text('Spara företag')");
+  card = page.locator(`#srcrep .srcfirm:has-text("${name}")`);
+  await card.locator('[data-src="trustpilot"] button:has-text("Sök firman hos Trustpilot")').click();
+  await card.locator('[data-src="trustpilot"] input[type=radio]').first().check();
+  await card.locator('[data-src="trustpilot"] .btn.acc').click();
+}
+const lineOf = (page, k) => page.textContent(`.srcline[data-src-offer="${k}"]`);
+const THREE = () => [
+  fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Byggfirma AB") }),
+  fx({ extracted: EX(101000), scope: SC(), issuer: ID_OK("Syd Bygg AB", { orgnr: "556000-0167" }) }),
+  fx({ extracted: EX(102000), scope: SC(), issuer: ID_OK("Tredje AB", { orgnr: "556000-0001" }) }),
+];
+
+test("D11-P2d-fix P1: ändrad domän/identitet nollställer betyg vid offerten och betygssortering faller tillbaka (root-repro)", async () => {
+  const h = await startHarness({ vars: SRC_VARS }); tpSeed(h);
+  const { ctx, page } = await newPage(h, 1280, 900);
+  try {
+    await payToReport(page, h, THREE()); await page.click("#more summary"); await page.waitForSelector('#srcrep .srcfirm[data-firm]');
+    await tpConfirm(page, "Byggfirma AB", "byggfirma.se"); await tpConfirm(page, "Syd Bygg AB", "syd.se");
+    await page.waitForFunction(() => /★ 4,6 av 5 · 310/.test(document.querySelector('.srcline[data-src-offer="1"]')?.textContent || ""), null, { timeout: 15000 });
+    await page.selectOption("#sortby", "rating");
+    assert.equal(await page.$eval("#sortby", (e) => e.value), "rating");
+    // root-repro: Syd Bygg AB byter domän → servern nollställer TP-koppling
+    const card = page.locator('#srcrep .srcfirm:has-text("Syd Bygg AB")');
+    await card.locator("button:has-text('Ändra företag')").click();
+    await page.fill(".srcedit input[id^=se-d]", "annan-firma.example"); await page.click(".srcedit button:has-text('Spara företag')");
+    await page.waitForFunction(() => !/★ 4,6/.test(document.querySelector('.srcline[data-src-offer="1"]')?.textContent || "x"), null, { timeout: 15000 });
+    assert.doesNotMatch(await lineOf(page, 1), /★|310/); assert.match(await lineOf(page, 1), /ej kopplad/);
+    assert.match(await lineOf(page, 0), /★ 3,9 av 5 · 12 omdömen/, "oförändrad firma behåller sitt betyg");
+    assert.equal(await page.$eval("#sortby", (e) => e.value), "upload", "betygssortering faller tillbaka");
+    assert.equal(await page.$eval('#sortby option[value="rating"]', (o) => o.disabled), true);
+    assert.doesNotMatch(await page.textContent("table.cmp thead"), /310/);
+    // ändring av ENBART ort rensar också (identitet) och ny koppling hämtar nytt (ingen gammal siffra)
+    await tpConfirm(page, "Syd Bygg AB", "syd.se");
+    await page.waitForFunction(() => /★ 4,6 av 5 · 310/.test(document.querySelector('.srcline[data-src-offer="1"]')?.textContent || ""), null, { timeout: 15000 });
+    h.ctl.tpLatest.bu00000002 = { businessUnit: { trustScore: 2.1, numberOfReviews: { total: 7 } }, reviews: h.ctl.tpLatest.bu00000001.reviews };
+    await page.locator('#srcrep .srcfirm:has-text("Syd Bygg AB") button:has-text("Fel firma? Byt")').last().click();
+    await page.waitForFunction(() => !/★/.test(document.querySelector('.srcline[data-src-offer="1"]')?.textContent || "x"), null, { timeout: 15000 });
+    assert.equal(await page.$eval('#sortby option[value="rating"]', (o) => o.disabled), true);
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("D11-P2d-fix: sent Trustpilotsvar (inflight) efter identitetsbyte ignoreras; samma firma i två kolumner räknas inte som två firmor", async () => {
+  const h = await startHarness({ vars: SRC_VARS }); tpSeed(h);
+  const { ctx, page } = await newPage(h, 1280, 900);
+  try {
+    // A) inflight: långsamt svar, domänbyte medan det är på väg
+    await payToReport(page, h, THREE()); await page.click("#more summary"); await page.waitForSelector('#srcrep .srcfirm[data-firm]');
+    await tpConfirm(page, "Byggfirma AB", "byggfirma.se");
+    await page.waitForFunction(() => /★ 3,9/.test(document.querySelector('.srcline[data-src-offer="0"]')?.textContent || ""), null, { timeout: 15000 });
+    h.ctl.tpDelayMs = 2500;
+    await tpConfirm(page, "Syd Bygg AB", "syd.se"); // startar hämtning (fördröjd)
+    const card = page.locator('#srcrep .srcfirm:has-text("Syd Bygg AB")');
+    await card.locator("button:has-text('Ändra företag')").click(); // identitet ändras medan svaret är på väg
+    await page.fill(".srcedit input[id^=se-d]", "annan-firma.example"); await page.click(".srcedit button:has-text('Spara företag')");
+    await page.waitForTimeout(4000);
+    assert.doesNotMatch(await lineOf(page, 1), /★|310/, "sent svar för gammal identitet får inte synas");
+    assert.equal(await page.$eval('#sortby option[value="rating"]', (o) => o.disabled), true);
+  } finally { await ctx.close(); await h.close(); }
+  // B) distinkta firmor: samma firma i offert 1 och 2
+  const h2 = await startHarness({ vars: SRC_VARS }); tpSeed(h2);
+  const p2 = await newPage(h2, 1280, 900);
+  try {
+    await payToReport(p2.page, h2, [
+      fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Byggfirma AB") }),
+      fx({ extracted: EX(101000), scope: SC(), issuer: ID_OK("Byggfirma AB") }),
+      fx({ extracted: EX(102000), scope: SC(), issuer: ID_OK("Tredje AB", { orgnr: "556000-0001" }) }),
+    ]);
+    await p2.page.click("#more summary"); await p2.page.waitForSelector('#srcrep .srcfirm[data-firm]');
+    assert.equal(await p2.page.locator("#srcrep .srcfirm").count(), 2, "samma firma = ett firmakort för två offerter");
+    await tpConfirm(p2.page, "Byggfirma AB", "byggfirma.se");
+    await p2.page.waitForFunction(() => /★ 3,9/.test(document.querySelector('.srcline[data-src-offer="1"]')?.textContent || ""), null, { timeout: 15000 });
+    assert.match(await lineOf(p2.page, 0), /★ 3,9/);
+    assert.equal(await p2.page.$eval('#sortby option[value="rating"]', (o) => o.disabled), true, "en firma i två kolumner ≠ två firmor");
+  } finally { await p2.ctx.close(); await h2.close(); }
+});

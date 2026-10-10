@@ -142,7 +142,7 @@ export function sourcesView(cfg, st) {
   const firms = (st.firms || []).map((f) => ({
     id: f.id, name: f.name, city: f.city, domain: f.domain, offers: f.offers, conflict: !!f.conflict, origin: f.origin || "kund",
     google: { state: providerState(cfg, f, "google"), text: stateText(providerState(cfg, f, "google")), placeId: f.google.placeId || null, confirmed: !!f.google.placeId, searchesLeft: Math.max(0, LIM.searchesPerFirm - f.google.searches) },
-    trustpilot: { state: providerState(cfg, f, "trustpilot"), text: stateText(providerState(cfg, f, "trustpilot")), confirmed: !!f.trustpilot.buId, searchesLeft: Math.max(0, LIM.searchesPerFirm - f.trustpilot.searches) },
+    trustpilot: { state: providerState(cfg, f, "trustpilot"), text: stateText(providerState(cfg, f, "trustpilot")), confirmed: !!f.trustpilot.buId, rev: f.trustpilot.buId ? (f.trustpilot.confirmedAt || 1) : 0, searchesLeft: Math.max(0, LIM.searchesPerFirm - f.trustpilot.searches) },
   }));
   return { active: cfg.active, firms, coverage: coverageSummary(cfg, firms) };
 }

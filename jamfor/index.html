@@ -422,10 +422,20 @@ function money(m){return m?kr(m.value):'Framgår inte'}
 // ---------- D11: offert först – kolumner per offert, jämförbara rader, sortering, fördjupning under Visa mer ----------
 var SORTS=[{v:'upload',t:'Uppladdningsordning'},{v:'price',t:'Lägst jämförbara pris'},{v:'fewopen',t:'Minst antal oklarheter'},{v:'mostopen',t:'Flest oklarheter'},{v:'rating',t:'Högst Trustpilot-betyg'}];
 function idStat(f){return f.status==='framgar'?{k:'ok',t:'Framgår'}:f.status==='ej_lasbar'?{k:'unk',t:'Kunde inte avläsas säkert'}:{k:'q',t:'Framgår inte'}}
-var SRCTPD={},SRCTPTRY={}; // Trustpilot-sammanfattning per firma-id: {score,count} från serveradaptern (aldrig egen uppskattning)
+// Trustpilot-sammanfattning {sig,score,count} från serveradaptern (aldrig egen uppskattning), BUNDEN till firmans aktuella identitet:
+// sig = id|namn|ort|domän|Trustpilot bekräftad|bekräftelse-revision (serverns trustpilot.rev ändras vid varje ny/borttagen koppling). Ändrad sig,
+// borttagen firma eller avbekräftad koppling ⇒ posten gäller inte längre (tpOf returnerar null) och rensas. Inflight-svar kontrolleras mot sig vid mottagandet.
+var SRCTPD={},SRCTPTRY={};
+function firmSig(f){var t=f.trustpilot||{};return [f.id,f.name||'',f.city||'',f.domain||'',t.confirmed?1:0,t.rev||0].join('|')}
+function curFirm(id){var v=SRC&&SRC.view;if(!v||!v.firms)return null;var r=null;v.firms.forEach(function(x){if(!r&&x.id===id)r=x});return r}
+function tpOfFirm(f){var d=f&&SRCTPD[f.id];return d&&f.trustpilot&&f.trustpilot.confirmed&&d.sig===firmSig(f)?d:null}
+function tpPrune(){
+  Object.keys(SRCTPD).forEach(function(id){var f=curFirm(id);if(!f||!tpOfFirm(f))delete SRCTPD[id]});
+  Object.keys(SRCTPTRY).forEach(function(id){var f=curFirm(id);if(!f||SRCTPTRY[id].sig!==firmSig(f))delete SRCTPTRY[id]});
+}
 function firmOfOffer(k){var v=SRC&&SRC.view;if(!v||!v.firms)return null;var f=null;v.firms.forEach(function(x){if(!f&&x.offers.indexOf(k)>=0)f=x});return f}
-function tpOf(k){var f=firmOfOffer(k);return f?SRCTPD[f.id]||null:null}
-function ratingAvailable(n){var c=0,i;for(i=0;i<n;i++)if(tpOf(i))c++;return c>=2}
+function tpOf(k){return tpOfFirm(firmOfOffer(k))}
+function ratingAvailable(n){var ids={},c=0,i,f;for(i=0;i<n;i++){f=firmOfOffer(i);if(f&&tpOfFirm(f)&&!ids[f.id]){ids[f.id]=1;c++}}return c>=2} // DISTINCTA firmor: två offerter från samma firma räknas som en
 function tpText(d){return '★ '+String(d.score).replace('.',',')+' av 5 · '+d.count+' omdömen · Trustpilot'}
 // Placeringar: lika värden = delad placering (konkurrensrangordning), okända/ej bedömbara får ingen placering och hamnar sist (aldrig 0/sämst).
 function sortOffers(R,mode){
@@ -742,10 +752,11 @@ function srcCompactAll(){
     if(!f)return;
     var parts=[];
     if(c.google.state!=='ej_aktiverad')parts.push(f.google&&f.google.confirmed?'Google (visas i Googles ruta)':'Google: ej kopplad');
-    if(c.trustpilot.state!=='ej_aktiverad'){var td=SRCTPD[f.id];parts.push(td?tpText(td):f.trustpilot&&f.trustpilot.confirmed?(SRCTPTRY[f.id]===2?'Trustpilot: betyg kunde inte hämtas just nu':'Trustpilot: hämtar betyg…'):'Trustpilot: ej kopplad')}
+    if(c.trustpilot.state!=='ej_aktiverad'){var td=tpOfFirm(f);parts.push(td?tpText(td):f.trustpilot&&f.trustpilot.confirmed?(SRCTPTRY[f.id]&&SRCTPTRY[f.id].state===2&&SRCTPTRY[f.id].sig===firmSig(f)?'Trustpilot: betyg kunde inte hämtas just nu':'Trustpilot: hämtar betyg…'):'Trustpilot: ej kopplad')}
     if(!parts.length)return;
-    var tdn=SRCTPD[f.id];
+    var tdn=tpOfFirm(f);
     nd.appendChild(el('span',{'data-srcline':'1',text:'Omdömen: '+parts.join(' · ')+(f.origin==='dokument'?' · firman läst ur offerten':'')}));
+    if(!tdn)nd.removeAttribute('aria-label');
     if(tdn)nd.setAttribute('aria-label','Trustpilots totalbetyg '+tdn.score+' av 5 från '+tdn.count+' omdömen');
     var b=el('button',{type:'button',class:'linkbtn',text:'Visa omdömen'});
     b.addEventListener('click',function(){var m=$('more');if(m)m.open=true;var card=document.querySelector('#rep .srcfirm[data-firm="'+f.id+'"]');if(card){card.scrollIntoView({block:'start'});var h=card.querySelector('h4');if(h){h.setAttribute('tabindex','-1');h.focus()}}});
@@ -753,22 +764,27 @@ function srcCompactAll(){
   });
 }
 function ratingSortSync(){
-  var op=document.querySelector('#sortby option[data-rating]');if(!op||!window.__lastN)return;
+  var sel=$('sortby'),op=document.querySelector('#sortby option[data-rating]');if(!sel||!op||!window.__lastN)return;
   var ok=ratingAvailable(window.__lastN);op.disabled=!ok;op.textContent=ok?'Högst Trustpilot-betyg':'Högst Trustpilot-betyg (kräver Trustpilot-uppgifter för minst två firmor)';
+  if(!ok&&sel.value==='rating'){sel.value='upload';sel.dispatchEvent(new Event('change'))} // inaktuellt underlag ⇒ tillbaka till neutral ordning, ingen kvarglömd betygssortering
 }
-// Hämtar Trustpilots sammanfattning (betyg + antal) EN gång per firma och sidvisning för firmor med bekräftad Trustpilot-koppling. Servern äger tak/kostnadsstopp;
-// fel/stopp ⇒ tyst: raden säger då "hämtar…" ersätts av länken Visa omdömen, aldrig ett påhittat betyg.
-async function tpAuto(view){
+// Hämtar Trustpilots sammanfattning (betyg + antal) EN gång per firma-identitet för bekräftade firmor. Svaret gäller bara om firmans sig är oförändrad när det
+// kommer (annars ignoreras det och nästa omgång hämtar för den nya identiteten). Servern äger tak/kostnadsstopp; fel ⇒ ärlig text, aldrig ett påhittat betyg.
+async function tpAuto(view,depth){
   var c=srcCfg();if(!c||c.trustpilot.state==='ej_aktiverad'||!view||!view.firms)return;
+  var stale=false;
   for(var i=0;i<view.firms.length;i++){
-    var f=view.firms[i];
-    if(!f.trustpilot||!f.trustpilot.confirmed||SRCTPD[f.id]||SRCTPTRY[f.id])continue;
-    SRCTPTRY[f.id]=1;
-    try{var r=await srcApi('POST','/trustpilot/latest',{firmId:f.id});
-      var cd=r&&r.status===200&&r.json&&r.json.card;
-      if(cd&&cd.trustScore!==null&&cd.totalReviews!==null)SRCTPD[f.id]={score:cd.trustScore,count:cd.totalReviews};else SRCTPTRY[f.id]=2}catch(e){SRCTPTRY[f.id]=2}
+    var f=view.firms[i],sig=firmSig(f);
+    if(!f.trustpilot||!f.trustpilot.confirmed||tpOfFirm(f)||(SRCTPTRY[f.id]&&SRCTPTRY[f.id].sig===sig))continue;
+    SRCTPTRY[f.id]={sig:sig,state:1};
+    var res=null;
+    try{var r=await srcApi('POST','/trustpilot/latest',{firmId:f.id});var cd=r&&r.status===200&&r.json&&r.json.card;if(cd&&cd.trustScore!==null&&cd.totalReviews!==null)res={score:cd.trustScore,count:cd.totalReviews}}catch(e){}
+    var cur=curFirm(f.id);
+    if(!cur||firmSig(cur)!==sig){stale=true;continue} // identiteten/kopplingen ändrades under tiden: sent svar kastas
+    if(res)SRCTPD[f.id]={sig:sig,score:res.score,count:res.count};else SRCTPTRY[f.id]={sig:sig,state:2};
   }
-  srcCompactAll();ratingSortSync();
+  tpPrune();srcCompactAll();ratingSortSync();
+  if(stale&&(depth||0)<2)tpAuto(SRC.view,(depth||0)+1);
 }
 function srcCov(view){var cv=$('srccov');if(cv&&view&&view.coverage){cv.textContent='';(view.coverage.lines||[]).forEach(function(l){cv.appendChild(el('li',{text:l}))})}}
 function srcInter(m){return m==='offer'||m==='report'}
@@ -891,7 +907,7 @@ function srcTp(out,f,j){
   if(j.outcome==='fel'){out.appendChild(el('p',{class:'warnbox',text:'Trustpilot svarade inte just nu. Det betyder inte att omdömen saknas – försök igen om en stund.'}));return}
   if(j.outcome==='kostnadsstopp'){out.appendChild(el('p',{class:'warnbox',text:'Visningen är stoppad av kostnadsskäl just nu. Det betyder inte att omdömen saknas.'}));return}
   var c=j.card;if(!c)return;
-  if(c.trustScore!==null&&c.totalReviews!==null){SRCTPD[f.id]={score:c.trustScore,count:c.totalReviews};srcCompactAll()}
+  if(c.trustScore!==null&&c.totalReviews!==null){SRCTPD[f.id]={sig:firmSig(f),score:c.trustScore,count:c.totalReviews};srcCompactAll();ratingSortSync()}
   var head='Källa: Trustpilot ('+f.name+(f.city?', '+f.city:'')+').';
   out.appendChild(el('p',{class:'hint',text:head+(c.trustScore!==null?' Trustpilots totalbetyg: '+String(c.trustScore).replace('.',',')+' av 5':'')+(c.totalReviews!==null?' ('+c.totalReviews+' omdömen).':'.')}));
   if(c.latestState==='inga_omdomen'){out.appendChild(el('p',{class:'hint',text:'Trustpilot har inga omdömen för firman. Få eller inga omdömen är tunt underlag – inte ett dåligt företag.'}))}
@@ -911,7 +927,8 @@ function srcRender(view,mode){
   host.textContent='';
   (view.firms||[]).forEach(function(f){host.appendChild(srcFirmCard(f,mode))});
   if(mode==='report'&&!view.firms.length)host.appendChild(el('p',{class:'hint',text:'Du angav inga firmor för källvisning.'}));
-  if(mode==='report'){srcCompactAll();tpAuto(view)}
+  tpPrune();
+  if(mode==='report'){srcCompactAll();ratingSortSync();tpAuto(view)}
   var cv=$('srccov');if(cv&&mode==='offer'){cv.textContent='';(view.coverage&&view.coverage.lines||[]).forEach(function(l){cv.appendChild(el('li',{text:l}))})}
 }
 function srcForm(){

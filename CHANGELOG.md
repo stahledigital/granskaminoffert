@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1o-fix1 – D11-P2d rättning: betygscachen bunden till firmans identitet (root-QA P1; KANDIDAT – AV)
+- Rotorsak: SRCTPD/SRCTPTRY var nycklade bara på firm.id; ändrad domän/namn/ort nollställde serverns Trustpilot-koppling men inte klientens betyg ⇒ ★ och betygssortering kvarstod.
+- Nu: cachen bär `sig` = id|namn|ort|domän|TP bekräftad|TP-revision (serverfält `trustpilot.rev`, ändras vid varje ny/borttagen koppling; ingen BU-id exponeras). Ogiltig sig / borttagen firma / avbekräftad koppling ⇒ posten gäller inte och rensas. Inflight-svar kontrolleras mot sig vid mottagandet (sent svar kastas, ny hämtning för ny identitet). Vald betygssortering faller tillbaka till uppladdningsordning när underlaget försvinner.
+- Betygssortering kräver ≥2 DISTINCTA aktuellt bekräftade firmor med uppgift (samma firma i två kolumner räknas som en).
+- Regressionstester (röda mot gamla koden, gröna nu): root-repro domänbyte, byte av koppling, inflight-svar efter identitetsbyte, samma firma i två kolumner.
+
 ## jamfor-v1o – D11-P2d källrad med betyg vid offerten (KANDIDAT – AV, ej släppt; ovanpå D12-integrationen 099df5ce)
 - Källraden vid varje offerts firmarubrik visar nu "★ 4,6 av 5 · 310 omdömen · Trustpilot" när firman är bekräftad och serveradaptern levererat totalbetyg + antal. Hämtas automatiskt EN gång per firma och sidvisning (servern äger tak/kostnadsstopp); fel/stopp ⇒ "betyg kunde inte hämtas just nu", aldrig påhittad stjärna. Firma utan uppgift: ingen stjärna ("ej kopplad"). Google: raden säger bara om firman är kopplad – Googles betyg kan visas enbart i Googles egen ruta (se COMPARE.md).
 - Sortera efter "Högst Trustpilot-betyg": på först när minst två firmor har Trustpilot-uppgift; högst först, lika = delad placering, okända sist ("Ej bedömbart"), ingen egen poäng/total, ingen rekommendation. Google kan inte sorteras (ingen avläsning).

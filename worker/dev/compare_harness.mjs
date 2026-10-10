@@ -177,6 +177,7 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
         const f = u.pathname === "/v1/business-units/find" && u.searchParams.get("name");
         if (f) return Response.json({ businessUnits: (ctl.tpFind || {})[f] || [] });
         const l = u.pathname.match(/^\/v1\/business-units\/([A-Za-z0-9]+)\/reviews\/latest$/);
+        if (l && ctl.tpDelayMs) await new Promise((r) => setTimeout(r, ctl.tpDelayMs)); // endast test: långsamt Trustpilotsvar (inflight)
         if (l) return (ctl.tpLatest || {})[l[1]] ? Response.json(ctl.tpLatest[l[1]]) : Response.json({}, { status: 404 });
       }
       return new Response("blockerad", { status: 502 });
