@@ -6,11 +6,30 @@ export function fakeFreeBudgetNamespace() {
   const get = (name) => {
     if (!objects.has(name)) {
       const store = new Map();
+      const o = { faults: null, writes: 0 }; // faults: { put?: (key, value, txnWriteIndex) => bool, commit?: () => bool, get?: (key) => bool }
+      // Riktig rollback-semantik som Cloudflares storage.transaction: skrivningar buffras och appliceras först vid commit;
+      // kastar callbacken (eller commit) kastas allt bort. Fel kan injiceras per put/commit/get via o.faults.
       const state = {
-        storage: { async get(k) { return store.get(k); }, async put(k, v) { store.set(k, structuredClone(v)); }, async delete(k) { store.delete(k); } },
+        storage: {
+          async get(k) { return store.get(k); },
+          async put(k, v) { store.set(k, structuredClone(v)); },
+          async delete(k) { store.delete(k); },
+          async transaction(fn) {
+            const overlay = new Map(); let idx = 0;
+            const txn = {
+              async get(k) { if (o.faults?.get?.(k)) throw new Error("injicerat läsfel"); return overlay.has(k) ? overlay.get(k) : store.get(k); },
+              async put(k, v) { if (o.faults?.put?.(k, v, idx++)) throw new Error("injicerat skrivfel " + k); overlay.set(k, structuredClone(v)); },
+              async delete(k) { overlay.set(k, undefined); },
+            };
+            const out = await fn(txn);
+            if (o.faults?.commit?.()) throw new Error("injicerat commitfel");
+            for (const [k, v] of overlay) { if (v === undefined) store.delete(k); else store.set(k, v); o.writes++; }
+            return out;
+          },
+        },
         async blockConcurrencyWhile(fn) { return fn(); },
       };
-      objects.set(name, { obj: new FreeBudget(state), tail: Promise.resolve(), store });
+      Object.assign(o, { obj: new FreeBudget(state), tail: Promise.resolve(), store, state }); objects.set(name, o);
     }
     return objects.get(name);
   };

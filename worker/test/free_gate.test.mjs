@@ -198,3 +198,70 @@ test("godkänd pilot (Anders 2026-10-10 23:36): 20 000 000 µUSD TOTALT, slut ex
   assert.equal((await freeReserve(g2, { key: "y1", micro: 1, now: new Date("2026-10-31T23:00:00.000Z") })).reason, "utgangen", "exakt 00:00 CET är utanför (exklusivt)");
   assert.equal((await freeReserve(g2, { key: "y2", micro: 1, now: new Date("2026-11-01T00:00:00Z") })).reason, "utgangen");
 });
+
+// ---- D12-rättning (root-QA P1): atomicitet. Fake-adaptern har riktig transaktions-rollback och faultinjektion per skrivning/commit. ----
+const objOf = (e) => [...e.FREE_BUDGET.objects.values()][0];
+const snap = (e) => JSON.stringify([...objOf(e).store].sort());
+const settleArgs = (key, w) => ({ key, model: MODEL, usage: { input_tokens: 0, output_tokens: 10 }, worstMicro: w });
+
+test("root P1 (reproducerat scenario): cap 1500, reserve 1000, settle faktiskt 100; fel på r-skrivningen ⇒ allt rullas tillbaka, retry ⇒ m=100 exakt, nästa reserve 1500 NEKAS", async () => {
+  const e = env({ FREE_PILOT_CAP_MICRO: "1500" }); const now = new Date();
+  assert.equal((await freeReserve(e, { key: "root:one", micro: 1000, now })).ok, true);
+  const o = objOf(e); const before = snap(e);
+  let armed = true; o.faults = { put: (k, v) => armed && k === "r:root:one" && v.state === "settled" && !(armed = false) };
+  assert.equal(await freeSettle(e, { ...settleArgs("root:one", 1000), now }), false, "felet syns som misslyckad avräkning");
+  assert.equal(snap(e), before, "inga halvskrivningar: m och r oförändrade, ingen halt");
+  assert.equal(o.store.get("m").spent, 1000); assert.equal(o.store.get("r:root:one").state, "reserved");
+  assert.equal(await freeSettle(e, { ...settleArgs("root:one", 1000), now }), true);
+  assert.equal(o.store.get("r:root:one").actual, 100); assert.equal(o.store.get("m").spent, 100, "förbrukningen räknas exakt en gång");
+  assert.equal(await freeSettle(e, { ...settleArgs("root:one", 1000), now }), true); assert.equal(o.store.get("m").spent, 100, "extra settle ändrar inget");
+  assert.equal((await freeReserve(e, { key: "root:two", micro: 1500, now })).reason, "tak");
+});
+
+test("faultmatris: ett fel vid VARJE skrivning (och vid commit/läsning) i reserve/settle/release lämnar lagringen byte-för-byte oförändrad; retry ger rätt resultat", async () => {
+  const now = new Date();
+  const ops = {
+    reserve: (e) => freeReserve(e, { key: "n1", micro: 400, now }),
+    settle: (e) => freeSettle(e, { ...settleArgs("s1", 500), now }),
+    settleUnknown: (e) => freeUnknown(e, { key: "s1", worstMicro: 500, now }),
+    release: (e) => freeRelease(e, { key: "s1", now }),
+  };
+  const hits = {};
+  for (const [name, run] of Object.entries(ops)) {
+    for (const fault of [{ put: (k, v, i) => i === 0 }, { put: (k, v, i) => i === 1 }, { put: (k, v, i) => i === 2 }, { commit: () => true }, { get: (k) => k === "m" }]) {
+      const e = env({ FREE_PILOT_CAP_MICRO: "5000" });
+      await freeReserve(e, { key: "s1", micro: 500, now }); // förberedd reservation för settle/release
+      const o = objOf(e), before = snap(e), writesBefore = o.writes;
+      o.faults = fault; const r = await run(e); o.faults = null;
+      const failed = r === false || (r && r.ok === false && r.reason === "fel");
+      if (!failed) continue; // felpunkten nåddes inte av just den operationen (t.ex. put-index 2 i release)
+      hits[name] = (hits[name] || 0) + 1;
+      assert.equal(snap(e), before, `${name} ${JSON.stringify(Object.keys(fault))}: lagringen oförändrad efter fel`); assert.equal(o.writes, writesBefore);
+      const again = await run(e); assert.ok(again === true || again.ok === true, `${name}: retry lyckas`);
+    }
+  }
+  for (const n of Object.keys(ops)) assert.ok(hits[n] >= 3, `${n}: minst tre felpunkter träffades (${hits[n]})`);
+  // totaler efter fel+retry stämmer exakt
+  const e = env({ FREE_PILOT_CAP_MICRO: "5000" }); await freeReserve(e, { key: "s1", micro: 500, now }); const o = objOf(e);
+  o.faults = { put: (k, v, i) => i === 1 }; await freeSettle(e, { ...settleArgs("s1", 500), now }); o.faults = null; await freeSettle(e, { ...settleArgs("s1", 500), now });
+  assert.equal(o.store.get("m").spent, 100);
+  const e2 = env({ FREE_PILOT_CAP_MICRO: "5000" }); await freeReserve(e2, { key: "s1", micro: 500, now }); const o2 = objOf(e2);
+  o2.faults = { put: (k) => k === "halt" }; await freeUnknown(e2, { key: "s1", worstMicro: 500, now }); o2.faults = null;
+  assert.equal(o2.store.get("halt"), undefined, "fel på halt-skrivningen ⇒ ingen halv avräkning"); assert.equal(o2.store.get("r:s1").state, "reserved");
+  await freeUnknown(e2, { key: "s1", worstMicro: 500, now }); assert.ok(o2.store.get("halt")); assert.equal(o2.store.get("m").spent, 500, "värsta fallet kvar, en gång");
+  const e3 = env({ FREE_PILOT_CAP_MICRO: "5000" }); await freeReserve(e3, { key: "s1", micro: 500, now }); const o3 = objOf(e3);
+  o3.faults = { put: (k) => k.startsWith("r:") }; await freeRelease(e3, { key: "s1", now }); o3.faults = null; assert.equal(o3.store.get("m").spent, 500);
+  await freeRelease(e3, { key: "s1", now }); await freeRelease(e3, { key: "s1", now }); assert.equal(o3.store.get("m").spent, 0, "dubbel release drar inte bort två gånger");
+});
+
+test("lagring utan transaktionsstöd ⇒ nekat (fail closed), aldrig en icke-atomisk reservväg; pilotaktivering rullas tillbaka vid fel", async () => {
+  const e = env(); const now = new Date(); const o = (await freeReserve(e, { key: "p", micro: 1, now }), objOf(e)); const tx = o.state.storage.transaction;
+  o.state.storage.transaction = undefined; assert.equal((await freeReserve(e, { key: "q", micro: 1, now })).reason, "fel"); o.state.storage.transaction = tx;
+  const e2 = env(); const o2obj = objOf((await freeReserve(e2, { key: "x", micro: 1, now }), e2)); // skapar instansen
+  const e3 = env({ FREE_PILOT_CAP_MICRO: "1000" }); await freeGateStatus(e3, now); // /status skapar ingen pilotpost
+  assert.equal(e3.FREE_BUDGET.objects.size, 1); assert.equal([...e3.FREE_BUDGET.objects.values()][0].store.has("pilot"), false);
+  const e4 = env(); const g = e4.FREE_BUDGET.get(e4.FREE_BUDGET.idFromName("pilot:" + e4.FREE_PILOT_ID)); // instans för felinjektion vid aktivering
+  const o4 = [...e4.FREE_BUDGET.objects.values()][0]; o4.faults = { put: (k) => k === "m" };
+  assert.equal((await freeReserve(e4, { key: "z", micro: 5, now })).ok, false); assert.equal(o4.store.size, 0, "varken pilotpost, m eller r finns kvar efter fel");
+  o4.faults = null; assert.equal((await freeReserve(e4, { key: "z", micro: 5, now })).ok, true);
+});

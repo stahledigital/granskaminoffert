@@ -27,6 +27,12 @@ FREE_PILOT_MANDATE   = "ANDERS-2026-10-10T23:36:49+02:00 kor-pa-det"   (referens
 ```
 Sätts med `wrangler deploy --var NAMN:värde` (eller dashboard) – aldrig som secrets. FROM får inte ligga längre fram än UNTIL−92 dygn.
 
+## Atomicitet (root-QA P1, rättning ovanpå 7abdda61)
+- Varje operation (`/reserve`, `/settle`, `/release`, `/status`) läser och skriver i EN `storage.transaction` inuti `blockConcurrencyWhile`. Kastar något (lagringsfel, injicerat fel) rullas ALLA skrivningar (pilot/m/r/halt) tillbaka; en retry ser aldrig en halv skrivning och räknar aldrig förbrukning två gånger (settle/release är dessutom idempotenta per reservationsnyckel: andra settle ⇒ `okand_reservation`, andra release ⇒ `noop`). Saknas `storage.transaction` nekas operationen (500 ⇒ `fel` ⇒ ingen generation).
+- Bevis: root-scenariot (cap 1500, reserve 1000, settle faktiskt 100, fel på r-skrivningen) ⇒ lagringen oförändrad efter felet, retry ⇒ m=100, nästa reserve 1500 nekas; faultmatris (fel vid varje skrivning/commit/läsning i reserve/settle/release/okänd-användning); samt mot RIKTIG workerd/SQLite (`free_gate_runtime.test.mjs`, fel injiceras inuti den verkliga transaktionen). De nya testerna FALLERAR mot föregående implementation.
+- Rootprobens put-patch (`s.put(k,v)`) träffar inte längre skrivvägen eftersom skrivningar går via `txn.put`; använd `faults.put` i `helpers/free_gate.mjs` (eller workerd-testet) för att fälla skrivningar.
+- Oförändrat: hård halt vid okänd användning/överskridning (ingen mjukning), inga nya budgetar/perioder/resets.
+
 ## Importer / bindningar / migration (exakt)
 Nya/ändrade moduler: `free_budget.js` (ny, importerar `models.js`), `index.js` (importerar `free_budget.js`), `explain.js` (importerar `free_budget.js`). Nytt DO-klassnamn `FreeBudget` exporteras från `src/index.js`. Bindning `FREE_BUDGET`; migration `v3` skapar klassen vid `wrangler deploy` (ingen resurs skapas före deploy). Inga nya secrets, KV, queues, domäner eller konton.
 

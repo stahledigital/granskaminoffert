@@ -61,9 +61,8 @@ export class FreeBudget {
     let b;
     try { b = await request.json(); } catch { return Response.json({ error: "ogiltig förfrågan" }, { status: 400 }); }
     const path = new URL(request.url).pathname;
-    const s = this.state.storage;
     // Aktiv pilotpost: första giltiga konfigurationen aktiverar; därefter kan konfigurationen bara sänka taket/slutet.
-    const loadPilot = async (cfg) => {
+    const loadPilot = async (s, cfg) => {
       const stored = await s.get("pilot");
       if (!stored) { await s.put("pilot", { id: cfg.id, capMicro: cfg.capMicro, fromMs: cfg.fromMs, untilMs: cfg.untilMs, mandate: cfg.mandate, activatedAt: b.nowMs }); return { pilot: await s.get("pilot") }; }
       if (stored.id !== cfg.id) return { deny: "konfig" };
@@ -71,7 +70,7 @@ export class FreeBudget {
       if (cfg.capMicro < stored.capMicro || cfg.untilMs < stored.untilMs) { const t = { ...stored, capMicro: cfg.capMicro, untilMs: cfg.untilMs }; await s.put("pilot", t); return { pilot: t }; }
       return { pilot: stored };
     };
-    const run = async () => {
+    const run = async (s) => {
       if (!b || typeof b !== "object" || !Number.isFinite(b.nowMs) || !cfgOk(b.cfg)) return { status: 400 };
       const m = rec(await s.get("m"), ["spent"]);
       const halt = await s.get("halt");
@@ -87,7 +86,7 @@ export class FreeBudget {
         const { key, micro } = b;
         if (!okKey(key) || !okPos(micro)) return { status: 400 };
         if (halt) return { body: { ok: false, reason: "stopp" } };
-        const lp = await loadPilot(b.cfg); if (lp.deny) return { body: { ok: false, reason: lp.deny } };
+        const lp = await loadPilot(s, b.cfg); if (lp.deny) return { body: { ok: false, reason: lp.deny } };
         const p = lp.pilot;
         if (b.nowMs < p.fromMs) return { body: { ok: false, reason: "inte_borjat" } };
         if (b.nowMs >= p.untilMs) return { body: { ok: false, reason: "utgangen" } };
@@ -125,8 +124,16 @@ export class FreeBudget {
       }
       return { status: 404 };
     };
+    // ATOMICITET: all läsning och skrivning för en operation sker i EN storage.transaction. Kastar något (injicerat fel, lagringsfel) rullas
+    // ALLA skrivningar tillbaka (pilot/m/r/halt), så en retry aldrig ser en halv skrivning och aldrig räknar bort förbrukning två gånger.
+    // Saknas transaktionsstöd i lagringen nekas operationen (fail closed) – aldrig en icke-atomisk reserv-väg.
+    const atomic = async () => {
+      const st = this.state.storage;
+      if (!st || typeof st.transaction !== "function") throw new Error("ingen transaktion");
+      return st.transaction((txn) => run(txn));
+    };
     try {
-      const out = typeof this.state.blockConcurrencyWhile === "function" ? await this.state.blockConcurrencyWhile(run) : await run();
+      const out = typeof this.state.blockConcurrencyWhile === "function" ? await this.state.blockConcurrencyWhile(atomic) : await atomic();
       if (out.status) return Response.json({ error: "ogiltig förfrågan" }, { status: out.status });
       return Response.json(out.body);
     } catch {
