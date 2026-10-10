@@ -1,4 +1,5 @@
 // S4: org-kontroll + kreditstopp. Inga riktiga anrop: Anthropic/Turnstile är attrapper.
+import { gateVars } from "./helpers/free_gate.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
@@ -18,7 +19,7 @@ function budgetNs() {
 const CHECKS = [{ id: "spf", status: "titta" }, { id: "dmarc", status: "titta" }];
 const GOOD = { priority_ids: ["agarkollen/spf/atgarda", "agarkollen/dmarc/atgarda"] };
 function env(over = {}) {
-  return { REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), EXPLAIN_BUDGET: budgetNs(), ALLOWED_ORIGIN: "https://granskaminoffert.se", ANTHROPIC_API_KEY: "sk-test-A", TURNSTILE_SECRET_KOLLAR: "ts", EXPLAIN_ENABLED: "1", EXPLAIN_CREDIT_UNTIL: "2099-01-01", GRANSKA_H: { writeDataPoint() {} }, ...over };
+  return { REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), ...gateVars(), EXPLAIN_BUDGET: budgetNs(), ALLOWED_ORIGIN: "https://granskaminoffert.se", ANTHROPIC_API_KEY: "sk-test-A", TURNSTILE_SECRET_KOLLAR: "ts", EXPLAIN_ENABLED: "1", EXPLAIN_CREDIT_UNTIL: "2099-01-01", GRANSKA_H: { writeDataPoint() {} }, ...over };
 }
 let calls, org, modelsStatus, modelsThrow, seenKeys;
 const realFetch = globalThis.fetch;

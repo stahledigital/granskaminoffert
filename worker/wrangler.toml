@@ -23,6 +23,10 @@ binding = "GRANSKA_H"
 dataset = "granska_handelser"
 
 [vars]
+# D12: gratis-kostnadsskyddet är AV (nekar all gratisgenerering) tills en människa sätter ALLA fem värdena:
+#   FREE_PILOT_ENABLED="1", FREE_PILOT_ID (a-z0-9-, 3–41 tecken), FREE_PILOT_CAP_MICRO (µUSD, TOTALT för perioden),
+#   FREE_PILOT_FROM och FREE_PILOT_UNTIL (ISO med Z eller +hh:mm, max 92 dygn), FREE_PILOT_MANDATE (spårbar referens, 8–120 tecken, inga hemligheter).
+FREE_PILOT_ENABLED = "0"
 # Kommaseparerad lista om fler origins behövs (t.ex. under test).
 ALLOWED_ORIGIN = "https://granskaminoffert.se"
 # Modell. claude-sonnet-4-5-20250929 är "Deprecated" sedan 2026-09-30 med preliminärt
@@ -78,6 +82,18 @@ class_name = "ExplainBudget"
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["ExplainBudget"]
+
+# D12: ÄNDLIGT, atomärt kostnadsskydd för gratisgenerationer (/review och /explain), src/free_budget.js. EN pott per pilot-id (en SQLite-DO-instans
+# per id, enda skrivare), ett TOTALT tak i µUSD och en giltighetsperiod [FROM, UNTIL) – inget kalenderomslag, ingen ny pott vid månadsskifte.
+# Utan aktivering och giltig konfiguration NEKAS alla gratisgenerationer (503, tillfälligt stängd). Sätt värdena via `wrangler deploy --var`
+# eller dashboard först efter ett MÄNSKLIGT beslut; inga värden finns här. Se worker/FREE_GATE.md. Taket/slutet kan för samma pilot-id bara sänkas.
+[[durable_objects.bindings]]
+name = "FREE_BUDGET"
+class_name = "FreeBudget"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["FreeBudget"]
 
 # ---- Valfritt, INTE aktiverat ----
 # Begränsning av klienthändelser (/event), samma slags bindning som REVIEW_RL:
