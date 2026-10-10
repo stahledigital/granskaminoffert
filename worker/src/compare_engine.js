@@ -199,6 +199,10 @@ export function compareOffers(rawOffers, labels) {
   // ALLA uttryckliga omfattningsskillnader (ingår mot ingår inte, i valfri omfattningspost) stoppar prisrangordning; villkorsskillnader visas separat.
   const scopeDiff = matrix.filter((m) => m.group === "omfattning" && m.kind === "skiljer" && !m.core);
   if (scopeDiff.length) blockers.push(`Omfattningen skiljer sig uttryckligen i: ${scopeDiff.map((m) => lower(m.label)).join(", ")}. Olika omfattning måste klarläggas innan beloppen kan jämföras – ingen offert pekas ut som billigast.`);
+  // Asymmetrisk oklarhet (framgår inte i en offert men anges i en annan) i valfri omfattningspost: okänt är inte exkluderat,
+  // men det går inte att veta att priserna omfattar samma sak. Beloppen visas, ingen likvärdig rangordning. Villkorsposter blockerar inte.
+  const scopeUnknown = matrix.filter((m) => m.group === "omfattning" && m.kind === "oklart_for_nagon" && !m.core);
+  if (scopeUnknown.length) blockers.push(`Det framgår inte av alla offerter om följande ingår: ${scopeUnknown.map((m) => lower(m.label)).join(", ")}, men det anges i minst en annan. Okänt betyder inte att det saknas, men omfattningen måste klarläggas innan beloppen kan jämföras – ingen offert pekas ut som billigast.`);
   if (coreDiff.length) blockers.push(`Omfattningen skiljer sig eller är oklar i: ${coreDiff.map((m) => lower(m.label)).join(", ")}.`);
   if (offers.some((o) => o.readability === "svar")) blockers.push("En offert var mycket svår att läsa av.");
   // Om offerterna inte säger något om de flesta kärnposterna går det inte att veta vad priset omfattar.

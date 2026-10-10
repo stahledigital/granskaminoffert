@@ -176,3 +176,23 @@ test("P1-8e: okänd yta i en offert blockerar inte, men olika yta i andra par g�
   const c = compareOffers([off({ areaM2: null }), off({ areaM2: 100, totalBeforeRotSek: 105000 }), off({ areaM2: 140, totalBeforeRotSek: 150000 })], L(3));
   assert.equal(c.ranking.shown, false);
 });
+
+// ---- Root-QA punkt 9 (A): asymmetrisk oklarhet utanför CORE ----
+test("P1-A: lika 100 m²/alla core men skydd framgår inte i A och ingår i B → oklart_for_nagon OCH ingen rangordning, belopp visas", () => {
+  const c = compareOffers([
+    off({ jobType: "tak", areaM2: 100, totalBeforeRotSek: 100000 }, { ...ALL, skydd: "framgar_inte" }),
+    off({ jobType: "tak", areaM2: 100, totalBeforeRotSek: 120000 }, { ...ALL, skydd: "ingar" }),
+  ], L(2));
+  assert.equal(c.scopeMatrix.find((m) => m.id === "skydd").kind, "oklart_for_nagon");
+  assert.equal(c.ranking.shown, false); assert.equal(c.ranking.lowest, undefined);
+  assert.match(c.ranking.reasons.join(" "), /skydd/i);
+  assert.match(c.ranking.reasons.join(" "), /Okänt betyder inte att det saknas/);
+  assert.match(c.ranking.reasons.join(" "), /billigast/);
+  assert.equal(c.offers[0].price.normalized.incVat, 100000); assert.equal(c.offers[1].price.normalized.incVat, 120000);
+});
+test("P1-A: asymmetrisk oklarhet i VILLKOR (garanti) blockerar inte; okänt i alla (oklart_alla) utanför core blockerar inte", () => {
+  const a = compareOffers([off({ areaM2: 100 }, { ...ALL, garanti: "framgar_inte" }), off({ areaM2: 100, totalBeforeRotSek: 110000 }, { ...ALL, garanti: "ingar" })], L(2));
+  assert.equal(a.ranking.shown, true);
+  const b = compareOffers([off({ areaM2: 100 }, { ...ALL, stadning: "framgar_inte" }), off({ areaM2: 100, totalBeforeRotSek: 110000 }, { ...ALL, stadning: "framgar_inte" })], L(2));
+  assert.equal(b.ranking.shown, true);
+});

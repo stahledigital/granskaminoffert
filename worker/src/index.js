@@ -646,7 +646,8 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   // Indatagräns före betalt anrop: mät med Anthropics (kostnadsfria) tokenräknare.
   // Fil-anrop som inte går att mäta nekas; text är redan begränsad till 20 000 tecken.
   let inputTokens = null;
-  if (kind !== "text") {
+  // Med gaten PÅ mäts även text (ingen teckenheuristik): kan det inte mätas nekas anropet.
+  if (kind !== "text" || gateEnabled(env)) {
     const tokenLimit = parseInt(env.INPUT_TOKEN_LIMIT || String(DEFAULT_INPUT_TOKEN_LIMIT), 10);
     try {
       inputTokens = await countInputTokens(env, anthropicBody);
@@ -668,7 +669,8 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   // Gemensam kostnadsgate (AV som standard, COST_GATE="1"): reservation före anropet, annars inget anrop.
   let gateKey = null, gateMicro = 0;
   if (gateEnabled(env)) {
-    const estTokens = inputTokens !== null ? inputTokens : Math.ceil(String(text || "").length / 2) + 3000;
+    if (inputTokens === null) return unavailable(); // aldrig en gissad mängd
+    const estTokens = inputTokens;
     const worst = worstCaseUsd(model, estTokens + 600);
     if (worst === null) return unavailable();
     gateMicro = usdToMicro(worst);

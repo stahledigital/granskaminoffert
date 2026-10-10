@@ -102,7 +102,7 @@ export function installFetch(opts = {}) {
   globalThis.fetch = async (input, init = {}) => {
     const url = typeof input === "string" ? input : input.url;
     const body = init.body ? (typeof init.body === "string" ? init.body : String(init.body)) : "";
-    if (url.endsWith("/v1/messages/count_tokens")) { log.count.push(JSON.parse(body)); return Response.json({ input_tokens: ctl.countTokens }); }
+    if (url.endsWith("/v1/messages/count_tokens")) { log.count.push(JSON.parse(body)); if (ctl.countFail) return Response.json({}, { status: 500 }); return Response.json({ input_tokens: ctl.countTokens }); }
     if (url === "https://api.anthropic.com/v1/messages") {
       const req = JSON.parse(body);
       log.anthropic.push(req);

@@ -139,7 +139,9 @@ async function run({ env, io, store, model: modelOverride }) {
     let ids = null;
     try {
       const body = buildSynthRequest({ model, differences: compared.differences });
-      const approxTokens = Math.min(LIMITS.synthMaxInputTokens, Math.ceil(JSON.stringify(body).length / 2) + SAFETY_TOKENS);
+      // Övre gräns i BYTES (tokens ≤ bytes): underskattar aldrig. Överstiger det taket hoppas steget över (fast ordning), aldrig klampning.
+      const approxTokens = new TextEncoder().encode(JSON.stringify(body)).length + SAFETY_TOKENS;
+      if (approxTokens > LIMITS.synthMaxInputTokens) throw new Stop({ state: "skip", reason: "for_stor" });
       const res = await guardedCall({ env, io, key: `syn:${order.id}:${attempt}`, orderId: order.id, scope: "paid", inputTokens: approxTokens, body, model, caps, signalMs: 45_000 });
       if (!res.error) ids = readPriority(res.json, compared.differences);
     } catch (e) {

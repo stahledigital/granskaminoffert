@@ -66,8 +66,11 @@ export class CompareBudget {
         await s.put(`m:${r.month}`, { ...m, total: Math.max(0, m.total + delta), [r.scope]: Math.max(0, m[r.scope] + delta) });
         if (r.orderId) { const o = rec(await s.get(`o:${r.orderId}`), ["total"]); await s.put(`o:${r.orderId}`, { total: Math.max(0, o.total + delta) }); }
         await s.put(`r:${key}`, { ...r, state: "settled", actual: final, overrun: usageKnown && actual > r.micro });
+        // Även en KÄND men oväntad överskridning av reservationen (värsta fallet underskattades) stoppar nya generationer.
+        const overrun = usageKnown && actual > r.micro;
         if (!usageKnown) await s.put("halt", { reason: "okand_anvandning", key });
-        return { body: { ok: true, overrun: usageKnown && actual > r.micro, halted: !usageKnown } };
+        else if (overrun) await s.put("halt", { reason: "overskridning", key, reserved: r.micro, actual });
+        return { body: { ok: true, overrun, halted: !usageKnown || overrun } };
       }
       if (path === "/release") {
         const { key } = b;

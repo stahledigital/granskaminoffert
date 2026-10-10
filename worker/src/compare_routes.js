@@ -321,10 +321,8 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     // Mät indatan med den gratis tokenräknaren. Kan en fil inte mätas nekas den (fail closed).
     const req = buildExtractRequest({ model, doc });
     let tokens;
-    try { tokens = await countInputTokens(env, req); } catch {
-      if (kind !== "text") return reply({ error: "Det gick inte att kontrollera filens storlek just nu. Försök igen om en stund." }, 503);
-      tokens = Math.ceil(text.length / 2) + 3000; // text är redan begränsad; försiktig uppskattning
-    }
+    // Alltid uppmätt (fail closed): ingen teckenheuristik för text, eftersom tecken/token varierar kraftigt (t.ex. CJK).
+    try { tokens = await countInputTokens(env, req); } catch { return reply({ error: "Det gick inte att kontrollera filens storlek just nu. Försök igen om en stund." }, 503); }
     if (tokens > LIMITS.maxInputTokensPerDoc) return reply({ error: "Dokumentet är för omfattande. Dela upp det eller ta bara sidorna med pris och villkor.", tokens, limit: LIMITS.maxInputTokensPerDoc }, 400);
     const bytes = kind === "text" ? new TextEncoder().encode(text).length : Math.floor(dataBase64.length * 0.75);
     const sha = await sha256Hex(kind === "text" ? text : dataBase64);

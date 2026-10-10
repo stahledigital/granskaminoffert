@@ -439,3 +439,83 @@ test("datatäckning: före köp säger config/erbjudande att omdömen inte ingå
     assert.equal(f.log.stripeCreate.length >= 1, true);
   } finally { f.restore(); }
 });
+
+// ===================== Root-QA punkt 10 (B): gate mäter alltid, halt även vid känd överskridning =====================
+test("P1-B: rootprob – gate PÅ, tak 100 000 µUSD, uppmätt 60 000 tokens → NEKAS före anrop (ingen generation, ingen överskridning)", async () => {
+  const env = gateEnv({ COST_GATE: "1", COMPARE_MONTH_CAP_MICRO: "100000", COMPARE_FREE_CAP_MICRO: "100000" });
+  const real = globalThis.fetch; const seen = { count: 0, gen: 0 };
+  globalThis.fetch = async (u) => {
+    if (String(u).includes("count_tokens")) { seen.count++; return Response.json({ input_tokens: 60000 }); }
+    if (String(u).includes("anthropic")) { seen.gen++; return Response.json({ usage: { input_tokens: 60000, output_tokens: 6000 }, content: [{ type: "tool_use", name: "submit_review", input: fakeReview }] }); }
+    throw new Error("oväntat " + u);
+  };
+  try {
+    const r = await worker.fetch(new Request("https://x/review", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "CF-Connecting-IP": "203.0.113.88" }, body: JSON.stringify({ kind: "text", text: "Offert " + "界".repeat(18000), path: "mottagare" }) }), env, jobs());
+    assert.ok(r.status >= 400);
+    assert.equal(seen.count, 1, "texten mättes med count_tokens");
+    assert.equal(seen.gen, 0);
+    const st = await budget.stats(env);
+    assert.equal((st.month && st.month.total) || 0, 0);
+  } finally { globalThis.fetch = real; }
+});
+
+test("P1-B: gate PÅ + count_tokens misslyckas för text → fail closed, inget anrop; gate AV beter sig som förut (ingen mätning av text)", async () => {
+  const env = gateEnv(GATE);
+  const real = globalThis.fetch; const seen = { gen: 0, count: 0 };
+  globalThis.fetch = async (u) => {
+    if (String(u).includes("count_tokens")) { seen.count++; return new Response("{}", { status: 500 }); }
+    if (String(u).includes("anthropic")) { seen.gen++; return Response.json({ usage: { input_tokens: 10, output_tokens: 5 }, content: [{ type: "tool_use", name: "submit_review", input: fakeReview }] }); }
+    throw new Error("oväntat");
+  };
+  try {
+    const r = await worker.fetch(reviewReq(), env, jobs());
+    assert.equal(r.status, 503); assert.equal(seen.gen, 0);
+    const env2 = gateEnv(); // gate AV
+    const r2 = await worker.fetch(reviewReq(1), env2, jobs());
+    assert.equal(r2.status, 200); assert.equal(seen.count, 1); assert.equal(seen.gen, 1); // ingen ny mätning med gate AV
+  } finally { globalThis.fetch = real; }
+});
+
+test("P1-B: känd men oväntad överskridning av reservationen → halt för ALLA fortsatta generationer (fri och betald)", async () => {
+  const env = gateEnv(GATE);
+  const real = globalThis.fetch; let gen = 0;
+  globalThis.fetch = async (u) => {
+    if (String(u).includes("count_tokens")) return Response.json({ input_tokens: 500 });
+    if (String(u).includes("anthropic")) { gen++; return Response.json({ usage: { input_tokens: 50_000_000, output_tokens: 10 }, content: [{ type: "tool_use", name: "submit_review", input: fakeReview }] }); }
+    throw new Error("oväntat");
+  };
+  try {
+    await worker.fetch(reviewReq(), env, jobs());
+    assert.equal(gen, 1);
+    const cap = await budget.capacity(env, { caps: { joint: 50_000_000, scope: 40_000_000 }, scope: "free" });
+    assert.equal(cap.halted, true);
+    const r2 = await worker.fetch(reviewReq(1), env, jobs());
+    assert.ok(r2.status >= 400); assert.equal(gen, 1);
+    const paid = await budget.reserve(env, { key: "ext:o_" + "b".repeat(32) + ":0:1", scope: "paid", orderId: "o_" + "b".repeat(32), micro: 10, caps: { joint: 50_000_000, scope: 40_000_000, order: 1000 } });
+    assert.equal(paid.ok, false); assert.equal(paid.reason, "stopp_oklar_anvandning");
+  } finally { globalThis.fetch = real; }
+});
+
+test("P1-B: budget – settle med känd användning ≤ reservation halterar inte; > reservation halterar", async () => {
+  const env = makeEnv(); const caps = { joint: 1000, scope: 1000 };
+  assert.ok((await budget.reserve(env, { key: "g:1", scope: "free", orderId: null, micro: 100, caps })).ok);
+  await budget.settle(env, { key: "g:1", actual: 90, usageKnown: true });
+  assert.equal((await budget.capacity(env, { caps, scope: "free" })).halted, false);
+  assert.ok((await budget.reserve(env, { key: "g:2", scope: "free", orderId: null, micro: 100, caps })).ok);
+  await budget.settle(env, { key: "g:2", actual: 150, usageKnown: true });
+  assert.equal((await budget.capacity(env, { caps, scope: "free" })).halted, true);
+});
+
+test("P1-B: betald jämförelse – text som inte kan mätas (count_tokens fel) nekas, ingen uppskattning", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv();
+    const c = await createOrder(env, 2); const { orderId, token } = c.json;
+    f.ctl.countFail = true;
+    const u = await upload(env, orderId, token, 0, S(100000, ALL));
+    assert.equal(u.status, 503);
+    assert.deepEqual(docKeys(env, orderId), []);
+    f.ctl.countFail = false;
+    assert.equal((await upload(env, orderId, token, 0, S(100000, ALL))).status, 200);
+  } finally { f.restore(); }
+});
