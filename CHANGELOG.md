@@ -3,6 +3,9 @@
 ## jamfor-v1b – D04 rättning efter root-QA (KANDIDAT – AV, ej släppt; ovanpå commit 2de6569)
 - Gemensam kostnadsgate (AV som standard) för `/review` och `/explain`; alarm vid uttömda försök ⇒ failed; oföränderliga dokumentnycklar + manifest (sen PUT kan inte radera låst original); återbetalning bara `done` vid Stripe `succeeded` (+ avstämning/webhook); checkout-intent frusen per försök; samtycke bundet till version/hash med tydligt UTKASTläge (live stängd); datatäckning “inga omdömen” före köp; ytskillnad utan tolerans och alla omfattningsskillnader stoppar rangordning; UI-testets väntvillkor. Se `worker/COMPARE.md`.
 
+## jamfor-v1e – D07 senaste omdömen (KANDIDAT – AV, ej släppt; ovanpå D06)
+- Källpanel per firma (identitet/dedup/filialer, kundbekräftelse), providerstatus, Google UI Kit mount/unmount (rank-preference=newest, utan filter), Trustpilot serveradapter med 24 h-cache, räknartak/kostnadsstopp, täckning före köp. Allt AV (`COMPARE_REVIEWS`+`COMPARE_REVIEWS_VERIFIED` + källflaggor); inga externa anrop gjorda. Se `worker/COMPARE.md`.
+
 ## jamfor-v1d – D06 kundkedja (KANDIDAT – AV, ej släppt; ovanpå 6afa4ec)
 - Minimal avtalspost skild från 24 h-innehåll, autentiserad ångerväg (knapp + `/jamfor/angra/` med högentropisk kod, hash lagrad), idempotent mottagningsbevis, atomiskt avbrott före leverans, ingen automatisk juridisk avvisning, lokal utkorg med mocktransport (extern adapter AV), skyddad bokförings-/återbetalningsexport utan offerttext, uttryckliga retentionklasser (live stängt utan beslutad policy). E-postadress krävs vid köp. UTKAST; se `worker/COMPARE.md`.
 

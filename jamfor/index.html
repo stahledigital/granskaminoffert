@@ -63,6 +63,14 @@ dl{margin:6px 0;display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-si
 dt{color:var(--ink2)} dd{margin:0;text-align:right}
 details{border:1px solid var(--line);border-radius:10px;background:#fff;margin:8px 0;padding:2px 12px}
 summary{cursor:pointer;font-weight:600;padding:10px 0;min-height:44px}
+.srcfirm{border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px 12px;margin:10px 0}
+.srcfirm h4{margin:0 0 4px;font-size:17px}
+.srcrow{border-top:1px solid var(--line);padding:8px 0;margin-top:8px}
+.srcrow .st{font-size:14px;color:var(--ink2)}
+.srcrow label.opt{display:flex;gap:8px;align-items:flex-start;margin:8px 0;font-size:15px}
+.gmpbox{min-height:250px;max-height:400px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin:8px 0;padding:6px;background:#fff}
+.tprev{border-top:1px solid var(--line);padding:8px 0;font-size:15px}
+.tprev b{font-size:13px}
 .hidden{display:none!important}
 .progress{height:10px;background:#16161614;border-radius:99px;overflow:hidden;margin:10px 0}
 .progress i{display:block;height:100%;background:var(--acc);transition:width .4s}
@@ -108,6 +116,12 @@ footer{margin-top:36px;font-size:13px;color:var(--ink2)}
     <ul class="tight" id="copy-getsnot"></ul>
     <h3>Så går det till</h3>
     <ul class="tight" id="copy-how"></ul>
+    <div id="srcbox" class="hidden" aria-labelledby="h-src">
+      <h3 id="h-src">Omdömen om hantverkarna (valfritt)</h3>
+      <p class="hint">Googles och Trustpilots egna omdömen, visade separat per firma med källans eget urval. De ingår inte i jämförelsen eller rapporten och är ingen bedömning av företaget. Vi bekräftar inte att en källa finns för just din firma – täckningen visas här innan du betalar.</p>
+      <div id="srcform"></div><div id="srcfirms" aria-live="polite"></div>
+      <ul class="tight" id="srccov"></ul>
+    </div>
     <label for="email" style="display:block;font-weight:600;margin:12px 0 4px">E-postadress för avtalsbekräftelsen</label>
     <input type="email" id="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="namn@exempel.se" aria-describedby="emailhint">
     <p class="hint" id="emailhint">Bekräftelsen med din ångerlänk skickas hit. Adressen används bara för det.</p>
@@ -246,7 +260,7 @@ $('check').addEventListener('click',async function(){
       if(u.status===200){tag.className='tag ok';tag.textContent='Klar ('+(u.json.doc.pages?u.json.doc.pages+' sidor, ':'')+Math.max(1,Math.round(u.json.doc.bytes/1024))+' kB)'}
       else{tag.className='tag bad';tag.textContent=(u.json&&u.json.error)||'Gick inte';allOk=false}
     }
-    if(allOk){show('offer',true);$('offer').scrollIntoView({block:'start'})}
+    if(allOk){show('offer',true);srcStart(null,'offer');$('offer').scrollIntoView({block:'start'})}
     else{err('Någon fil gick inte att ta emot. Gå tillbaka och byt ut den, så kontrollerar vi igen.');
       var back=el('button',{type:'button',class:'btn ghost',text:'Börja om'});back.addEventListener('click',function(){store('jamfor_order',null);location.reload()});$('docs').appendChild(back)}
   }catch(e){err('Något gick fel. Försök igen.')}
@@ -437,7 +451,8 @@ function renderReport(R,o){
   });
   // datakort
   host.appendChild(el('h3',{text:'Omdömen om företagen'}));
-  host.appendChild(el('p',{class:'hint',text:'Visas inte i den här versionen. Offertjämförelsen ovan är komplett utan dem.'}));
+  var srcrep=el('div',{id:'srcrepwrap'},el('p',{class:'hint',text:'Visas inte i den här versionen. Offertjämförelsen ovan är komplett utan dem.'}));host.appendChild(srcrep);
+  if(srcActive())srcStart(srcrep,'report');
   // kvitto
   var rc=R.receipt,rd=el('dl');
   [['Ordernummer',rc.orderNo],['Produkt',rc.product],['Belopp',kr(rc.amountOre/100)+' inkl. moms'],['Varav moms ('+rc.vatPct+' %)',(rc.vatOre/100).toFixed(2).replace('.',',')+' kr'],['Betald',rc.paidAt?new Date(rc.paidAt).toLocaleString('sv-SE'):'—'],['Betalningsreferens','…'+(rc.paymentRef||'')],['Säljare',rc.seller]].forEach(function(r){rd.appendChild(el('dt',{text:r[0]}));rd.appendChild(el('dd',{text:r[1]}))});
@@ -456,6 +471,197 @@ function renderReport(R,o){
   host.appendChild(el('p',{class:'hint noprint',text:'Resultatet finns kvar till '+new Date(R.expiresAt).toLocaleString('sv-SE')+'. Ladda ner om du vill spara det.'}));
   var wbk=withdrawBlock(o);if(wbk){wbk.classList.add('noprint');host.appendChild(wbk)}
   host.scrollIntoView({block:'start'});
+}
+
+
+// ---------- D07: källor för senaste originalomdömen (Google UI Kit i webbläsaren, Trustpilot via servern) ----------
+var SRC={view:null,cands:{},mounted:{},gmp:null};
+function srcCfg(){return (state.cfg&&state.cfg.sources)||null}
+function srcActive(){var c=srcCfg();return !!(c&&c.active&&(c.google.state!=='ej_aktiverad'||c.trustpilot.state!=='ej_aktiverad')&&state.order)}
+function srcApi(method,sub,body){return api(method,'/compare/orders/'+state.order.id+'/sources'+(sub||''),{token:state.order.token,body:body})}
+// Google: skriptet laddas FÖRST när kunden uttryckligen öppnar omdömena. __GMP_LOADER__ finns bara för offlineprov (attrapp).
+function gmpLoad(key){
+  if(window.__GMP_LOADER__)return window.__GMP_LOADER__(key);
+  if(SRC.gmp)return SRC.gmp;
+  SRC.gmp=new Promise(function(res,rej){
+    var done=false,t=setTimeout(function(){if(!done){done=true;rej(new Error('timeout'))}},12000);
+    var sc=document.createElement('script');
+    sc.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(key)+'&v=beta&loading=async&libraries=places&language=sv&region=SE';
+    sc.async=true;
+    sc.onload=function(){if(done)return;if(!(window.google&&google.maps&&google.maps.importLibrary)){done=true;clearTimeout(t);rej(new Error('saknas'));return}
+      google.maps.importLibrary('places').then(function(l){if(!done){done=true;clearTimeout(t);res(l)}},function(e){if(!done){done=true;clearTimeout(t);rej(e)}})};
+    sc.onerror=function(){if(!done){done=true;clearTimeout(t);rej(new Error('nät'))}};
+    document.head.appendChild(sc);
+  });
+  SRC.gmp.catch(function(){SRC.gmp=null});
+  return SRC.gmp;
+}
+// Nativt Googleelement. Inga egna filter: bara rank-preference=newest. Ingen query, ingen stjärn-/språk-/sentimentfiltrering, inga sammanfattningar.
+function gmpBuild(placeId){
+  var d=document.createElement('gmp-place-details');
+  var rq=document.createElement('gmp-place-details-place-request');rq.setAttribute('place',placeId);d.appendChild(rq);
+  var cf=document.createElement('gmp-place-content-config');
+  var rv=document.createElement('gmp-place-reviews');rv.setAttribute('rank-preference','newest');
+  ['gmp-place-address','gmp-place-rating','gmp-place-website'].forEach(function(t){cf.appendChild(document.createElement(t))});
+  cf.appendChild(rv);cf.appendChild(document.createElement('gmp-place-attribution'));
+  d.appendChild(cf);return d;
+}
+function gmpUnmount(firmId){var m=SRC.mounted[firmId];if(m){try{if(m.el&&m.el.parentNode)m.el.parentNode.removeChild(m.el)}catch(e){}if(m.box)m.box.textContent=''}delete SRC.mounted[firmId]}
+function gmpUnmountAll(){Object.keys(SRC.mounted).forEach(gmpUnmount)}
+async function gmpMount(f,box,note){
+  var c=srcCfg();if(!c||!c.google.mapsKey||SRC.mounted[f.id]&&SRC.mounted[f.id].loading)return;
+  gmpUnmount(f.id);SRC.mounted[f.id]={loading:true,box:box};
+  box.textContent='';box.appendChild(el('p',{class:'hint',text:'Laddar Googles omdömen…'}));
+  try{
+    await gmpLoad(c.google.mapsKey);
+    if(!SRC.mounted[f.id])return; // under tiden avbrutet (byte av firma/stängt)
+    box.textContent='';var d=gmpBuild(f.google.placeId);box.appendChild(d);SRC.mounted[f.id]={el:d,box:box,placeId:f.google.placeId};
+  }catch(e){
+    delete SRC.mounted[f.id];box.textContent='';
+    box.appendChild(el('p',{class:'warnbox',text:'Googles omdömen kunde inte laddas just nu. Det betyder inte att omdömen saknas – försök igen om en stund.'}));
+    var rb=el('button',{type:'button',class:'btn ghost',text:'Försök igen'});rb.addEventListener('click',function(){gmpMount(f,box)});box.appendChild(rb);
+  }
+}
+function srcFirmCard(f,mode){
+  var c=srcCfg();
+  var card=el('div',{class:'srcfirm','data-firm':f.id});
+  card.appendChild(el('h4',{text:f.name+(f.city?' ('+f.city+')':'')}));
+  card.appendChild(el('p',{class:'hint',text:'Gäller '+f.offers.map(function(i){return 'offert '+(i+1)}).join(' och ')}));
+  // ---- Google ----
+  if(c.google.state!=='ej_aktiverad'){
+    var g=el('div',{class:'srcrow','data-src':'google'},el('b',{text:'Google'}),el('div',{class:'st',text:f.google.text}));
+    if(f.google.confirmed){
+      var box=el('div',{class:'gmpbox hidden','data-gmp':f.id});
+      var open=el('button',{type:'button',class:'btn ghost',text:'Visa Googles senaste omdömen'});
+      open.addEventListener('click',function(){
+        if(SRC.mounted[f.id]){gmpUnmount(f.id);box.classList.add('hidden');open.textContent='Visa Googles senaste omdömen';return}
+        box.classList.remove('hidden');open.textContent='Dölj Googles omdömen';gmpMount(f,box);
+      });
+      g.appendChild(open);
+      if(mode==='offer'){var ch=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:'Fel firma? Byt'});ch.addEventListener('click',async function(){gmpUnmount(f.id);var r=await srcApi('POST','/unconfirm',{firmId:f.id,provider:'google'});if(r.status===200)srcRender(r.json.sources,mode)});g.appendChild(ch)}
+      g.appendChild(el('p',{class:'hint',text:'Källa: Google ('+f.name+(f.city?', '+f.city:'')+'). Visas av Google med Googles eget urval, datum och attribution – vi ändrar eller sparar inget.'}));
+      g.appendChild(box);
+    }else if(mode==='offer'&&f.google.state!=='kostnadsstopp'){
+      var holder=el('div',{class:'cands'});
+      if(c.google.search){
+        var sb=el('button',{type:'button',class:'btn ghost',text:'Sök firman hos Google'});if(f.google.searchesLeft<=0)sb.disabled=true;
+        sb.addEventListener('click',async function(){
+          sb.disabled=true;holder.textContent='';
+          var r=await srcApi('POST','/google/search',{firmId:f.id});
+          if(r.status!==200){holder.appendChild(el('p',{class:'err',text:(r.json&&r.json.error)||'Sökningen gick inte.'}));sb.disabled=false;return}
+          SRC.cands[f.id+':google']=r.json.candidates||[];SRC.view=r.json.sources;srcCands(holder,f,'google',r.json.candidates||[],r.json.outcome);sb.disabled=false;
+        });
+        g.appendChild(sb);
+      }else{
+        var det=el('details',{},el('summary',{text:'Jag har firmans Google-ID'}));
+        var inp=el('input',{type:'text',id:'pid-'+f.id,maxlength:'200',autocomplete:'off',placeholder:'Företags-ID från Google'});
+        var pv=el('button',{type:'button',class:'btn ghost',text:'Visa profilen'});
+        var prev=el('div',{class:'gmpbox hidden'});var okc=el('input',{type:'checkbox',id:'seen-'+f.id,disabled:'disabled'});var cb=el('button',{type:'button',class:'btn acc',text:'Det här är rätt firma',disabled:'disabled'});
+        pv.addEventListener('click',function(){var v=(inp.value||'').trim();if(!/^[A-Za-z0-9_-]{20,200}$/.test(v))return;prev.classList.remove('hidden');gmpMount({id:f.id+'-pv',google:{placeId:v}},prev);okc.disabled=false});
+        okc.addEventListener('change',function(){cb.disabled=!okc.checked});
+        cb.addEventListener('click',async function(){var v=(inp.value||'').trim();gmpUnmount(f.id+'-pv');var r=await srcApi('POST','/google/confirm',{firmId:f.id,placeId:v,via:'manual',seen:okc.checked});if(r.status===200)srcRender(r.json.sources,mode);else err((r.json&&r.json.error)||'Gick inte.')});
+        det.appendChild(inp);det.appendChild(pv);det.appendChild(prev);det.appendChild(el('label',{class:'opt','for':'seen-'+f.id},okc,el('span',{text:'Profilen ovan är rätt firma och plats.'})));det.appendChild(cb);g.appendChild(det);
+      }
+      g.appendChild(holder);
+    }
+    card.appendChild(g);
+  }
+  // ---- Trustpilot ----
+  if(c.trustpilot.state!=='ej_aktiverad'){
+    var t=el('div',{class:'srcrow','data-src':'trustpilot'},el('b',{text:'Trustpilot'}),el('div',{class:'st',text:f.trustpilot.text}));
+    var out=el('div',{class:'tpout'});
+    if(f.trustpilot.confirmed){
+      var lb=el('button',{type:'button',class:'btn ghost',text:'Visa Trustpilots senaste omdömen'});
+      lb.addEventListener('click',async function(){
+        lb.disabled=true;out.textContent='';out.appendChild(el('p',{class:'hint',text:'Hämtar…'}));
+        var r=await srcApi('POST','/trustpilot/latest',{firmId:f.id});lb.disabled=false;out.textContent='';
+        if(r.status!==200){out.appendChild(el('p',{class:'err',text:(r.json&&r.json.error)||'Gick inte.'}));return}
+        srcTp(out,f,r.json);
+      });
+      t.appendChild(lb);
+      if(mode==='offer'){var ct=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:'Fel firma? Byt'});ct.addEventListener('click',async function(){var r=await srcApi('POST','/unconfirm',{firmId:f.id,provider:'trustpilot'});if(r.status===200)srcRender(r.json.sources,mode)});t.appendChild(ct)}
+    }else if(mode==='offer'&&f.trustpilot.state!=='kostnadsstopp'){
+      if(!f.domain)t.appendChild(el('p',{class:'hint',text:'Ange firmans webbplats ovan för att söka hos Trustpilot.'}));
+      else{
+        var ts=el('button',{type:'button',class:'btn ghost',text:'Sök firman hos Trustpilot'});if(f.trustpilot.searchesLeft<=0)ts.disabled=true;
+        ts.addEventListener('click',async function(){ts.disabled=true;out.textContent='';var r=await srcApi('POST','/trustpilot/search',{firmId:f.id});
+          if(r.status!==200){out.appendChild(el('p',{class:'err',text:(r.json&&r.json.error)||'Sökningen gick inte.'}));ts.disabled=false;return}
+          SRC.cands[f.id+':trustpilot']=r.json.candidates||[];srcCands(out,f,'trustpilot',r.json.candidates||[],r.json.outcome);ts.disabled=false});
+        t.appendChild(ts);
+      }
+    }
+    t.appendChild(out);card.appendChild(t);
+  }
+  return card;
+}
+function srcCands(host,f,prov,list,outcome){
+  host.textContent='';
+  if(!list.length){host.appendChild(el('p',{class:'hint',text:outcome==='fel'?'Källan svarade inte just nu. Det betyder inte att omdömen saknas.':outcome==='kostnadsstopp'?'Sökningen är stoppad av kostnadsskäl. Det betyder inte att omdömen saknas.':'Ingen träff hos källan.'}));return}
+  host.appendChild(el('p',{class:'hint',text:'Välj rätt firma och plats. Vi väljer aldrig åt dig.'}));
+  var name='cand-'+f.id+'-'+prov;var btn=el('button',{type:'button',class:'btn acc',text:'Det här är rätt firma',disabled:'disabled'});var chosen=null;
+  list.forEach(function(cd,i){
+    var r=el('input',{type:'radio',name:name,id:name+i});r.addEventListener('change',function(){chosen=cd.id;btn.disabled=false});
+    host.appendChild(el('label',{class:'opt','for':name+i},r,el('span',{text:cd.name+(cd.address?' – '+cd.address:'')+(cd.site?' – '+cd.site:'')})));
+  });
+  btn.addEventListener('click',async function(){
+    if(!chosen)return;btn.disabled=true;
+    var r=prov==='google'?await srcApi('POST','/google/confirm',{firmId:f.id,placeId:chosen,via:'candidate'}):await srcApi('POST','/trustpilot/confirm',{firmId:f.id,buId:chosen});
+    if(r.status===200)srcRender(r.json.sources,'offer');else{err((r.json&&r.json.error)||'Gick inte.');btn.disabled=false}
+  });
+  host.appendChild(btn);
+}
+function stars(n){return '★★★★★'.slice(0,n)+'☆☆☆☆☆'.slice(0,5-n)}
+function srcTp(out,f,j){
+  if(j.outcome==='fel'){out.appendChild(el('p',{class:'warnbox',text:'Trustpilot svarade inte just nu. Det betyder inte att omdömen saknas – försök igen om en stund.'}));return}
+  if(j.outcome==='kostnadsstopp'){out.appendChild(el('p',{class:'warnbox',text:'Visningen är stoppad av kostnadsskäl just nu. Det betyder inte att omdömen saknas.'}));return}
+  var c=j.card;if(!c)return;
+  var head='Källa: Trustpilot ('+f.name+(f.city?', '+f.city:'')+').';
+  out.appendChild(el('p',{class:'hint',text:head+(c.trustScore!==null?' Trustpilots totalbetyg: '+String(c.trustScore).replace('.',',')+' av 5':'')+(c.totalReviews!==null?' ('+c.totalReviews+' omdömen).':'.')}));
+  if(c.latestState==='inga_omdomen'){out.appendChild(el('p',{class:'hint',text:'Trustpilot har inga omdömen för firman. Få eller inga omdömen är tunt underlag – inte ett dåligt företag.'}))}
+  else if(c.latestState==='ej_senaste_tillgangliga'){out.appendChild(el('p',{class:'hint',text:'Källan levererade inte omdömena nyast först, så vi visar inga som "senaste".'}))}
+  else c.reviews.forEach(function(r){
+    var d=el('div',{class:'tprev'},el('b',{text:stars(r.stars)+' '+r.stars+' av 5 · '+r.date}));
+    if(r.title)d.appendChild(el('div',{text:r.title}));if(r.text)d.appendChild(el('div',{text:r.text}));
+    if(r.link)d.appendChild(el('a',{href:r.link,target:'_blank',rel:'noopener noreferrer',text:'Läs på Trustpilot'}));
+    out.appendChild(d);
+  });
+  out.appendChild(el('p',{class:'hint',text:c.note+(j.fromCache?' (Hämtat inom de senaste 24 timmarna.)':'')}));
+  if(c.sourceUrl)out.appendChild(el('a',{href:c.sourceUrl,target:'_blank',rel:'noopener noreferrer',text:'Trustpilot-sidan för firman'}));
+}
+function srcRender(view,mode){
+  SRC.view=view;gmpUnmountAll();
+  var host=mode==='report'?$('srcrep'):$('srcfirms');if(!host)return;
+  host.textContent='';
+  (view.firms||[]).forEach(function(f){host.appendChild(srcFirmCard(f,mode))});
+  if(mode==='report'&&!view.firms.length)host.appendChild(el('p',{class:'hint',text:'Du angav inga firmor för källvisning.'}));
+  var cv=$('srccov');if(cv&&mode==='offer'){cv.textContent='';(view.coverage&&view.coverage.lines||[]).forEach(function(l){cv.appendChild(el('li',{text:l}))})}
+}
+function srcForm(){
+  var f=$('srcform');f.textContent='';
+  var rows=[];state.slots.forEach(function(s,i){if(s.label&&s.label.trim())rows.push(i)});
+  if(!rows.length){f.appendChild(el('p',{class:'hint',text:'Skriv hantverkarens namn på offerten (steg 1) för att kunna se källor.'}));return}
+  rows.forEach(function(i){
+    f.appendChild(el('div',{class:'srcfirm'},el('b',{text:'Offert '+(i+1)+' – '+state.slots[i].label}),
+      el('label',{class:'t','for':'sc'+i,text:'Ort (gärna, för rätt filial)'}),el('input',{type:'text',id:'sc'+i,maxlength:'50',autocomplete:'off'}),
+      el('label',{class:'t','for':'sd'+i,text:'Webbplats (valfritt, t.ex. foretaget.se)'}),el('input',{type:'text',id:'sd'+i,maxlength:'80',autocomplete:'off'})));
+  });
+  var b=el('button',{type:'button',class:'btn ghost',id:'srcgo',text:'Visa tillgängliga källor'});
+  b.addEventListener('click',async function(){
+    b.disabled=true;gmpUnmountAll();
+    var firms=rows.map(function(i){return {offerIndex:i,name:state.slots[i].label.trim(),city:($('sc'+i).value||'').trim(),domain:($('sd'+i).value||'').trim()}});
+    var r=await srcApi('PUT','/firms',{firms:firms});b.disabled=false;
+    if(r.status===200)srcRender(r.json.sources,'offer');else err((r.json&&r.json.error)||'Gick inte att spara firmauppgifterna.');
+  });
+  f.appendChild(b);
+}
+async function srcStart(host,mode){
+  if(!srcActive())return;
+  try{
+    var r=await srcApi('GET','');if(r.status!==200)return;
+    if(mode==='offer'){show('srcbox',true);if(state.slots&&state.slots.length)srcForm();srcRender(r.json.sources,'offer')}
+    else{host.textContent='';host.appendChild(el('p',{class:'hint',text:'Omdömen visas separat från rapporten, med källans eget urval. De ingår inte i jämförelsen och är ingen bedömning av företaget.'}));
+      var inner=el('div',{id:'srcrep'});host.appendChild(inner);srcRender(r.json.sources,'report')}
+  }catch(e){}
 }
 
 init();

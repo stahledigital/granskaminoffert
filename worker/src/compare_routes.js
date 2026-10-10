@@ -7,7 +7,7 @@
 // Betalningsbevis kommer bara från signerad webhook eller serveravstämning mot Stripe – returadressen
 // (success_url) bevisar ingenting.
 
-import { OFFER, LIMITS, compareEnabled, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, OFFER_COPY, DATA_COVERAGE, RETENTION_CLASSES, retentionPolicy } from "./compare_config.js";
+import { OFFER, LIMITS, compareEnabled, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
@@ -16,6 +16,7 @@ import { offerLabels } from "./compare_engine.js";
 import { validEmail, parseWithdrawToken } from "./compare_ledger.js";
 import { timingSafeEqual } from "./compare_util.js";
 import { createCheckoutSession, retrieveSession, retrieveRefund, verifyWebhook } from "./compare_stripe.js";
+import { sourcesConfig, publicSourcesConfig, googleCandidates, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
 import * as budget from "./compare_budget.js";
 
 const MAX_BODY_CHARS = 11_600_000; // 8 MB binärt ≈ 10,7 MB base64
@@ -73,7 +74,7 @@ async function readJson(request, maxChars) {
   try { return { value: JSON.parse(raw) }; } catch { return { bad: true }; }
 }
 
-async function consentHash() { return sha256Hex(JSON.stringify(consentSnapshot())); }
+async function consentHash(env) { return sha256Hex(JSON.stringify(consentSnapshot(env))); }
 
 async function publicConfig(env, allowedOrigins) {
   const enabled = compareEnabled(env);
@@ -87,14 +88,15 @@ async function publicConfig(env, allowedOrigins) {
       maxPdfPagesPerDoc: LIMITS.maxPdfPagesPerDoc, maxPdfPagesTotal: LIMITS.maxPdfPagesTotal,
     },
     // Det kunden ska se och godkänna kommer från servern; hashen bindes till ordern vid köp.
-    offerCopy: OFFER_COPY,
-    consent: { version: CONSENT.version, draft: CONSENT.draft, hash: await consentHash(), texts: CONSENT.texts },
-    dataCoverage: DATA_COVERAGE,
+    offerCopy: offerCopy(env),
+    consent: { version: CONSENT.version, draft: CONSENT.draft, hash: await consentHash(env), texts: CONSENT.texts },
+    dataCoverage: dataCoverage(env),
     draft: CONSENT.draft,
     requiresEmail: true,
     withdrawUrl: "/jamfor/angra/",
     retention: { classes: Object.fromEntries(Object.entries(RETENTION_CLASSES).map(([k, v]) => [k, v.hours ? `${v.hours} h` : "policy ej fastställd"])), policyOk: retentionPolicy(env).ok },
-    dataCards: false, // datakort är avstängda tills åtkomst, villkor och budget är verifierade
+    dataCards: false, // gamla datakortsmodulen (datacard.js) är oanvänd; källor styrs av `sources`
+    sources: publicSourcesConfig(env),
     refund: env.COMPARE_AUTO_REFUND === "1" ? "auto" : "manual",
   };
 }
@@ -225,6 +227,87 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     return reply({ ok: true, orderId: id, token, order: r.json.order }, 201);
   }
 
+  // ---- D07: källor för senaste omdömen (avstängda om inte COMPARE_REVIEWS + COMPARE_REVIEWS_VERIFIED) ----
+  const sm = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})\/sources(?:\/(firms|google\/search|google\/confirm|trustpilot\/search|trustpilot\/confirm|trustpilot\/latest|unconfirm))?$/);
+  if (sm) {
+    const oid = sm[1], ssub = sm[2] || "";
+    const tok = request.headers.get("x-order-token") || "";
+    if (!TOKEN_RE.test(tok)) return reply({ error: "Ordern hittades inte." }, 404);
+    const th = await sha256Hex(tok);
+    const mut = request.method !== "GET";
+    if (mut && !originOk) return reply({ error: "Otillåten källa." }, 403);
+    if (!bindingsOk(env)) return closed();
+    const cfgS = sourcesConfig(env);
+    const body = mut ? await readJson(request, 4_000) : { value: {} };
+    if (body.tooLarge || body.bad) return reply({ error: "Ogiltig förfrågan." }, 400);
+    const bv = body.value || {};
+    const op = async (o) => orderCall(env, oid, "/sources-op", { tokenHash: th, op: o, now: Date.now() });
+    const out = (r) => (r.status === 404 ? reply({ error: "Ordern hittades inte." }, 404) : r.status === 429 ? reply({ error: "Gränsen för källsökningar för den här ordern är nådd." }, 429) : r.status === 409 ? reply({ error: "Ordern är raderad." }, 409) : r.status !== 200 || !r.json.ok ? reply({ error: r.json && r.json.error === "okand_traff" ? "Den träffen finns inte bland förslagen. Sök igen." : r.json && r.json.error === "bekrafta_profil" ? "Bekräfta först att profilen som visas är rätt firma." : "Ogiltig förfrågan." }, 400) : null);
+    if (!ssub && request.method === "GET") {
+      const r = await orderCall(env, oid, "/sources-get", { tokenHash: th, countView: true, now: Date.now() });
+      const e = out(r); if (e) return e;
+      return reply({ ok: true, sources: r.json.sources });
+    }
+    if (ssub === "firms" && request.method === "PUT") {
+      const r = await op({ type: "set_firms", firms: Array.isArray(bv.firms) ? bv.firms.map((f) => ({ offerIndex: f && f.offerIndex, name: f && f.name, city: f && f.city, domain: f && f.domain })) : [] });
+      if (r.status === 400 && r.json && r.json.error === "domain") return reply({ error: "Webbadressen ser inte rätt ut. Skriv bara t.ex. foretaget.se." }, 400);
+      if (r.status === 400 && r.json && r.json.error === "for_manga") return reply({ error: "Högst fyra firmor." }, 400);
+      const e = out(r); if (e) return e;
+      return reply({ ok: true, sources: r.json.sources });
+    }
+    if (!cfgS.active && ssub) return reply({ error: "Omdömen visas inte i den här versionen." }, 503);
+    const g = await orderCall(env, oid, "/sources-get", { tokenHash: th, now: Date.now() });
+    const ge = out(g); if (ge) return ge;
+    const firm = (g.json.state.firms || []).find((f) => f.id === bv.firmId);
+    if (!firm && ssub !== "firms") return reply({ error: "Firman hittades inte. Ladda om sidan." }, 404);
+    if (ssub === "google/search" && request.method === "POST") {
+      if (!cfgS.google.on) return reply({ error: "Googles omdömen visas inte i den här versionen." }, 503);
+      if (!cfgS.google.search) return reply({ ok: true, candidates: [], manual: true, sources: g.json.sources });
+      if (firm.google.searches >= SRC_LIM.searchesPerFirm) return reply({ error: "Du har sökt så många gånger du kan för den här firman." }, 429);
+      const r = await googleCandidates(env, cfgS, firm, { orderId: oid });
+      const rec = await op({ type: "record_search", firmId: firm.id, provider: "google", outcome: r.outcome, candidateIds: r.candidates.map((c) => c.id) });
+      const e = out(rec); if (e) return e;
+      return reply({ ok: true, outcome: r.outcome, candidates: r.candidates, sources: rec.json.sources });
+    }
+    if (ssub === "google/confirm" && request.method === "POST") {
+      if (!cfgS.google.on) return reply({ error: "Googles omdömen visas inte i den här versionen." }, 503);
+      if (typeof bv.placeId !== "string" || !PLACE_ID_RE.test(bv.placeId)) return reply({ error: "Ogiltigt företags-ID." }, 400);
+      const r = await op({ type: "confirm_google", firmId: firm.id, placeId: bv.placeId, via: bv.via, seen: bv.seen === true });
+      const e = out(r); if (e) return e;
+      return reply({ ok: true, sources: r.json.sources });
+    }
+    if (ssub === "trustpilot/search" && request.method === "POST") {
+      if (!cfgS.trustpilot.on) return reply({ error: "Trustpilot visas inte i den här versionen." }, 503);
+      if (firm.trustpilot.searches >= SRC_LIM.searchesPerFirm) return reply({ error: "Du har sökt så många gånger du kan för den här firman." }, 429);
+      const r = await tpCandidates(env, cfgS, firm, {});
+      if (r.needDomain) return reply({ ok: true, outcome: "tomt", needDomain: true, candidates: [], sources: g.json.sources });
+      const rec = await op({ type: "record_search", firmId: firm.id, provider: "trustpilot", outcome: r.outcome, candidateIds: r.candidates.map((c) => c.id) });
+      const e = out(rec); if (e) return e;
+      return reply({ ok: true, outcome: r.outcome, candidates: r.candidates, sources: rec.json.sources });
+    }
+    if (ssub === "trustpilot/confirm" && request.method === "POST") {
+      if (!cfgS.trustpilot.on) return reply({ error: "Trustpilot visas inte i den här versionen." }, 503);
+      const r = await op({ type: "confirm_trustpilot", firmId: firm.id, buId: String(bv.buId || "") });
+      const e = out(r); if (e) return e;
+      return reply({ ok: true, sources: r.json.sources });
+    }
+    if (ssub === "trustpilot/latest" && request.method === "POST") {
+      if (!cfgS.trustpilot.on) return reply({ error: "Trustpilot visas inte i den här versionen." }, 503);
+      if (!firm.trustpilot.buId) return reply({ error: "Bekräfta först rätt firma hos Trustpilot." }, 409);
+      const r = await tpLatest(env, cfgS, { buId: firm.trustpilot.buId, domain: firm.domain });
+      await op({ type: "tp_outcome", firmId: firm.id, outcome: r.outcome === "ok" ? "ok" : r.outcome });
+      if (r.outcome === "ok" || r.outcome === "tomt") return reply({ ok: true, outcome: r.outcome, card: r.card, fetchedAt: r.fetchedAt, fromCache: !!r.fromCache });
+      return reply({ ok: true, outcome: r.outcome, card: null }); // kallfel/kostnadsstopp: aldrig "inga omdömen"
+    }
+    if (ssub === "unconfirm" && request.method === "POST") {
+      if (bv.provider !== "google" && bv.provider !== "trustpilot") return reply({ error: "Ogiltig förfrågan." }, 400);
+      const r = await op({ type: "unconfirm", firmId: firm.id, provider: bv.provider });
+      const e = out(r); if (e) return e;
+      return reply({ ok: true, sources: r.json.sources });
+    }
+    return reply({ error: "Not found" }, 404);
+  }
+
   // ---- Per order ----
   const m = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})(?:\/(docs\/([0-3])|checkout|report|withdraw))?$/);
   if (!m) return reply({ error: "Not found" }, 404);
@@ -303,8 +386,8 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     // Samtycke är bundet till version + hash av exakt de texter/priser servern visar. Med body: kunden har just sett
     // och kryssat texterna. Utan body ("betala igen"): bara ett redan givet samtycke med SAMMA hash återanvänds –
     // annars ber vi kunden läsa och godkänna igen.
-    const snap = consentSnapshot();
-    const hash = await consentHash();
+    const snap = consentSnapshot(env);
+    const hash = await consentHash(env);
     const bodyIn = await readJson(request, 2_000);
     const acc = bodyIn.value && bodyIn.value.accept;
     if (acc) {

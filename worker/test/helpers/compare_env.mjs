@@ -93,7 +93,7 @@ export function fixtureResponse(spec) {
 
 // ---- fetch-attrapp (Anthropic + Stripe) ----
 export function installFetch(opts = {}) {
-  const log = { anthropic: [], count: [], stripeCreate: [], stripeGet: [], refunds: [], refundGets: [] };
+  const log = { google: [], tp: [], anthropic: [], count: [], stripeCreate: [], stripeGet: [], refunds: [], refundGets: [] };
   const refundsByIdem = new Map();
   const sessions = new Map(); // id -> session-objekt som Stripe skulle returnera
   const byIdem = new Map();
@@ -103,6 +103,19 @@ export function installFetch(opts = {}) {
   globalThis.fetch = async (input, init = {}) => {
     const url = typeof input === "string" ? input : input.url;
     const body = init.body ? (typeof init.body === "string" ? init.body : String(init.body)) : "";
+    if (url === "https://places.googleapis.com/v1/places:searchText") {
+      log.google.push({ headers: init.headers, body: JSON.parse(body) });
+      if (ctl.googleFail) return Response.json({}, { status: 500 });
+      return Response.json({ places: typeof ctl.googlePlaces === "function" ? ctl.googlePlaces(JSON.parse(body)) : ctl.googlePlaces || [] });
+    }
+    if (url.startsWith("https://tp.example.test/")) {
+      log.tp.push({ url, headers: init.headers });
+      if (ctl.tpFail) return Response.json({}, { status: ctl.tpFail });
+      const f = url.match(/\/v1\/business-units\/find\?name=(.+)$/);
+      if (f) return Response.json({ businessUnits: (ctl.tpFind || {})[decodeURIComponent(f[1])] || [] });
+      const l = url.match(/\/v1\/business-units\/([A-Za-z0-9]+)\/reviews\/latest\?limit=5$/);
+      if (l) { const d = (ctl.tpLatest || {})[l[1]]; return d ? Response.json(d) : Response.json({}, { status: 404 }); }
+    }
     if (url.endsWith("/v1/messages/count_tokens")) { log.count.push(JSON.parse(body)); if (ctl.countFail) return Response.json({}, { status: 500 }); return Response.json({ input_tokens: ctl.countTokens }); }
     if (url === "https://api.anthropic.com/v1/messages") {
       const req = JSON.parse(body);
@@ -199,3 +212,11 @@ export async function webhook(env, type, session, { id = "evt_" + Math.random().
 }
 export const sha = sha256Hex;
 export const docKeys = (env, orderId) => [...env.REVIEWS_KV.m.keys()].filter((k) => k.startsWith(`cmpdoc:${orderId}:`));
+
+// ---- D07: källor (alla externa anrop är attrapper med SYNTETISKA data) ----
+export const REVIEW_VARS = { COMPARE_REVIEWS: "1", COMPARE_REVIEWS_VERIFIED: "1" };
+export const MAPS_KEY = "AIzaSyTESTONLYsyntheticKey_0123456789ab"; // syntetisk, ingen riktig nyckel
+export const GOOGLE_VARS = { GOOGLE_UI_KIT: "1", GOOGLE_MAPS_BROWSER_KEY: MAPS_KEY, GOOGLE_CANDIDATES: "1", GOOGLE_PLACES_SERVER_KEY: "synthetic-server-key-0123456789", COMPARE_SOURCES_SEARCH_DAY_CAP: "50" };
+export const TP_VARS = { TRUSTPILOT_DISPLAY: "1", TRUSTPILOT_API_BASE: "https://tp.example.test", TRUSTPILOT_API_KEY: "synthetic-tp-key", TRUSTPILOT_AUTH_HEADER: "apikey", COMPARE_TP_DAY_CAP: "50" };
+export const placeId = (c) => "ChIJ" + String(c).repeat(24);
+export const synthTpReviews = (n, over = {}) => ({ businessUnit: { trustScore: 4.3, numberOfReviews: { total: over.total ?? n } }, reviews: Array.from({ length: n }, (_, i) => ({ stars: 1 + (i % 5), title: "Syntetiskt omdöme " + (i + 1), text: "SYNTETISK TEXT " + (i + 1) + " – inte ett riktigt omdöme.", createdAt: `2026-09-${String(28 - i).padStart(2, "0")}T10:00:00Z`, link: `https://www.trustpilot.com/reviews/synth${i}` })) });

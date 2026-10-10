@@ -310,3 +310,157 @@ test("startsidans och jämförsidans sidfot länkar till ångersidan", async () 
     assert.ok(await page.locator('footer a[href="/jamfor/angra/"]').count() >= 1);
   } finally { await ctx.close(); await h.close(); }
 });
+
+// ---------------- D07: källor för senaste originalomdömen (Google UI Kit mount/unmount, Trustpilot via servern) ----------------
+// Allt är attrapper med SYNTETISKA data. Offlineloadern bevisar vår konfiguration/timeout/cleanup – INTE Googles liveutfall.
+const SRC_VARS = { COMPARE_REVIEWS: "1", COMPARE_REVIEWS_VERIFIED: "1", GOOGLE_UI_KIT: "1", GOOGLE_MAPS_BROWSER_KEY: "AIzaSyTESTONLYsyntheticKey_0123456789ab", GOOGLE_CANDIDATES: "1", GOOGLE_PLACES_SERVER_KEY: "synthetic-server-key-0123456789", COMPARE_SOURCES_SEARCH_DAY_CAP: "50", TRUSTPILOT_DISPLAY: "1", TRUSTPILOT_API_BASE: "https://tp.example.test", TRUSTPILOT_API_KEY: "synthetic-tp-key", TRUSTPILOT_AUTH_HEADER: "apikey", COMPARE_TP_DAY_CAP: "50" };
+const PID = "ChIJ" + "a".repeat(24);
+function seedSources(h) {
+  h.ctl.googlePlaces = [{ id: PID, displayName: { text: "Byggfirma AB" }, formattedAddress: "Syntetvägen 1, Malmö" }, { id: "ChIJ" + "b".repeat(24), displayName: { text: "Byggfirma Syd" }, formattedAddress: "Syntetgatan 2, Lund" }];
+  h.ctl.tpFind = { "byggfirma.se": [{ id: "bu00000001", displayName: "Byggfirma", websiteUrl: "https://byggfirma.se" }] };
+  h.ctl.tpLatest = { bu00000001: { businessUnit: { trustScore: 4.3, numberOfReviews: { total: 42 } }, reviews: [1, 2, 3].map((n) => ({ stars: 5 - n + 1, title: "Syntetiskt " + n, text: "SYNTETISK TEXT " + n + " – inte ett riktigt omdöme.", createdAt: `2026-09-${30 - n}T10:00:00Z`, link: "https://www.trustpilot.com/reviews/synth" + n })) } };
+}
+async function toOfferStep(page, h) {
+  await page.goto(h.base + "/jamfor/");
+  await page.waitForSelector("#s1:not(.hidden)");
+  await fillAndCheck(page, [OFFERS[0], OFFERS[1]]);
+  await page.waitForSelector("#srcbox:not(.hidden)");
+}
+const gmpDouble = () => { window.__gmpCalls = []; window.__GMP_LOADER__ = async (key) => { window.__gmpCalls.push(key); return {}; }; };
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`källor (${name}): firmaval utan första-träff, täckning före köp, Google mount/unmount newest, Trustpilot original, kundbyte rensar`, async () => {
+    const h = await startHarness({ vars: SRC_VARS }); seedSources(h);
+    const { ctx, page, errors } = await newPage(h, w, hgt);
+    await page.addInitScript(gmpDouble);
+    try {
+      await toOfferStep(page, h);
+      assert.match(await page.textContent("#copy-getsnot"), /lovar inte att en källa finns/);
+      await page.fill("#sc0", "Malmö"); await page.fill("#sd0", "byggfirma.se"); await page.fill("#sc1", "Lund");
+      await page.click("#srcgo");
+      await page.waitForSelector(".srcfirm[data-firm]");
+      assert.equal(await page.locator(".srcfirm[data-firm]").count(), 2);
+      assert.match(await page.textContent("#srccov"), /Byggfirma AB \(Malmö\): Google – väntar på att du bekräftar rätt firma/);
+      assert.ok(await noSideScroll(page), "ingen sidoscroll i källpanelen");
+      const f0 = page.locator(".srcfirm[data-firm]").nth(0);
+      // Google: kandidater, ingen förvald träff, bekräfta först när kunden valt
+      await f0.locator('[data-src="google"] button:has-text("Sök firman hos Google")').click();
+      await page.waitForSelector('[data-src="google"] input[type=radio]');
+      assert.equal(await f0.locator('[data-src="google"] input[type=radio]:checked').count(), 0, "ingen första-träff-automatik");
+      assert.equal(await f0.locator('[data-src="google"] .btn.acc').isDisabled(), true);
+      await f0.locator('[data-src="google"] input[type=radio]').first().check();
+      await f0.locator('[data-src="google"] .btn.acc').click();
+      await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      assert.deepEqual(await page.evaluate(() => window.__gmpCalls), [], "Google-skriptet laddas först när kunden öppnar omdömena");
+      await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      await page.waitForSelector("gmp-place-details", { state: "attached" });
+      assert.deepEqual(await page.evaluate(() => window.__gmpCalls), [SRC_VARS.GOOGLE_MAPS_BROWSER_KEY]);
+      const cfg = await page.evaluate(() => {
+        const d = document.querySelector("gmp-place-details"); const rv = d.querySelector("gmp-place-reviews");
+        return { place: d.querySelector("gmp-place-details-place-request").getAttribute("place"), rank: rv.getAttribute("rank-preference"), rvAttrs: [...rv.attributes].map((a) => a.name), tags: [...d.querySelectorAll("*")].map((e) => e.localName), dAttrs: [...d.attributes].map((a) => a.name), box: document.querySelector(".gmpbox:not(.hidden)").getBoundingClientRect().height };
+      });
+      assert.equal(cfg.place, PID); assert.equal(cfg.rank, "newest"); assert.deepEqual(cfg.rvAttrs, ["rank-preference"]); assert.deepEqual(cfg.dAttrs, []);
+      assert.ok(cfg.tags.includes("gmp-place-attribution") && !cfg.tags.some((t) => /summary|query|filter|sentiment/.test(t)), cfg.tags.join());
+      assert.ok(cfg.box >= 240 && cfg.box <= 400, "Googlekortets höjd " + cfg.box);
+      assert.match(await f0.textContent(), /Källa: Google \(Byggfirma AB, Malmö\)/);
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_9_kallor_google.png`), fullPage: true });
+      // stäng = unmount
+      await page.click('[data-src="google"] button:has-text("Dölj Googles omdömen")');
+      assert.equal(await page.locator("gmp-place-details").count(), 0);
+      // öppna igen, byt firma => inget kvar
+      await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")'); await page.waitForSelector("gmp-place-details", { state: "attached" });
+      await f0.locator('[data-src="google"] button:has-text("Fel firma")').click();
+      await page.waitForSelector('[data-src="google"] button:has-text("Sök firman hos Google")');
+      assert.equal(await page.locator("gmp-place-details").count(), 0, "gammal firmas Googlekort lämnas inte kvar");
+      // Trustpilot
+      await f0.locator('[data-src="trustpilot"] button:has-text("Sök firman hos Trustpilot")').click();
+      await page.waitForSelector('[data-src="trustpilot"] input[type=radio]');
+      await f0.locator('[data-src="trustpilot"] input[type=radio]').first().check();
+      await f0.locator('[data-src="trustpilot"] .btn.acc').click();
+      await f0.locator('[data-src="trustpilot"] button:has-text("Visa Trustpilots senaste")').click();
+      await page.waitForSelector(".tprev");
+      const tp = await f0.locator('[data-src="trustpilot"]').textContent();
+      assert.match(tp, /totalbetyg: 4,3 av 5 \(42 omdömen\)/); assert.match(tp, /SYNTETISK TEXT 1 – inte ett riktigt omdöme\./); assert.match(tp, /2026-09-29/); assert.match(tp, /Källa: Trustpilot \(Byggfirma AB, Malmö\)/);
+      assert.equal(await f0.locator('.tprev a[href^="https://www.trustpilot.com/"]').count(), 3);
+      assert.doesNotMatch(tp, /snitt|medelbetyg|trend|bättre än|sämre än/i);
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_10_kallor_trustpilot.png`), fullPage: true });
+      // firma 2 är ännu obekräftad och visas så före köp
+      assert.match(await page.textContent("#srccov"), /Byggfirma AB \(Malmö\): Google – väntar på att du bekräftar rätt firma; Trustpilot – kan visas|Google – väntar på att du bekräftar/);
+      // kundbyte av firmanamn: nytt formulär, ny panel utan tidigare bekräftelse
+      await page.fill("#sc0", "Göteborg"); await page.click("#srcgo");
+      await page.waitForFunction(() => /Byggfirma AB \(Göteborg\): Google – väntar/.test(document.getElementById("srccov").textContent));
+      assert.equal(await page.locator("gmp-place-details").count(), 0);
+      assert.equal(await page.locator(".tprev").count(), 0, "tidigare firmas omdömen visas inte för nytt val");
+      assert.equal(h.stats.anthropic >= 0, true);
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
+test("källor: köp med täckning, rapporten bär inga omdömen men visar källpanelen separat; täckning fryses som antal", async () => {
+  const h = await startHarness({ vars: SRC_VARS }); seedSources(h);
+  const { ctx, page, errors } = await newPage(h, 390, 844);
+  await page.addInitScript(gmpDouble);
+  try {
+    await toOfferStep(page, h);
+    await page.fill("#sc0", "Malmö"); await page.click("#srcgo"); await page.waitForSelector(".srcfirm[data-firm]");
+    await page.fill("#email", "kund@example.test"); await page.check("#terms"); await page.check("#immediate"); await page.click("#pay");
+    await page.waitForURL("https://checkout.stripe.test/**"); await page.click("#pay");
+    await page.waitForURL(h.base + "/jamfor/**");
+    await page.waitForSelector("#rep:not(.hidden)", { timeout: 30000 });
+    await page.waitForSelector("#rep .srcfirm[data-firm]", { timeout: 15000 });
+    assert.match(await page.textContent("#rep"), /Omdömen visas separat från rapporten/);
+    assert.ok(await noSideScroll(page));
+    // JSON-nedladdningens innehåll = rapporten: inga källor eller omdömen
+    const rep = await page.evaluate(async () => { const o = JSON.parse(localStorage.getItem("jamfor_order") || "{}"); return JSON.stringify(o).length > 0; });
+    assert.ok(rep);
+    await page.screenshot({ path: join(EVIDENCE, "jamfor_mobil390_11_rapport_kallor.png"), fullPage: true });
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("Google skriptladdning (riktiga loadern, attrapp-endpoint): inget anrop före öppnande; korrekt URL; fel visas som 'kunde inte laddas', aldrig som 'inga omdömen'", async () => {
+  const h = await startHarness({ vars: SRC_VARS }); seedSources(h);
+  const { ctx, page, errors } = await newPage(h, 390, 844);
+  const hits = []; let fail = false;
+  await ctx.route("https://maps.googleapis.com/**", (route) => {
+    hits.push(route.request().url());
+    if (fail) return route.abort();
+    return route.fulfill({ contentType: "text/javascript", body: "window.google={maps:{importLibrary:async function(){return {}}}};" });
+  });
+  try {
+    await toOfferStep(page, h);
+    await page.fill("#sc0", "Malmö"); await page.click("#srcgo"); await page.waitForSelector(".srcfirm[data-firm]");
+    const f0 = page.locator(".srcfirm[data-firm]").nth(0);
+    await f0.locator('[data-src="google"] button:has-text("Sök firman hos Google")').click();
+    await page.waitForSelector('[data-src="google"] input[type=radio]');
+    await f0.locator('[data-src="google"] input[type=radio]').first().check(); await f0.locator('[data-src="google"] .btn.acc').click();
+    await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+    assert.equal(hits.length, 0, "inget anrop till Google före kundens val");
+    fail = true;
+    await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+    await page.waitForSelector("text=kunde inte laddas just nu");
+    assert.match(await page.textContent(".gmpbox"), /Det betyder inte att omdömen saknas/);
+    assert.equal(await page.locator("gmp-place-details").count(), 0);
+    fail = false;
+    await page.click('.gmpbox button:has-text("Försök igen")');
+    await page.waitForSelector("gmp-place-details", { state: "attached" });
+    const u = new URL(hits.at(-1));
+    assert.equal(u.searchParams.get("key"), SRC_VARS.GOOGLE_MAPS_BROWSER_KEY); assert.equal(u.searchParams.get("libraries"), "places"); assert.equal(u.searchParams.get("v"), "beta");
+    assert.ok(!u.searchParams.has("query") && !u.searchParams.has("q"));
+    void errors;
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("källor AV som standard: ingen källpanel, inga Google-/Trustpilot-anrop, texten lovar inga omdömen", async () => {
+  const h = await startHarness();
+  const { ctx, page } = await newPage(h, 390, 844);
+  try {
+    await toOfferStepOff(page, h);
+    assert.equal(await page.locator("#srcbox:not(.hidden)").count(), 0);
+    assert.match(await page.textContent("#copy-getsnot"), /Inga omdömen om företagen/);
+    assert.equal(h.stats.google + h.stats.tp, 0);
+  } finally { await ctx.close(); await h.close(); }
+});
+async function toOfferStepOff(page, h) { await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, [OFFERS[0], OFFERS[1]]); }

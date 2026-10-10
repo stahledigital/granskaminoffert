@@ -70,13 +70,26 @@ export function sellerInfo(env) {
   return complete ? { name, orgnr, email, placeholder: false } : { name: name || "[Säljare – fylls i före skarp drift]", orgnr: orgnr || "[org.nr]", email: email || "[kontakt-e-post]", placeholder: true };
 }
 export const DATA_COVERAGE = Object.freeze({ reviews: false, text: "Omdömen om företagen ingår inte i den här versionen." });
+// D07: källvisning av omdömen (Google/Trustpilot) är en SEPARAT, avstängd funktion. Aktiv bara när en människa satt BÅDA flaggorna
+// (COMPARE_REVIEWS=1 och COMPARE_REVIEWS_VERIFIED=1 = villkor/licens/kostnad verifierade). Texten som kunden godkänner följer läget,
+// så kunden aldrig lovas något som inte är påslaget. Aldrig i rapport, export, mejl eller modell.
+export const reviewsActive = (env) => !!env && env.COMPARE_REVIEWS === "1" && env.COMPARE_REVIEWS_VERIFIED === "1";
+const REVIEWS_ON_GETSNOT = "Omdömen om företagen räknas inte in i jämförelsen och står inte i rapporten eller mejlen. Där en källa är tillgänglig för just din firma visas Googles och Trustpilots egna omdömen separat, med källans eget urval och datum. Vi ger inget eget betyg, ingen rangordning och ingen bedömning av företaget, och vi lovar inte att en källa finns eller har omdömen för varje firma (se täckningen innan du betalar).";
+export function offerCopy(env) {
+  if (!reviewsActive(env)) return OFFER_COPY;
+  return Object.freeze({ ...OFFER_COPY, getsNot: OFFER_COPY.getsNot.map((t) => (/^Inga omdömen om företagen/.test(t) ? REVIEWS_ON_GETSNOT : t)) });
+}
+export function dataCoverage(env) {
+  if (!reviewsActive(env)) return DATA_COVERAGE;
+  return Object.freeze({ reviews: true, text: "Omdömen visas separat per firma när källan är tillgänglig för firman. Täckningen för dina firmor visas innan du betalar. Omdömen ingår inte i jämförelsen, rapporten eller mejl." });
+}
 
 // Det kunden accepterar: pris, produkt, erbjudandetext och samtyckestexter. Hashen bindes till ordern.
-export function consentSnapshot() {
+export function consentSnapshot(env) {
   return {
     consentVersion: CONSENT.version, draft: CONSENT.draft,
     offerVersion: OFFER.version, priceOre: OFFER.priceOre, currency: OFFER.currency, vatPct: OFFER.vatPct,
-    copy: OFFER_COPY, texts: CONSENT.texts, dataCoverage: DATA_COVERAGE,
+    copy: offerCopy(env), texts: CONSENT.texts, dataCoverage: dataCoverage(env),
   };
 }
 

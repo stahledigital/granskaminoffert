@@ -22,6 +22,7 @@ import { timingSafeEqual, sha256Hex } from "./compare_util.js";
 import { validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow } from "./compare_ledger.js";
 import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } from "./compare_stripe.js";
 import { runPipeline } from "./compare_run.js";
+import { sourcesConfig, applyOp, emptySources, sourcesView, LIM as SRC_LIM } from "./compare_sources.js";
 
 const MAX_EVENTS = 64;
 
@@ -120,6 +121,31 @@ export class CompareOrders {
     // ---- Publika (kräver åtkomstnyckel) ----
     if (!this._auth(o, b.tokenHash)) return NOT_FOUND;
 
+    // ---- D07 källor (omdömen): firmaidentitet, kandidat-ID och bekräftelse. Ingen omdömesdata lagras här. ----
+    // Källuppgifter (firmanamn/ort/ID) följer ordervärdet: oåtkomliga och raderade efter 24 h (lazy – ingen schemalagd rensning, se COMPARE.md).
+    const srcGone = ["deleted", "expired"].includes(o.status) || o.contentDeleted || now > Math.max(o.expiresAt, ((o.work && o.work.deliveredAt) || 0) + OFFER.retentionHours * 3600_000);
+    if ((path === "/sources-get" || path === "/sources-op") && srcGone) await this.state.storage.delete("sources");
+    if (path === "/sources-get") {
+      if (srcGone) return { body: { ok: true, sources: sourcesView(sourcesConfig(this.env), emptySources()), state: emptySources() } };
+      const st = (await this.state.storage.get("sources")) || emptySources();
+      if (b.countView) {
+        if (st.views >= SRC_LIM.viewsPerOrder) return { status: 429, body: { ok: false, error: "visningar" } };
+        st.views += 1; await this.state.storage.put("sources", st);
+      }
+      return { body: { ok: true, sources: sourcesView(sourcesConfig(this.env), st), state: st } };
+    }
+    if (path === "/sources-op") {
+      if (srcGone) return { status: 409, body: { ok: false, error: "raderad" } };
+      const st = (await this.state.storage.get("sources")) || emptySources();
+      const op = b.op;
+      if (!op || typeof op !== "object") return { status: 400, body: { ok: false, error: "op" } };
+      if (op.type === "record_search" && st.providerRequests >= SRC_LIM.providerRequestsPerOrder) return { status: 429, body: { ok: false, error: "gransen_for_ordern" } };
+      const r = await applyOp(sourcesConfig(this.env), st, { ...op, now });
+      if (r.error) return { status: 400, body: { ok: false, error: r.error } };
+      await this.state.storage.put("sources", r.state);
+      return { body: { ok: true, sources: sourcesView(sourcesConfig(this.env), r.state), state: r.state } };
+    }
+
     if (path === "/get") {
       const after = (o.status === "paid" || o.status === "running") ? async () => this._ensureAlarm(o, now) : undefined;
       const extras = await this._extras();
@@ -151,10 +177,13 @@ export class CompareOrders {
       if (!a || a.terms !== true || a.immediateDelivery !== true || typeof a.consentHash !== "string" || a.consentHash.length !== 64 || typeof a.consentVersion !== "string") return { status: 400, body: { ok: false, error: "ogiltig" } };
       if (!validEmail(a.contactEmail)) return { status: 400, body: { ok: false, error: "epost" } };
       // De FAKTISKT visade texterna fryses här: hashen måste stämma mot texten som sparas (inte bara en hash som senare saknar text).
-      const snapshot = consentSnapshot();
+      const snapshot = consentSnapshot(this.env);
       if ((await sha256Hex(JSON.stringify(snapshot))) !== a.consentHash) return { status: 409, body: { ok: false, error: "samtycke_andrat" } };
       // Vad kunden accepterade: version + hash av exakt de texter/priser som visades, när, och för hur många offerter.
-      o.accept = { ...(o.accept || {}), terms: true, immediateDelivery: true, contactEmail: a.contactEmail, snapshot, acceptedAt: now, consentVersion: a.consentVersion, consentHash: a.consentHash, draft: a.draft === true, offerVersion: a.offerVersion, priceOre: a.priceOre, currency: a.currency, docCount: o.docCount };
+      const srcState = (await this.state.storage.get("sources")) || emptySources();
+      const cv = sourcesView(sourcesConfig(this.env), srcState).coverage;
+      const coverage = { active: cv.active, firms: cv.firms, google: cv.google, trustpilot: cv.trustpilot }; // bara antal per läge – inga firmanamn, ingen omdömesdata
+      o.accept = { ...(o.accept || {}), coverage, terms: true, immediateDelivery: true, contactEmail: a.contactEmail, snapshot, acceptedAt: now, consentVersion: a.consentVersion, consentHash: a.consentHash, draft: a.draft === true, offerVersion: a.offerVersion, priceOre: a.priceOre, currency: a.currency, docCount: o.docCount };
       await this._save(o);
       return { body: { ok: true } };
     }
@@ -196,6 +225,7 @@ export class CompareOrders {
       const keys = [...new Set([...o.docs.map((d) => d.key).filter(Boolean), ...(o.purgeKeys || [])])].concat(o.reportKey ? [o.reportKey] : []);
       for (const k of keys) { try { await this.env.REVIEWS_KV.delete(k); } catch { /* TTL tar resten */ } }
       for (const d of Object.keys((o.work && o.work.steps && o.work.steps.ext) || {})) await this.state.storage.delete(`ext:${d}`);
+      await this.state.storage.delete("sources");
       o.docs = []; o.purgeKeys = []; o.reportKey = null; o.contentDeleted = true; o.estimate = null;
       if (["draft", "ready", "awaiting_payment", "expired"].includes(o.status)) o.status = "deleted";
       await this._save(o);
@@ -364,6 +394,7 @@ export class CompareOrders {
       o.status = "failed";
       o.work.error = r.state === "retry" ? "for_manga_forsok" : (r.reason || "fel");
       o.contentDeleted = true;
+      await this.state.storage.delete("sources");
       o.purgeKeys = [...new Set([...(o.purgeKeys || []), ...o.docs.map((d) => d.key).filter(Boolean)])];
       o.docs = o.docs.map((d) => ({ ...d, key: null }));
       refundCall = this._planRefund(o);
@@ -463,6 +494,7 @@ export class CompareOrders {
     if (o.status === "paid" || o.status === "running") {
       // Atomiskt: avbryt arbetsclaimen. En pågående körning förlorar sin lease och gör inga fler steg.
       o.work.lease = null; o.work.error = "angrat"; o.status = "failed"; o.contentDeleted = true;
+      await this.state.storage.delete("sources");
       o.purgeKeys = [...new Set([...(o.purgeKeys || []), ...o.docs.map((d) => d.key).filter(Boolean)])];
       o.docs = o.docs.map((d) => ({ ...d, key: null }));
       refundCall = this._planRefund(o);

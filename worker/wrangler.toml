@@ -104,3 +104,9 @@ new_sqlite_classes = ["ExplainBudget"]
 # Gemensam kostnadsgate för /review och /explain (AV som standard): COST_GATE="1" + COMPARE_MONTH_CAP_MICRO + COMPARE_FREE_CAP_MICRO (människosatta, se COMPARE.md). Inget sätts här.
 # OBS: koden exporterar redan klasserna, men utan bindningarna ovan och COMPARE_ENABLED="1" gör /compare ingenting (503).
 # Valfritt: [[ratelimits]] name = "COMPARE_RL" namespace_id = "1004" simple = { limit = 6, period = 60 }
+
+# D07 (omdömeskällor, ALLA AV; inga värden satta här, inga hemligheter i repo):
+#   COMPARE_REVIEWS=1 + COMPARE_REVIEWS_VERIFIED=1 (människa: villkor/licens/kostnad verifierade)
+#   Google: GOOGLE_UI_KIT=1, GOOGLE_MAPS_BROWSER_KEY (publik, domän-/API-begränsad – INTE ett USD-tak), GOOGLE_CANDIDATES=1,
+#           GOOGLE_PLACES_SERVER_KEY (secret), COMPARE_SOURCES_SEARCH_DAY_CAP
+#   Trustpilot: TRUSTPILOT_DISPLAY=1, TRUSTPILOT_API_BASE, TRUSTPILOT_API_KEY (secret), TRUSTPILOT_AUTH_HEADER, COMPARE_TP_DAY_CAP, COMPARE_TP_CACHE_MIN (≤1440)

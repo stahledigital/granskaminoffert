@@ -47,7 +47,7 @@ export async function buildAgreement(order, { env, now, session }) {
     product: OFFER.product,
     docCount: order.docCount,
     scope: { gets: snap.copy.gets, getsNot: snap.copy.getsNot, how: snap.copy.how },
-    accepted: { at: a.acceptedAt, version: a.consentVersion, hash: a.consentHash, draft: !!a.draft, texts: snap.texts, dataCoverage: snap.dataCoverage, offerVersion: snap.offerVersion },
+    accepted: { at: a.acceptedAt, version: a.consentVersion, hash: a.consentHash, draft: !!a.draft, texts: snap.texts, dataCoverage: snap.dataCoverage, coverage: a.coverage || null, offerVersion: snap.offerVersion },
     contact: { email: a.contactEmail },
     payment: { sessionId: session.sessionId || null, paymentIntentId: session.paymentIntentId || null, amountTotal: session.amountTotal ?? null, currency: snap.currency, paidAt: now },
   };

@@ -62,7 +62,7 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
 
   const sessions = new Map(); // id -> session + urls
   const idemSeen = new Map();
-  const stats = { anthropic: 0, stripeCreate: 0, webhooks: 0, refunds: 0 };
+  const stats = { anthropic: 0, stripeCreate: 0, webhooks: 0, refunds: 0, google: 0, tp: 0 };
   const ctl = { anthropicDelayMs, failAnthropic: 0 };
   let port = 0;
   const server = createServer(async (req, res) => {
@@ -152,6 +152,16 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
       const g = u.hostname === "api.stripe.com" && u.pathname.match(/^\/v1\/checkout\/sessions\/(cs_\w+)$/);
       if (g) { const s = sessions.get(g[1]); return s ? Response.json(s.obj) : Response.json({ error: { code: "resource_missing" } }, { status: 404 }); }
       if (u.hostname === "api.stripe.com" && u.pathname === "/v1/refunds") { stats.refunds++; return Response.json({ id: "re_dev_1", object: "refund", status: "succeeded" }); }
+      // D07: Google/Trustpilot är attrapper med SYNTETISKA data (aldrig riktiga anrop).
+      if (u.hostname === "places.googleapis.com" && u.pathname === "/v1/places:searchText") { stats.google++; return ctl.googleFail ? Response.json({}, { status: 500 }) : Response.json({ places: ctl.googlePlaces || [] }); }
+      if (u.hostname === "tp.example.test") {
+        stats.tp++;
+        if (ctl.tpFail) return Response.json({}, { status: ctl.tpFail });
+        const f = u.pathname === "/v1/business-units/find" && u.searchParams.get("name");
+        if (f) return Response.json({ businessUnits: (ctl.tpFind || {})[f] || [] });
+        const l = u.pathname.match(/^\/v1\/business-units\/([A-Za-z0-9]+)\/reviews\/latest$/);
+        if (l) return (ctl.tpLatest || {})[l[1]] ? Response.json(ctl.tpLatest[l[1]]) : Response.json({}, { status: 404 });
+      }
       return new Response("blockerad", { status: 502 });
     },
   });
