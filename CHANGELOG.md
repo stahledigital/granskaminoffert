@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1o – D11-P2d källrad med betyg vid offerten (KANDIDAT – AV, ej släppt; ovanpå D12-integrationen 099df5ce)
+- Källraden vid varje offerts firmarubrik visar nu "★ 4,6 av 5 · 310 omdömen · Trustpilot" när firman är bekräftad och serveradaptern levererat totalbetyg + antal. Hämtas automatiskt EN gång per firma och sidvisning (servern äger tak/kostnadsstopp); fel/stopp ⇒ "betyg kunde inte hämtas just nu", aldrig påhittad stjärna. Firma utan uppgift: ingen stjärna ("ej kopplad"). Google: raden säger bara om firman är kopplad – Googles betyg kan visas enbart i Googles egen ruta (se COMPARE.md).
+- Sortera efter "Högst Trustpilot-betyg": på först när minst två firmor har Trustpilot-uppgift; högst först, lika = delad placering, okända sist ("Ej bedömbart"), ingen egen poäng/total, ingen rekommendation. Google kan inte sorteras (ingen avläsning).
+- Firmanamn/orgnr läses som tidigare ur offerten (P2c); manuell inmatning är undantaget. Före köp finns ingen täckning per firma (identitet läses först efter köp) – oförändrat och redovisat ärligt.
+
 ## jamfor-v1n – D12 integrerad i betalkedjan (KANDIDAT – AV, ej släppt; ovanpå D11-P2c 1552eda7 + D12 8da1c644)
 - EN gemensam ändlig pott (FreeBudget, D12 exakt källa) för ALL modellförbrukning: gratis /review,/explain och betald jämförelse. Ingen separat/extra 20 USD-pott när betalgrenen kopplas in; CompareBudget-taken (månad/betald/order) är enbart extra begränsningar. Betalda generationer stoppar vid pilotens slut eller tak; ordern får `pott:<orsak>`.
 - d04:s egen COST_GATE/cost_gate.js är borttagen till förmån för D12 (samma reservera→avräkna→frigör/halt-semantik, atomär transaktion). /health visar bara freeGate {open,state}.

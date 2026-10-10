@@ -830,7 +830,7 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       const opts = await page.$$eval("#sortby option", (o) => o.map((x) => [x.value, x.disabled, x.textContent]));
       assert.deepEqual(opts.map((o) => o[0]), ["upload", "price", "fewopen", "mostopen", "rating"]);
       assert.equal(opts[1][1], true); assert.match(opts[1][2], /ej jämförbart/); // Firma D svårläst ⇒ priserna inte jämförbara
-      assert.equal(opts[4][1], true); assert.match(opts[4][2], /inte tillgängligt/);
+      assert.equal(opts[4][1], true); assert.match(opts[4][2], /kräver Trustpilot-uppgifter för minst två firmor/);
       await page.selectOption("#sortby", "fewopen");
       assert.deepEqual(await colOrder(page), ["Byggfirma AB", "C-snickeri", "Bygg B", "Firma D"]); // lika värden delar placering och behåller uppladdningsordning, ej bedömbar sist
       const ranks = await page.$$eval("table.cmp thead th[data-col] .rk", (n) => n.map((x) => x.textContent));
@@ -962,5 +962,54 @@ test("D11-P2c: företag läses ur offerten – auto utan inmatning, osäkert kr�
     await page.fill("#se-n3", "Manuell Firma AB"); await page.click(".srcedit button:has-text('Spara företag')");
     await page.waitForSelector('#srcrep .srcfirm:has-text("Manuell Firma AB")');
     const hs = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert.ok(hs <= 0, "ingen sidoscroll");
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("D11-P2d: kompakt källrad vid offerten (★ betyg · antal · Trustpilot), betygssortering bara med uppgifter för ≥2 firmor, okänd sist, aldrig påhittade stjärnor", async () => {
+  const h = await startHarness({ vars: SRC_VARS }); seedSources(h);
+  h.ctl.tpFind = { "byggfirma.se": [{ id: "bu00000001", displayName: "Byggfirma", websiteUrl: "https://byggfirma.se" }], "syd.se": [{ id: "bu00000002", displayName: "Syd", websiteUrl: "https://syd.se" }] };
+  const RV = [1, 2, 3].map((n) => ({ stars: 4, title: "Syntetiskt " + n, text: "SYNTETISK TEXT " + n, createdAt: `2026-09-${30 - n}T10:00:00Z`, link: "https://www.trustpilot.com/reviews/synth" + n }));
+  h.ctl.tpLatest = { bu00000001: { businessUnit: { trustScore: 3.9, numberOfReviews: { total: 12 } }, reviews: RV }, bu00000002: { businessUnit: { trustScore: 4.6, numberOfReviews: { total: 310 } }, reviews: RV } };
+  const { ctx, page } = await newPage(h, 1280, 900);
+  try {
+    await payToReport(page, h, [
+      fx({ extracted: EX(100000), scope: SC(), issuer: ID_OK("Byggfirma AB") }),
+      fx({ extracted: EX(101000), scope: SC(), issuer: ID_OK("Syd Bygg AB", { orgnr: "556000-0167" }) }),
+      fx({ extracted: EX(102000), scope: SC(), issuer: ID_OK("Tredje AB", { orgnr: "556000-0001" }) }),
+    ]);
+    // före all koppling: inga stjärnor/betyg, sortering avstängd, ärlig text
+    await page.waitForFunction(() => /Trustpilot/.test(document.querySelector('.srcline[data-src-offer="0"]')?.textContent || ""), null, { timeout: 15000 });
+    const line0 = await page.textContent('.srcline[data-src-offer="0"]');
+    assert.doesNotMatch(line0, /★/); assert.match(line0, /Trustpilot: ej kopplad/);
+    assert.equal(await page.evaluate(() => document.querySelector('#sortby option[value="rating"]').disabled), true);
+    await page.click("#more summary");
+    await page.waitForSelector('#srcrep .srcfirm[data-firm]');
+    for (const [name, dom] of [["Byggfirma AB", "byggfirma.se"], ["Syd Bygg AB", "syd.se"]]) {
+      const card = page.locator(`#srcrep .srcfirm:has-text("${name}")`);
+      await card.locator("button:has-text('Ändra företag')").click();
+      await page.fill(".srcedit input[id^=se-d]", dom); await page.click(".srcedit button:has-text('Spara företag')");
+      const c2 = page.locator(`#srcrep .srcfirm:has-text("${name}")`);
+      await c2.locator('[data-src="trustpilot"] button:has-text("Sök firman hos Trustpilot")').click();
+      await c2.locator('[data-src="trustpilot"] input[type=radio]').first().check();
+      await c2.locator('[data-src="trustpilot"] .btn.acc').click();
+    }
+    // betyg + antal + källa dyker upp vid offerten UTAN att kunden klickat "Visa omdömen"
+    await page.waitForFunction(() => /★ 4,6 av 5 · 310 omdömen · Trustpilot/.test(document.querySelector('.srcline[data-src-offer="1"]')?.textContent || ""), null, { timeout: 15000 });
+    assert.match(await page.textContent('.srcline[data-src-offer="0"]'), /★ 3,9 av 5 · 12 omdömen · Trustpilot/);
+    const l2 = await page.textContent('.srcline[data-src-offer="2"]');
+    assert.doesNotMatch(l2, /★/, "firma utan uppgift får ingen stjärna"); assert.match(l2, /ej kopplad/);
+    assert.equal(await page.evaluate(() => document.querySelector('.srcline[data-src-offer="1"]').getAttribute("aria-label")), "Trustpilots totalbetyg 4.6 av 5 från 310 omdömen");
+    // sortering på betyg nu tillgänglig; högst först, okänd sist och märkt
+    const opt = await page.$eval('#sortby option[value="rating"]', (o) => [o.disabled, o.textContent]);
+    assert.equal(opt[0], false); assert.equal(opt[1], "Högst Trustpilot-betyg");
+    await page.selectOption("#sortby", "rating");
+    const order = await page.$$eval("table.cmp thead th[data-col] .srcline", (n) => n.map((x) => x.getAttribute("data-src-offer")));
+    assert.deepEqual(order, ["1", "0", "2"]);
+    const ranks = await page.$$eval("table.cmp thead th[data-col] .rk", (n) => n.map((x) => x.textContent));
+    assert.deepEqual(ranks, ["Plats 1", "Plats 2", "Ej bedömbart"]);
+    const note = await page.textContent("#sortnote");
+    assert.match(note, /Trustpilots totalbetyg/); assert.match(note, /Googles betyg visas i Googles egen ruta och kan inte sorteras/); assert.match(note, /ingen rekommendation/);
+    assert.doesNotMatch(await page.textContent("#rep"), /bäst överlag|vinnare|rekommenderar/i);
+    assert.doesNotMatch(await page.textContent("table.cmp thead"), /Google[^ ]* ★|★ [0-9,]+ av 5 · [0-9]+ omdömen · Google/);
   } finally { await ctx.close(); await h.close(); }
 });
