@@ -121,3 +121,75 @@ test("enhetsnivå: begäran innehåller bara identitetsverktyget; sanering som e
   const ok = sanitizePreid({ issuer: issuerFixture({}), readability: { level: "bra" } }); assert.equal(ok.state, "komplett"); assert.equal(ok.sendable, true);
   assert.equal(preidProposals(2, {})[0].state, "ingen");
 });
+
+// ---- Race/identitetsbindning (root-QA P1): unik claim per generation, hash/ctx-bindning, put kontrolleras, kostnad avräknas en gång per generation ----
+import { upload } from "./helpers/compare_env.mjs";
+const until = async (fn) => { for (let i = 0; i < 400; i++) { if (fn()) return; await new Promise((r) => setTimeout(r, 5)); } throw new Error("tidsgräns i test"); };
+const defer = () => { let go; const p = new Promise((r) => { go = r; }); return { p, go }; };
+const EACH = 14000; // µUSD per mockgeneration: 3000 in × 2 + 800 ut × 10 USD/MTok
+
+async function raceCase(order) { // order: "gammal-forst" | "ny-forst"
+  const f = installFetch();
+  try {
+    const env = makeEnv(ON);
+    const { orderId, token } = await readyOrder(env, [S(100000, { name: "Gammal firma AB" }), S(110000, { name: "B AB", orgnr: "556000-0167" })]);
+    const h1 = defer(), h2 = defer(); f.ctl.holdIssuer = [h1.p, h2.p];
+    const p1 = preid(env, orderId, token, 0); await until(() => f.log.anthropic.length === 1);
+    const up = await upload(env, orderId, token, 0, S(100500, { name: "Ny firma AB", orgnr: "556016-0680" })); assert.equal(up.status, 200);
+    const p2 = preid(env, orderId, token, 0); await until(() => f.log.anthropic.length === 2);
+    if (order === "gammal-forst") { h1.go(); await new Promise((r) => setTimeout(r, 30)); h2.go(); } else { h2.go(); await new Promise((r) => setTimeout(r, 30)); h1.go(); }
+    const [r1, r2] = [await p1, await p2];
+    assert.equal(r2.status, 200, JSON.stringify(r2.json)); assert.equal(r2.json.proposals[0].name, "Ny firma AB");
+    assert.equal(r1.status, 409, "sent/ersatt svar för gammalt dokument används aldrig"); assert.equal(JSON.stringify(r1.json).includes("Gammal"), false);
+    const g = await api(env, "GET", `/compare/orders/${orderId}/sources/identity`, { token });
+    assert.equal(g.json.proposals[0].name, "Ny firma AB"); assert.equal(JSON.stringify(g.json).includes("Gammal"), false);
+    const m = pot(env).store.get("m");
+    assert.equal(m.spent, 2 * EACH, "två generationer ⇒ två avräkningar (inget återanvänt idem-id)"); assert.equal(Object.keys(m.res || {}).length, 0);
+    assert.equal(f.log.anthropic.length, 2);
+  } finally { f.restore(); }
+}
+test("race: gammalt modellsvar släpps FÖRE det nya – nytt dokument får aldrig gammal identitet; två reservationer/avräkningar", () => raceCase("gammal-forst"));
+test("race: gammalt modellsvar släpps EFTER det nya – kan inte ersätta state=done; kostnaden avräknad en gång per generation", () => raceCase("ny-forst"));
+
+test("filbyte EFTER done: gammal identitet blir aldrig auto för nytt dokument; ny läsning krävs (ej cachad)", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv(ON);
+    const { orderId, token } = await readyOrder(env, [S(100000, { name: "Gammal firma AB" }), S(110000, { name: "B AB", orgnr: "556000-0167" })]);
+    const r0 = await preid(env, orderId, token, 0); assert.equal(r0.json.proposals[0].name, "Gammal firma AB");
+    await upload(env, orderId, token, 0, S(100500, { name: "Ny firma AB", orgnr: "556016-0680" }));
+    const g = await api(env, "GET", `/compare/orders/${orderId}/sources/identity`, { token });
+    assert.equal(g.json.proposals[0].state, "ingen"); assert.equal(JSON.stringify(g.json).includes("Gammal"), false);
+    const r1 = await preid(env, orderId, token, 0); assert.equal(r1.status, 200); assert.equal(r1.json.proposals[0].name, "Ny firma AB");
+    assert.equal(f.log.anthropic.length, 2, "ny hash ⇒ ny generation, inte cachad");
+    assert.equal(pot(env).store.get("m").spent, 2 * EACH);
+  } finally { f.restore(); }
+});
+
+test("parallella anrop för SAMMA dokument: ett modellanrop (andra får 409 pågår); därefter cache utan nytt anrop", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv(ON);
+    const { orderId, token } = await readyOrder(env, [S(100000, { name: "A AB" }), S(110000, { name: "B AB", orgnr: "556000-0167" })]);
+    const h = defer(); f.ctl.holdIssuer = [h.p];
+    const p1 = preid(env, orderId, token, 0); await until(() => f.log.anthropic.length === 1);
+    const p2 = await preid(env, orderId, token, 0); assert.equal(p2.status, 409);
+    h.go(); assert.equal((await p1).status, 200);
+    assert.equal((await preid(env, orderId, token, 0)).status, 200);
+    assert.equal(f.log.anthropic.length, 1); assert.equal(pot(env).store.get("m").spent, EACH);
+  } finally { f.restore(); }
+});
+
+test("ctx-bindning: ändrad modell/prompt/schema gör gamla identiteter ogiltiga (ingen auto ur gammal produktion)", async () => {
+  const { preidCtx } = await import("../src/compare_preid.js");
+  const a = await preidCtx("claude-sonnet-5-5"), b = await preidCtx("claude-opus-5-5");
+  assert.notEqual(a, b); assert.match(a, /^pc1:[0-9a-f]{40}$/);
+  const f = installFetch();
+  try {
+    const env = makeEnv(ON);
+    const { orderId, token } = await readyOrder(env, [S(100000, { name: "A AB" }), S(110000, { name: "B AB", orgnr: "556000-0167" })]);
+    await preid(env, orderId, token, 0);
+    const stub = env.COMPARE_ORDERS.peek(orderId); const st = await stub.store.get("preid"); st.rec[0].ctx = "pc1:" + "0".repeat(40); stub.store.set("preid", st); // som om den lästes med annan prompt/schema
+    const g = await api(env, "GET", `/compare/orders/${orderId}/sources/identity`, { token }); assert.equal(g.json.proposals[0].state, "ingen");
+  } finally { f.restore(); }
+});

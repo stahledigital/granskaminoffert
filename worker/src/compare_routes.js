@@ -16,7 +16,7 @@ import { offerLabels } from "./compare_engine.js";
 import { validEmail, parseWithdrawToken } from "./compare_ledger.js";
 import { timingSafeEqual } from "./compare_util.js";
 import { createCheckoutSession, retrieveSession, retrieveRefund, verifyWebhook } from "./compare_stripe.js";
-import { preidConfig, buildPreidRequest, readPreid, sanitizePreid, preidProposals, PREID_NOTICE } from "./compare_preid.js";
+import { preidConfig, preidCtx, buildPreidRequest, readPreid, sanitizePreid, preidProposals, PREID_NOTICE } from "./compare_preid.js";
 import { guardedCall, Stop } from "./compare_run.js";
 import { identityProposals, sourcesConfig, publicSourcesConfig, googleCandidates, nativeSearchGate, reserveMount, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
 import * as budget from "./compare_budget.js";
@@ -289,25 +289,29 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (body.tooLarge || body.bad || !Number.isInteger(idx) || idx < 0 || idx > 3) return reply({ error: "Ogiltig förfrågan." }, 400);
     const bc = budgetConfig(env);
     if (!bc.ok || !env.ANTHROPIC_API_KEY) return reply({ error: "Läsningen är inte tillgänglig just nu." }, 503);
+    const ctx = await preidCtx(pc.model);
     const proposalsOf = async () => {
-      const g = await orderCall(env, oid, "/preid-get", { tokenHash: th, now: Date.now() });
+      const g = await orderCall(env, oid, "/preid-get", { tokenHash: th, ctx, now: Date.now() });
       if (g.status !== 200 || !g.json.ok) return null;
       return preidProposals(g.json.docCount, g.json.records);
     };
-    const cl = await orderCall(env, oid, "/preid-claim", { tokenHash: th, idx, now: Date.now() });
+    const cl = await orderCall(env, oid, "/preid-claim", { tokenHash: th, idx, ctx, now: Date.now() });
     if (cl.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
     if (cl.status === 409) return reply({ error: cl.json && cl.json.error === "pagar" ? "Läsningen pågår redan." : "Ordern kan inte läsas av just nu." }, 409);
     if (cl.status === 429) return reply({ error: "Gränsen för förköpsläsning är nådd för den här offerten." }, 429);
     if (cl.status !== 200 || !cl.json.ok) return reply({ error: "Ogiltig förfrågan." }, cl.status === 400 ? 400 : 502);
     if (cl.json.cached) return reply({ ok: true, proposals: await proposalsOf() });
-    const put = (identity) => orderCall(env, oid, "/preid-put", { tokenHash: th, idx, attempt: cl.json.attempt, identity, now: Date.now() });
+    const { claimId } = cl.json;
+    const put = (identity) => orderCall(env, oid, "/preid-put", { tokenHash: th, idx, claimId, ctx, identity, now: Date.now() });
+    const putOk = (r) => r.status === 200 && r.json && r.json.ok === true;
     const doc = await env.REVIEWS_KV.get(cl.json.doc.key, "json");
     if (!doc) { await put(null); return reply({ error: "Offerten finns inte kvar. Ladda upp den igen." }, 410); }
     const model = pc.model;
     const request2 = buildPreidRequest({ model, doc });
     let res;
     try {
-      res = await guardedCall({ env, io: { fetch: (u, i) => fetch(u, i), now: () => Date.now() }, key: `pid:${oid}:${idx}:${cl.json.attempt}`, orderId: oid, scope: "paid", inputTokens: cl.json.doc.tokens + 600, body: request2, model, caps: { joint: bc.month, scope: bc.paid, order: Math.min(bc.order, pc.capMicro) }, signalMs: 45_000 });
+      // Budgetnyckeln bär det unika claimId: varje faktisk generation reserveras/avräknas under egen nyckel, aldrig återanvänd (även vid filbyte/omförsök).
+      res = await guardedCall({ env, io: { fetch: (u, i) => fetch(u, i), now: () => Date.now() }, key: `pid:${oid}:${claimId}`, orderId: oid, scope: "paid", inputTokens: cl.json.doc.tokens + 600, body: request2, model, caps: { joint: bc.month, scope: bc.paid, order: Math.min(bc.order, pc.capMicro) }, signalMs: 45_000 });
     } catch (e) {
       await put(null);
       if (e instanceof Stop) return reply({ error: "Läsningen är pausad just nu (kostnadsgräns). Det påverkar inte din jämförelse." }, 503);
@@ -316,7 +320,8 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (res.error) { await put(null); return reply({ error: "Läsningen misslyckades just nu. Försök igen om en stund." }, 502); }
     let identity = null;
     try { identity = sanitizePreid(readPreid(res.json)); } catch { identity = null; }
-    await put(identity);
+    const pr = await put(identity);
+    if (!putOk(pr)) return reply({ error: "Offerten ändrades under läsningen. Läs av igen." }, 409); // ersatt claim/fil: det sena resultatet används aldrig (kostnaden är ändå avräknad)
     if (!identity) return reply({ error: "Företagsuppgifterna kunde inte läsas ur offerten." }, 502);
     return reply({ ok: true, proposals: await proposalsOf() });
   }
@@ -348,7 +353,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
       const gi = await orderCall(env, oid, "/internal", { now: Date.now() });
       const oo = gi.status === 200 && gi.json.order;
       if (oo && ["ready", "awaiting_payment"].includes(oo.status) && preidConfig(env).on) { // förköp: förslag ur redan lästa utställaruppgifter (inget nytt anrop)
-        const g = await orderCall(env, oid, "/preid-get", { tokenHash: th, now: Date.now() });
+        const g = await orderCall(env, oid, "/preid-get", { tokenHash: th, ctx: await preidCtx(preidConfig(env).model), now: Date.now() });
         if (g.status === 200 && g.json.ok) return reply({ ok: true, proposals: preidProposals(g.json.docCount, g.json.records), stage: "forkop", read: Object.values(g.json.records).filter((r) => r.state === "done").length });
       }
       if (!oo || oo.status !== "delivered" || !oo.reportKey) return reply({ error: "Rapporten är inte klar.", status: oo ? oo.status : null }, 409);

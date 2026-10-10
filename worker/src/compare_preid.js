@@ -9,6 +9,7 @@ import { ISSUER_SCHEMA, sanitizeIssuer, identityGroups } from "./compare_identit
 import { buildAnthropicRequest, modelInfo } from "./models.js";
 import { buildUserContent } from "./user_content.js";
 import { identityProposals } from "./compare_sources.js";
+import { sha256Hex } from "./compare_util.js";
 
 export const PREID_VERSION = "preid-1";
 export const PREID_MAX_ATTEMPTS = 2; // per dokument
@@ -85,3 +86,9 @@ export const PREID_NOTICE = Object.freeze({
   button: "Läs av företagsuppgifter ur offerterna",
   text: "Vi läser bara vem som ger offerten (företagsnamn, organisationsnummer, ort) med en AI-tjänst, så att vi kan visa vilka omdömeskällor som finns för varje företag innan du betalar. Då skickas din offert till AI-leverantören. Inget skickas om du inte trycker på knappen. Läsningen kostar inget för dig och ingår inte i jämförelsen.",
 });
+
+// Bindning av ett resultat till exakt hur det producerades: modell + promptversion + prompttext + verktygsschema. Ändras något ⇒ gamla identiteter gäller inte.
+export async function preidCtx(model) {
+  const h = await sha256Hex(JSON.stringify([model, PREID_VERSION, preidSystemPrompt(), PREID_TOOL]));
+  return "pc1:" + h.slice(0, 40);
+}

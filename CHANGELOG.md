@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1p-fix2 – förköpsidentitet: unik claim per generation, hash/ctx-bindning, kontrollerat put (root-QA P1; KANDIDAT – AV; ovanpå 5a79713a)
+- Rotorsak (reproducerad av root): claim återställde `attempts` vid filbyte ⇒ budgetnyckeln `pid:order:idx:attempt` återanvändes (andra reservationen skrev över första ⇒ 700 i stället för 1400 µUSD) och put kontrollerade bara attempt-numret, inte vilken claim/fil svaret hörde till ⇒ gammalt svar kunde lagras för nytt dokument.
+- Nu: varje faktisk generation får ett monotont, aldrig återanvänt `claimId`; budgetnyckel `pid:<order>:<claimId>` ⇒ två generationer = två reservationer/avräkningar (även avvisat sent svar avräknas en gång). Posten binds till dokumenthash + `ctx` (modell, promptversion, prompttext, verktygsschema, sha256). Put kräver samma claimId + hash + ctx och pågående state; routen kontrollerar put-resultatet (annars 409, inga gamla uppgifter ut). `/preid-get` och GET identity returnerar bara poster med aktuell hash+ctx. Filbyte efter done ⇒ "ingen" tills ny läsning.
+- Regressionstester (röda mot 5a79713a): båda svarsordningarna, filbyte efter done, parallell samma dokument + cache, ctx-bindning.
+
 ## jamfor-v1p-fix1 – förköpsidentitet: modell Sonnet 5.5, fail closed (KANDIDAT – AV; ovanpå 7ba27cf7)
 - Rättelse: standardmodellen claude-haiku-5-5 stred mot Anders beslutade Sonnet 5.5 för GMO. Nu är claude-sonnet-5-5 ENDA tillåtna modell för preid; `COMPARE_PREID_MODEL` med annat värde ⇒ funktionen AV (503, inget anrop). Inga Haiku-anrop har gjorts; allt är attrapper.
 - Kalkyl: värsta fall ≈ 0,066 USD/dokument (3 000 tokens in, 6 000 ut); ordertaket måste rymma ≥ ~0,27 USD för 4 dokument. Fortfarande samma gemensamma 20 USD-pott, ingen ny pott/reset, AV som standard.

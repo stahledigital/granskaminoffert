@@ -192,33 +192,41 @@ export class CompareOrders {
     }
 
     // ---- D11 förköpsidentitet: engångsläsning av utställaren per dokument (claim → anrop → put). Lagras som resten av ordern och raderas med den. ----
+    // VARJE faktisk generation får ett unikt, aldrig återanvänt claimId (monotont räknarvärde). Resultatet (put) accepteras bara för SAMMA claimId, SAMMA
+    // dokumenthash och SAMMA ctx (modell/promptversion/schema). Byte av fil/ctx ersätter posten; ett sent svar för en ersatt claim avvisas (men dess kostnad
+    // är redan avräknad en gång under sin egen unika budgetnyckel).
     if (path === "/preid-claim" || path === "/preid-put" || path === "/preid-get") {
       const gone = ["deleted", "expired", "failed"].includes(o.status) || o.contentDeleted || now > o.expiresAt;
       if (gone) { await this.state.storage.delete("preid"); return { status: 409, body: { ok: false, error: "raderad" } }; }
-      const st = (await this.state.storage.get("preid")) || { rec: {}, total: 0 };
+      const st = (await this.state.storage.get("preid")) || { rec: {}, total: 0, seq: 0 };
+      if (!Number.isInteger(st.seq)) st.seq = 0;
       const docOf = (idx) => o.docs.find((d) => d.idx === idx && d.key) || null;
+      const ctx = typeof b.ctx === "string" && b.ctx.length >= 8 && b.ctx.length <= 128 ? b.ctx : null;
       if (path === "/preid-get") {
         const out = {};
-        for (const [k, r] of Object.entries(st.rec)) { const d = docOf(Number(k)); if (d && d.sha256 === r.sha) out[k] = { state: r.state, attempts: r.attempts, identity: r.state === "done" ? r.identity : null }; }
+        for (const [k, r] of Object.entries(st.rec)) { const d = docOf(Number(k)); if (d && d.sha256 === r.sha && ctx && r.ctx === ctx) out[k] = { state: r.state, attempts: r.attempts, identity: r.state === "done" ? r.identity : null }; }
         return { body: { ok: true, docCount: o.docCount, status: o.status, records: out } };
       }
+      if (!ctx) return { status: 400, body: { ok: false, error: "ogiltig" } };
       if (!["ready", "awaiting_payment"].includes(o.status) || o.docs.length !== o.docCount) return { status: 409, body: { ok: false, error: "status" } };
       const idx = b.idx, d = Number.isInteger(idx) ? docOf(idx) : null;
       if (!d) return { status: 400, body: { ok: false, error: "ogiltig" } };
       let r = st.rec[idx];
-      if (r && r.sha !== d.sha256) { r = null; delete st.rec[idx]; } // dokumentet har bytts: gammal identitet gäller inte
+      if (r && (r.sha !== d.sha256 || r.ctx !== ctx)) { r = null; delete st.rec[idx]; } // annat dokument/annan modell-prompt-schema: gammal identitet gäller inte
       if (path === "/preid-claim") {
         if (r && r.state === "done") return { body: { ok: true, cached: true } };
         if (r && r.state === "claimed" && now - r.claimedAt < 150_000) return { status: 409, body: { ok: false, error: "pagar" } };
         const attempts = r ? r.attempts : 0;
         if (attempts >= PREID_MAX_ATTEMPTS || st.total >= o.docCount * PREID_MAX_ATTEMPTS * 2) return { status: 429, body: { ok: false, error: "gransen" } };
-        st.rec[idx] = { sha: d.sha256, attempts: attempts + 1, state: "claimed", claimedAt: now, identity: null };
+        st.seq += 1;
+        const claimId = "c" + st.seq;
+        st.rec[idx] = { sha: d.sha256, ctx, claimId, attempts: attempts + 1, state: "claimed", claimedAt: now, identity: null };
         st.total += 1;
         await this.state.storage.put("preid", st);
-        return { body: { ok: true, attempt: attempts + 1, doc: { key: d.key, tokens: d.tokens, sha256: d.sha256 } } };
+        return { body: { ok: true, claimId, attempt: attempts + 1, doc: { key: d.key, tokens: d.tokens, sha256: d.sha256 } } };
       }
-      // /preid-put
-      if (!r || r.state !== "claimed" || r.attempts !== b.attempt || r.sha !== d.sha256) return { status: 409, body: { ok: false, error: "okand_claim" } };
+      // /preid-put: samma claim, samma dokument, samma ctx, fortfarande pågående
+      if (!r || r.state !== "claimed" || r.claimId !== b.claimId || r.sha !== d.sha256 || r.ctx !== ctx) { await this.state.storage.put("preid", st); return { status: 409, body: { ok: false, error: "okand_claim" } }; }
       if (b.identity && typeof b.identity === "object") { r.state = "done"; r.identity = b.identity; } else { r.state = "open"; r.identity = null; }
       await this.state.storage.put("preid", st);
       return { body: { ok: true, state: r.state } };
