@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1j – D11-P1 Google-laddning och newest (KANDIDAT – AV, ej släppt; separat rättning ovanpå D10 8f2ed855)
+- SDK: en enda delad laddning (singleflight) med Googles callback som beredskap (inte script-onload); timeout avbryter bara väntan; Försök igen väntar in samma laddning, ny script endast efter verkligt nätfel och efter att den felande taggen tagits bort. Rättar root-realprovets onload-race och dubbel-load/Loader.provide-fel.
+- Newest: rank-preference="newest" (enda dokumenterade formen, Advanced Place Details) sätts före montering, property sätts om den finns, och vår egen konfiguration läses tillbaka. Bekräftas inte ordningen visas ärlig notis (Googles egen ordning) – ingen "senaste först"-claim. Rotens motexempel (Elajo 4 år före 3 år) är UNVERIFIED-orsak; ingen widgetavläsning/skrapning.
+- Ingen ny reservation, inget nytt anrop; reservationen sker fortsatt före varje instans.
+
 ## jamfor-v1i – D10 Swish via Stripe (KANDIDAT – AV, ej släppt; ovanpå D09 9530c46b)
 - Konfigurerbar metodlista (kort | kort+swish | dynamiskt), Swish bara med COMPARE_SWISH_VERIFIED=1; metodbindning i serververifieringen; Swish-kundtext före betalning (ingår i samtyckeshashen). Ingen kontoaktivering, ingen riktig betalning.
 

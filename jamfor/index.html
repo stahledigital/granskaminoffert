@@ -485,31 +485,62 @@ function srcCfg(){return (state.cfg&&state.cfg.sources)||null}
 function srcActive(){var c=srcCfg();return !!(c&&c.active&&(c.google.state!=='ej_aktiverad'||c.trustpilot.state!=='ej_aktiverad')&&state.order)}
 function srcApi(method,sub,body){return api(method,'/compare/orders/'+state.order.id+'/sources'+(sub||''),{token:state.order.token,body:body})}
 // Google: skriptet laddas FÖRST när kunden uttryckligen öppnar omdömena. __GMP_LOADER__ finns bara för offlineprov (attrapp).
+// D11-P1: EN enda SDK-laddning per sida (singleflight) med Googles callback-parameter. Skriptets onload är inte beredskapen (importLibrary kan saknas då);
+// beredskap = Googles callback, därefter importLibrary('places'). Timeout avbryter bara VÄNTAN, inte laddningen: ett nytt försök väntar in samma laddning och
+// lägger aldrig till en andra <script> (dubbel laddning gav Loader.provide-fel). Ny <script> tillåts bara efter ett verkligt nätfel (onerror), och då först
+// efter att den felande taggen tagits bort. Resultatet (ready/failed) delas av alla Search/Details-monteringar.
+function gmpSdk(key){
+  var S=SRC.sdk;
+  if(S&&S.state!=='failed')return S.p;
+  var s={state:'loading'};
+  s.p=new Promise(function(res,rej){s.res=res;s.rej=rej});
+  s.p.catch(function(){}); // förhindrar ohanterad avvisning när ingen väntar
+  SRC.sdk=s;
+  function fail(e){if(s.state==='loading'){s.state='failed';try{if(s.tag&&s.tag.parentNode)s.tag.parentNode.removeChild(s.tag)}catch(x){}try{delete window.__gmpSdkReady}catch(x){window.__gmpSdkReady=undefined}s.rej(e)}}
+  function ready(){
+    if(s.state!=='loading')return;
+    if(!(window.google&&google.maps&&google.maps.importLibrary)){fail(new Error('saknas'));return}
+    google.maps.importLibrary('places').then(function(l){if(s.state==='loading'){s.state='ready';s.res(l)}},function(e){fail(e)});
+  }
+  if(window.google&&google.maps&&google.maps.importLibrary){ready();return s.p}
+  window.__gmpSdkReady=ready;
+  var sc=document.createElement('script');
+  sc.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(key)+'&v=beta&loading=async&libraries=places&language=sv&region=SE&callback=__gmpSdkReady';
+  sc.async=true;sc.setAttribute('data-gmp-sdk','1');
+  sc.onerror=function(){fail(new Error('nät'))};
+  s.tag=sc;document.head.appendChild(sc);
+  return s.p;
+}
+// Ladda Googles SDK (delad). __GMP_LOADER__ finns bara för offlineprov (attrapp). Väntetiden är begränsad; laddningen själv fortsätter.
 function gmpLoad(key){
   if(window.__GMP_LOADER__)return window.__GMP_LOADER__(key);
-  if(SRC.gmp)return SRC.gmp;
-  SRC.gmp=new Promise(function(res,rej){
-    var done=false,t=setTimeout(function(){if(!done){done=true;rej(new Error('timeout'))}},12000);
-    var sc=document.createElement('script');
-    sc.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(key)+'&v=beta&loading=async&libraries=places&language=sv&region=SE';
-    sc.async=true;
-    sc.onload=function(){if(done)return;if(!(window.google&&google.maps&&google.maps.importLibrary)){done=true;clearTimeout(t);rej(new Error('saknas'));return}
-      google.maps.importLibrary('places').then(function(l){if(!done){done=true;clearTimeout(t);res(l)}},function(e){if(!done){done=true;clearTimeout(t);rej(e)}})};
-    sc.onerror=function(){if(!done){done=true;clearTimeout(t);rej(new Error('nät'))}};
-    document.head.appendChild(sc);
+  var p=gmpSdk(key);
+  return new Promise(function(res,rej){
+    var t=setTimeout(function(){rej(new Error('timeout'))},window.__GMP_SDK_WAIT||12000);
+    p.then(function(l){clearTimeout(t);res(l)},function(e){clearTimeout(t);rej(e)});
   });
-  SRC.gmp.catch(function(){SRC.gmp=null});
-  return SRC.gmp;
 }
 // Googles egna UI Kit-element (beta-kanalen). Källa: developers.google.com/maps/documentation/javascript/places-ui-kit/advanced-place-details.
 // <gmp-advanced-place-details> med <gmp-place-details-place-request place=...>; innehållselementen är direkta barn. Granskad: reviews med
 // rank-preference="newest" (senaste först). Ingen query/filter/språk-/sentimentfiltrering och inga AI-sammanfattningar. Attribution visas.
+// Senaste först: primärdocs (Advanced Place Details) dokumenterar ENDAST attributet rank-preference="newest". Root-realprov: attributet gav inte property
+// rankPreference och Googles preview visade 4 år före 3 år. Därför sätts attributet OCH (om elementet har egenskapen) property FÖRE montering, och
+// efterläsningen av VÅR EGEN konfiguration (inte widgetens innehåll) avgör om vi alls får påstå "senaste först". Ingen skrapning av widgeten.
+function gmpSetNewest(rv){
+  rv.setAttribute('rank-preference','newest');
+  try{if('rankPreference' in rv)rv.rankPreference='newest'}catch(e){}
+}
+function gmpNewestVerified(rv){
+  if(!rv||rv.getAttribute('rank-preference')!=='newest')return false;
+  var p=rv.rankPreference;
+  return typeof p==='string'&&p.toLowerCase()==='newest';
+}
 var GMP_TIMEOUT=window.__GMP_TIMEOUT||15000; // __GMP_TIMEOUT: bara för offlineprov
 function gmpBuild(placeId){
   var d=document.createElement('gmp-advanced-place-details');
   var rq=document.createElement('gmp-place-details-place-request');rq.setAttribute('place',placeId);d.appendChild(rq);
   ['gmp-place-name','gmp-place-address','gmp-place-rating','gmp-place-website'].forEach(function(t){d.appendChild(document.createElement(t))});
-  var rv=document.createElement('gmp-place-reviews');rv.setAttribute('rank-preference','newest');d.appendChild(rv);
+  var rv=document.createElement('gmp-place-reviews');gmpSetNewest(rv);d.appendChild(rv);
   d.appendChild(document.createElement('gmp-place-attribution'));
   return d;
 }
@@ -558,7 +589,7 @@ async function gmpMountElement(id,box,build,cb,renderFirm,meta){
   if(!gmpCur(id,ver))return; // reservationen är förbrukad men ingen instans skapas om mounten under tiden ersatts
   if(!rs.allowed){gmpStopped(id,ver,box,rs.outcome,cb,renderFirm);return}
   var d=build();
-  d.addEventListener('gmp-load',function(){if(!gmpCur(id,ver))return;var m=SRC.mounted[id];if(m.timer)clearTimeout(m.timer);m.loading=false;m.ok=true;if(ld.parentNode)ld.parentNode.removeChild(ld);if(cb&&cb.onLoad)cb.onLoad(d);gmpReport(renderFirm,'ok')});
+  d.addEventListener('gmp-load',function(){if(!gmpCur(id,ver))return;var m=SRC.mounted[id];if(m.timer)clearTimeout(m.timer);m.loading=false;m.ok=true;if(ld.parentNode)ld.parentNode.removeChild(ld);var rvEl=d.querySelector&&d.querySelector('gmp-place-reviews');if(rvEl){var ordOk=gmpNewestVerified(rvEl);box.setAttribute('data-gmp-order',ordOk?'newest':'okand');if(!ordOk)box.appendChild(el('p',{class:'hint','data-gmp-order-note':'1',text:'Googles omdömen visas i Googles egen ordning. Vi kunde inte bekräfta att "senaste först" tillämpas, så läs datumen i omdömena.'}))}if(cb&&cb.onLoad)cb.onLoad(d);gmpReport(renderFirm,'ok')});
   d.addEventListener('gmp-error',function(){gmpFail(id,ver,box,retry,cb,renderFirm)});
   SRC.mounted[id]={ver:ver,loading:true,box:box,el:d,timer:setTimeout(function(){var m=SRC.mounted[id];if(m&&m.ver===ver&&!m.ok)gmpFail(id,ver,box,retry,cb,renderFirm)},GMP_TIMEOUT)};
   box.appendChild(d);

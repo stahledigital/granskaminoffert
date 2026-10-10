@@ -355,7 +355,10 @@ const gmpDouble = () => {
     window.__gmpCalls.push(key);
     if (customElements.get("gmp-advanced-place-details")) return {};
     const plain = (n) => customElements.define(n, class extends HTMLElement {});
-    ["gmp-place-details-place-request", "gmp-place-name", "gmp-place-address", "gmp-place-rating", "gmp-place-website", "gmp-place-reviews", "gmp-place-attribution", "gmp-place-all-content", "gmp-place-text-search-request"].forEach(plain);
+    ["gmp-place-details-place-request", "gmp-place-name", "gmp-place-address", "gmp-place-website", "gmp-place-attribution", "gmp-place-all-content", "gmp-place-text-search-request"].forEach(plain);
+    plain("gmp-place-rating");
+    // Reviews-attrapp: modellerar att property speglar attributet; __GMP_RANK_IGNORED=true modellerar rotens realprov (property null trots attribut).
+    customElements.define("gmp-place-reviews", class extends HTMLElement { get rankPreference() { return window.__GMP_RANK_IGNORED ? null : this.getAttribute("rank-preference"); } set rankPreference(v) { if (!window.__GMP_RANK_IGNORED) this.setAttribute("rank-preference", v); } });
     const fire = (el, ok, extra) => { const m = window.__GMP_MODE; if (m === "ok") setTimeout(() => { Object.assign(el, extra || {}); el.dispatchEvent(new Event("gmp-load")); }, 20); else if (m === "error") setTimeout(() => el.dispatchEvent(new Event("gmp-error")), 20); };
     customElements.define("gmp-advanced-place-details", class extends HTMLElement { connectedCallback() { window.__inst = (window.__inst || 0) + 1; fire(this); } });
     customElements.define("gmp-place-search", class extends HTMLElement { connectedCallback() { window.__inst = (window.__inst || 0) + 1; const rq = this.querySelector("gmp-place-text-search-request"); window.__searchTexts.push(rq && rq.textQuery); fire(this, true, { places: window.__SEARCH_PLACES }); } });
@@ -477,7 +480,8 @@ test("Google skriptladdning (riktiga loadern, attrapp-endpoint): inget anrop fö
     ["gmp-place-details-place-request","gmp-place-name","gmp-place-address","gmp-place-rating","gmp-place-website","gmp-place-reviews","gmp-place-attribution","gmp-place-all-content","gmp-place-text-search-request"].forEach(plain);
     if(!customElements.get("gmp-place-search")){customElements.define("gmp-place-search",class extends HTMLElement{connectedCallback(){setTimeout(()=>{this.places=[];this.dispatchEvent(new Event("gmp-load"))},20)}});
     customElements.define("gmp-advanced-place-details",class extends HTMLElement{connectedCallback(){setTimeout(()=>this.dispatchEvent(new Event("gmp-load")),20)}});}
-    return {};}}};`;
+    return {};}}};
+    (function(){var cb=new URL(document.currentScript.src).searchParams.get("callback");if(cb)setTimeout(function(){window[cb]()},10)})();`;
   await ctx.route("https://maps.googleapis.com/**", (route) => {
     hits.push(route.request().url());
     if (fail) return route.abort();
@@ -716,3 +720,71 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
     }
   });
 }
+
+
+// ---------- D11-P1: Googles SDK-laddning (singleflight/callback/retry) och newest-konfiguration ----------
+const sdkStub = (delayMs) => `window.google={maps:{importLibrary:async function(){
+    const plain=(n)=>customElements.get(n)||customElements.define(n,class extends HTMLElement{});
+    ["gmp-place-details-place-request","gmp-place-name","gmp-place-address","gmp-place-rating","gmp-place-website","gmp-place-attribution","gmp-place-all-content","gmp-place-text-search-request"].forEach(plain);
+    if(!customElements.get("gmp-place-reviews"))customElements.define("gmp-place-reviews",class extends HTMLElement{get rankPreference(){return window.__RANK_IGNORED?null:this.getAttribute("rank-preference")} set rankPreference(v){if(!window.__RANK_IGNORED)this.setAttribute("rank-preference",v)}});
+    if(!customElements.get("gmp-place-search")){customElements.define("gmp-place-search",class extends HTMLElement{connectedCallback(){window.__inst=(window.__inst||0)+1;setTimeout(()=>{this.places=[];this.dispatchEvent(new Event("gmp-load"))},20)}});
+    customElements.define("gmp-advanced-place-details",class extends HTMLElement{connectedCallback(){window.__inst=(window.__inst||0)+1;setTimeout(()=>this.dispatchEvent(new Event("gmp-load")),20)}});}
+    return {};}}};
+    (function(){var cb=new URL(document.currentScript.src).searchParams.get("callback");if(cb)setTimeout(function(){window[cb]()},${delayMs})})();`;
+
+test("SDK-laddning: långsam laddning ger EN script även efter timeout+Försök igen (ingen dubbel laddning); callback, inte onload, är beredskapen", async () => {
+  const h = await startHarness({ vars: SRC_VARS }); seedSources(h);
+  const { ctx, page } = await newPage(h, 390, 844);
+  await page.addInitScript(() => { window.__GMP_SDK_WAIT = 500; });
+  const hits = [];
+  await ctx.route("https://maps.googleapis.com/**", (route) => { hits.push(route.request().url()); return route.fulfill({ contentType: "text/javascript", body: sdkStub(900) }); });
+  try {
+    const f0 = await toFirms(page, h);
+    await f0.locator('[data-src="google"] button:has-text("Sök firman hos Google")').click();
+    await page.waitForSelector("text=kunde inte visas just nu");
+    assert.equal(await page.locator("script[data-gmp-sdk]").count(), 1);
+    await page.click('[data-gmp-search] button:has-text("Försök igen")'); // laddningen pågår fortfarande: väntar in samma laddning
+    await page.waitForSelector("gmp-place-search", { state: "attached", timeout: 8000 });
+    assert.equal(hits.length, 1, "exakt ett SDK-anrop");
+    assert.equal(await page.locator("script[data-gmp-sdk]").count(), 1);
+    assert.equal(new URL(hits[0]).searchParams.get("callback"), "__gmpSdkReady");
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("SDK-laddning: nätfel tar bort den felande taggen och nästa försök lägger exakt en ny; därefter ingen mer laddning", async () => {
+  const h = await startHarness({ vars: SRC_VARS }); seedSources(h);
+  const { ctx, page } = await newPage(h, 390, 844);
+  const hits = []; let fail = true;
+  await ctx.route("https://maps.googleapis.com/**", (route) => { hits.push(1); return fail ? route.abort() : route.fulfill({ contentType: "text/javascript", body: sdkStub(10) }); });
+  try {
+    const f0 = await toFirms(page, h);
+    await f0.locator('[data-src="google"] button:has-text("Sök firman hos Google")').click();
+    await page.waitForSelector("text=kunde inte visas just nu");
+    assert.equal(await page.locator("script[data-gmp-sdk]").count(), 0, "felande tagg borttagen");
+    fail = false;
+    await page.click('[data-gmp-search] button:has-text("Försök igen")');
+    await page.waitForSelector("gmp-place-search", { state: "attached" });
+    assert.equal(hits.length, 2); assert.equal(await page.locator("script[data-gmp-sdk]").count(), 1);
+    // ny montering (sök igen) laddar inte om SDK
+    await page.evaluate(() => { const b = document.querySelector("[data-gmp-search] button"); void b; });
+    assert.equal(hits.length, 2);
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("Newest: attribut OCH property sätts före montering och verifieras; ignorerad ordning (rotens motexempel) ger ärlig 'okänd ordning'-notis, aldrig senaste-claim", async () => {
+  for (const ignored of [false, true]) {
+    const h = await startHarness({ vars: SRC_VARS }); seedSources(h);
+    const { ctx, page } = await newPage(h, 390, 844);
+    await page.addInitScript(gmpDouble); await page.addInitScript((ig) => { window.__GMP_RANK_IGNORED = ig; }, ignored);
+    try {
+      const f0 = await toFirms(page, h);
+      await confirmNative(page, h, f0);
+      await f0.locator('[data-src="google"] button:has-text("Visa Googles senaste omdömen")').click();
+      await page.waitForSelector("gmp-advanced-place-details", { state: "attached" });
+      await page.waitForSelector('[data-gmp-order]');
+      const r = await page.evaluate(() => { const b = document.querySelector("[data-gmp-order]"); return { ord: b.getAttribute("data-gmp-order"), note: !!b.querySelector("[data-gmp-order-note]"), attr: document.querySelector("gmp-place-reviews").getAttribute("rank-preference") }; });
+      assert.equal(r.attr, "newest");
+      assert.equal(r.ord, ignored ? "okand" : "newest"); assert.equal(r.note, ignored);
+    } finally { await ctx.close(); await h.close(); }
+  }
+});
