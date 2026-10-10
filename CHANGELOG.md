@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1 – Jämför mina offerter (D04 KANDIDAT – AV, ej släppt; bas = tree 0b19faef (bacbb6a))
+- Ny betald tjänst bakom flagga **AV**: jämför 2–4 offerter för 49 kr inkl. moms (engångsköp). Se `worker/COMPARE.md`. `/review` och befintliga sidor är oförändrade (`index.js` har bara export/route-koppling bakom `COMPARE_ENABLED`).
+- Serverpris, hostad Stripe Checkout (adapter), signerad webhook, idempotens, kontroll av belopp/valuta/order, atomisk arbetsclaim (DO + lease) och atomisk kostnadsreservation (DO, µUSD) utan standardtak (fail closed). Jämförelsemotor som aldrig rangordnar när omfattningen är okänd eller olika. Datakort finns bara som avstängd offlinemodul.
+- Ny sida `jamfor/index.html` (noindex) och villkorsutkast `jamfor/villkor/`. Refaktor utan beteendeändring: `extracted_schema.js` och `user_content.js` ut ur `index.js`.
+- **EJ TESTAT/EJ GJORT:** riktiga modellanrop, riktig Stripe (test/live), Google/Trustpilot, riktig mobil/VoiceOver, produktionsbeständighet, juridiska texter. Se COMPARE.md för externa steg.
+
 ## gmo-api-v12 – S3-rättning (slutna ID, fast text) + S4 org-kontroll + kreditstopp i /explain (KANDIDAT 11 – ej släppt, bas 646ff79 (live frontend gmo-v20, alla fem frontendfiler orörda), EN squash-commit)
 - **S3-rättning (Codex `S3_RATTNINGAR.md`):** modellen returnerar bara `priority_ids` (1–3, enum ur serverns giltiga åtgärder). Fri intro finns inte längre; varje annat fält i modellsvaret avvisas. ALL synlig text (intro `AI_INTRO`, etikett, åtgärder) är fast servertext, så obelagda påståenden (lösenordsläckage, betalningsanmärkningar, dataläckage) aldrig kan nå kunden. Ordlistevalideringen är borttagen. Cacheposter med gamla fria fält avvisas (`explain-v2`). Codex `explain_acceptance.mjs`: **8/8** (var 5/8), positivt ID-fall fungerar.
 - **Turnstile:** används bara om `TURNSTILE_SECRET_KOLLAR` finns; då krävs success + hostname (tillåtna origins) + action `forklaring`. Utan secret ingen påhittad spärr: vägen är serverbegränsad som `/review` (riktig CF-IP, atomisk budget 20 USD/månad, dag 100, IP 5). Inga nya secrets/konton/rotationer.

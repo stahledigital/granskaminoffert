@@ -1,0 +1,175 @@
+// Testmiljö för Jämför mina offerter: RIKTIGA klasserna CompareOrders/CompareBudget bakom
+// minnesbaserad lagring (en förfrågan i taget per objekt), minnes-KV och en fetch-attrapp som
+// ersätter Anthropic och Stripe. Ingen riktig modell, inga riktiga betalningar. In-memory-prov är
+// INTE bevis på produktionsbeständighet.
+import { CompareOrders } from "../../src/compare_orders.js";
+import { CompareBudget } from "../../src/compare_budget.js";
+import { signForTest } from "../../src/compare_stripe.js";
+import { sha256Hex } from "../../src/compare_util.js";
+import worker from "../../src/index.js";
+
+export function memoryKv() {
+  const m = new Map();
+  return {
+    m,
+    async get(k, type) { const v = m.get(k); if (v === undefined) return null; return type === "json" ? JSON.parse(v) : v; },
+    async put(k, v) { m.set(k, String(v)); },
+    async delete(k) { m.delete(k); },
+  };
+}
+
+function fakeNs(Cls, env) {
+  const objs = new Map();
+  const get = (name) => {
+    if (!objs.has(name)) {
+      const store = new Map();
+      let alarm = null;
+      const state = {
+        storage: {
+          async get(k) { const v = store.get(k); return v === undefined ? undefined : structuredClone(v); },
+          async put(k, v) { store.set(k, structuredClone(v)); },
+          async delete(k) { store.delete(k); },
+          async setAlarm(t) { alarm = t; },
+          async getAlarm() { return alarm; },
+        },
+        async blockConcurrencyWhile(fn) { return fn(); },
+      };
+      const o = { obj: new Cls(state, env), tail: Promise.resolve(), store, get alarm() { return alarm; }, clearAlarm() { alarm = null; } };
+      objs.set(name, o);
+    }
+    return objs.get(name);
+  };
+  return {
+    objs,
+    idFromName: (n) => n,
+    get: (id) => {
+      const o = get(id);
+      return { fetch: (url, init) => { const run = o.tail.then(() => o.obj.fetch(new Request(url, init))); o.tail = run.catch(() => {}); return run; } };
+    },
+    // Kör väntande alarm tills inget återstår (som Cloudflare skulle göra).
+    async runAlarms(max = 20) {
+      let n = 0;
+      for (let i = 0; i < max; i++) {
+        const due = [...objs.values()].filter((o) => o.alarm !== null);
+        if (!due.length) break;
+        for (const o of due) { o.clearAlarm(); await o.tail.then(() => o.obj.alarm()); n++; }
+      }
+      return n;
+    },
+    peek: (name) => get(name),
+  };
+}
+
+export const WH_SECRET = "whsec_testsecret1234";
+export const ORIGIN = "https://granskaminoffert.se";
+
+export function baseVars(extra = {}) {
+  return {
+    COMPARE_ENABLED: "1", COMPARE_PAYMENTS: "test", STRIPE_SECRET_KEY: "sk_test_abcdefgh1234", STRIPE_WEBHOOK_SECRET: WH_SECRET,
+    COMPARE_MONTH_CAP_MICRO: "20000000", COMPARE_PAID_CAP_MICRO: "10000000", COMPARE_ORDER_CAP_MICRO: "2000000", COMPARE_DAY_ORDERS: "50",
+    COMPARE_RETURN_URL: "https://granskaminoffert.se/jamfor/", ANTHROPIC_API_KEY: "sk-ant-test", ALLOWED_ORIGIN: ORIGIN, ...extra,
+  };
+}
+
+export function makeEnv(extra = {}) {
+  const env = { ...baseVars(extra), REVIEWS_KV: memoryKv() };
+  env.COMPARE_ORDERS = fakeNs(CompareOrders, env);
+  env.COMPARE_BUDGET = fakeNs(CompareBudget, env);
+  return env;
+}
+
+// ---- Fixtur: offerten är en text som bär modellens "svar" som JSON ----
+export function offerText(spec = {}) { return "FIXTURE:" + JSON.stringify(spec); }
+const EXTRACT_DEFAULT = { jobType: "badrum", trades: [], hourlyRateSek: null, hours: null, laborSumSek: null, materialSumSek: null, travelSumSek: null, travelVisits: null, materialMarkupPct: null, rotAmountSek: null, rotRatePct: null, rotPersons: null, rotOnMaterialOrTravel: null, priceType: "fast", vatMode: "inkl", totalSumSek: null, totalIncludesVat: null, totalBeforeRotSek: null, amountToPaySek: null, totalVatBasis: null, propertyType: "smahus", totalContract: null, quoteDate: null, plannedPaymentDate: null, customerType: "privatperson", workDescription: "Badrumsrenovering", county: null, areaM2: 6, unitCount: null, otherSumSek: null };
+export function fixtureResponse(spec) {
+  const scope = Object.entries(spec.scope || {}).map(([id, status]) => ({ id, status, page: status === "framgar_inte" ? null : 1, ref: status === "framgar_inte" ? null : "rad " + id }));
+  return {
+    extracted: { ...EXTRACT_DEFAULT, ...(spec.extracted || {}) }, scope,
+    facts: spec.facts || [{ id: "total", page: 1, ref: "Summa" }],
+    readability: { level: spec.readability || "bra" }, instructionsInDocument: !!spec.inj,
+  };
+}
+
+// ---- fetch-attrapp (Anthropic + Stripe) ----
+export function installFetch(opts = {}) {
+  const log = { anthropic: [], count: [], stripeCreate: [], stripeGet: [], refunds: [] };
+  const sessions = new Map(); // id -> session-objekt som Stripe skulle returnera
+  const byIdem = new Map();
+  const ctl = { failNext: [], timeoutNext: 0, countTokens: 3000, usage: { input_tokens: 3000, output_tokens: 800 }, noUsage: false, synthIds: null, ...opts };
+  const real = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === "string" ? input : input.url;
+    const body = init.body ? (typeof init.body === "string" ? init.body : String(init.body)) : "";
+    if (url.endsWith("/v1/messages/count_tokens")) { log.count.push(JSON.parse(body)); return Response.json({ input_tokens: ctl.countTokens }); }
+    if (url === "https://api.anthropic.com/v1/messages") {
+      const req = JSON.parse(body);
+      log.anthropic.push(req);
+      if (ctl.timeoutNext > 0) { ctl.timeoutNext--; throw new Error("timeout"); }
+      if (ctl.failNext.length) { const st = ctl.failNext.shift(); return Response.json({ error: { type: "overloaded_error" } }, { status: st }); }
+      const tool = req.tools[0].name;
+      const usage = ctl.noUsage ? undefined : ctl.usage;
+      if (tool === "submit_priority") {
+        const ids = ctl.synthIds || req.tools[0].input_schema.properties.priority_ids.items.enum.slice().reverse().slice(0, 3);
+        return Response.json({ stop_reason: "tool_use", usage, content: [{ type: "tool_use", id: "t1", name: "submit_priority", input: { priority_ids: ids } }] });
+      }
+      const t = req.messages[0].content.map((b) => b.text || "").join("");
+      const i = t.indexOf("FIXTURE:"), j = t.indexOf("\n</offert>");
+      const spec = i >= 0 ? JSON.parse(t.slice(i + 8, j)) : {};
+      return Response.json({ stop_reason: "tool_use", usage, content: [{ type: "tool_use", id: "t0", name: "submit_offer", input: fixtureResponse(spec) }] });
+    }
+    if (url === "https://api.stripe.com/v1/checkout/sessions" && init.method === "POST") {
+      const idem = init.headers && init.headers["idempotency-key"];
+      log.stripeCreate.push({ body, idem });
+      if (idem && byIdem.has(idem)) return Response.json(byIdem.get(idem));
+      const id = "cs_test_" + String(++n).padStart(10, "0");
+      const p = new URLSearchParams(body);
+      const s = { id, object: "checkout.session", url: `https://checkout.stripe.test/c/${id}`, expires_at: Math.floor(Date.now() / 1000) + 3600, mode: "payment", livemode: false, client_reference_id: p.get("client_reference_id"), currency: "sek", amount_total: Number(p.get("line_items[0][price_data][unit_amount]")), status: "open", payment_status: "unpaid", payment_intent: null, metadata: { order_id: p.get("metadata[order_id]") } };
+      sessions.set(id, s); if (idem) byIdem.set(idem, s);
+      return Response.json(s);
+    }
+    const g = url.match(/^https:\/\/api\.stripe\.com\/v1\/checkout\/sessions\/(cs_[A-Za-z0-9_]+)$/);
+    if (g) { log.stripeGet.push(g[1]); const s = sessions.get(g[1]); return s ? Response.json(s) : Response.json({ error: { code: "resource_missing" } }, { status: 404 }); }
+    if (url === "https://api.stripe.com/v1/refunds") { log.refunds.push(body); return Response.json({ id: "re_test_0001", status: "succeeded" }); }
+    throw new Error("oväntat externt anrop: " + url);
+  };
+  return { log, ctl, sessions, restore: () => { globalThis.fetch = real; } };
+}
+
+// ---- Anrop mot Workern ----
+export async function api(env, method, path, { body, token, origin = ORIGIN, raw, headers = {} } = {}) {
+  const h = { ...headers };
+  if (origin) h.origin = origin;
+  if (token) h["x-order-token"] = token;
+  if (body !== undefined) h["content-type"] = "application/json";
+  const res = await worker.fetch(new Request("https://api.test" + path, { method, headers: h, body: raw !== undefined ? raw : body !== undefined ? JSON.stringify(body) : undefined }), env, { waitUntil() {} });
+  let json = null; try { json = await res.json(); } catch { /* */ }
+  return { status: res.status, json };
+}
+
+export async function createOrder(env, n, extra = {}) {
+  const r = await api(env, "POST", "/compare/orders", { body: { docCount: n, labels: Array.from({ length: n }, (_, i) => ["Byggfirma A", "Bygg B", "C-snickeri", "Firma D"][i]), accept: { sameJob: true }, ...extra } });
+  return r;
+}
+export async function upload(env, orderId, token, idx, spec) {
+  return api(env, "PUT", `/compare/orders/${orderId}/docs/${idx}`, { token, body: { kind: "text", text: offerText(spec) } });
+}
+export async function readyOrder(env, specs) {
+  const c = await createOrder(env, specs.length);
+  if (c.status !== 201) throw new Error("create " + c.status + JSON.stringify(c.json));
+  const { orderId, token } = c.json;
+  for (let i = 0; i < specs.length; i++) { const u = await upload(env, orderId, token, i, specs[i]); if (u.status !== 200) throw new Error("upload " + u.status + JSON.stringify(u.json)); }
+  return { orderId, token };
+}
+export async function startCheckout(env, orderId, token, accept = { terms: true, immediateDelivery: true }) { return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { accept } }); }
+
+export function paidSession(sess, over = {}) {
+  return { ...sess, status: "complete", payment_status: "paid", payment_intent: "pi_test_0000000001", ...over };
+}
+export async function webhook(env, type, session, { id = "evt_" + Math.random().toString(36).slice(2, 12), t, secret = WH_SECRET, tamper } = {}) {
+  let raw = JSON.stringify({ id, type, data: { object: session } });
+  const sig = await signForTest(raw, secret, t);
+  if (tamper) raw = raw.replace("4900", "100");
+  return api(env, "POST", "/compare/webhook", { raw, origin: "", headers: { "stripe-signature": sig, "content-type": "application/json" } });
+}
+export const sha = sha256Hex;

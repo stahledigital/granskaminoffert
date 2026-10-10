@@ -1,0 +1,124 @@
+// Stripe-adapter för Jämför mina offerter (hostad Checkout, engångsköp). Inga SDK-beroenden:
+// REST via fetch (injicerbar för test) och HMAC-verifiering av webhooken med Web Crypto.
+//
+// Stängd som standard (paymentsMode() i compare_config.js). Ingen offerttext, inget namn och
+// ingen fil lämnar Workern till Stripe: bara orderns id, versionsmärkning och fast produktnamn.
+//
+// Betalmodell (verifierad i TESTLÄGE först): automatisk betalning + automatisk återbetalning vid
+// utebliven leverans. Manuell capture är INTE implementerad (otestad, och auktoriseringsfönstret
+// är begränsat); den kräver eget test innan den väljs.
+
+import { OFFER } from "./compare_config.js";
+import { hmacSha256Hex, timingSafeEqual } from "./compare_util.js";
+
+const API = "https://api.stripe.com/v1";
+
+// Stripes formkodning: nästlade objekt som a[b][c]=v.
+export function formEncode(obj, prefix = "") {
+  const out = [];
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (typeof v === "object") out.push(formEncode(v, key));
+    else out.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(v))}`);
+  }
+  return out.filter(Boolean).join("&");
+}
+
+async function stripeFetch(env, path, { method = "GET", body, idempotencyKey, fetchImpl = fetch } = {}) {
+  // Ingen fast API-version anges här: kontots standardversion gäller (att pinna en version är ett kontosteg som görs mot Stripe).
+  const headers = { authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
+  if (body) headers["content-type"] = "application/x-www-form-urlencoded";
+  if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
+  const resp = await fetchImpl(`${API}${path}`, { method, headers, body: body ? formEncode(body) : undefined, signal: AbortSignal.timeout(15_000) });
+  let json = null;
+  try { json = await resp.json(); } catch { /* ogiltigt svar */ }
+  if (!resp.ok) {
+    // Aldrig hela svaret (kan innehålla kunduppgifter): bara typ och kod.
+    const e = new Error(`stripe ${resp.status} ${(json && json.error && json.error.code) || ""}`.trim());
+    e.status = resp.status;
+    throw e;
+  }
+  return json;
+}
+
+// Skapar hostad Checkout-session. Priset kommer från OFFER (serverkod), aldrig från anropet.
+export async function createCheckoutSession(env, order, { returnUrl, now = Date.now(), fetchImpl } = {}) {
+  const expiresAt = Math.floor(now / 1000) + 3600; // Stripes minimum är 30 min
+  const sep = returnUrl.includes("?") ? "&" : "?";
+  const body = {
+    mode: "payment",
+    locale: "sv",
+    client_reference_id: order.id,
+    success_url: `${returnUrl}${sep}order=${order.id}&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${returnUrl}${sep}order=${order.id}&avbruten=1`,
+    expires_at: expiresAt,
+    line_items: [{
+      quantity: 1,
+      price_data: {
+        currency: OFFER.currency,
+        unit_amount: OFFER.priceOre,
+        product_data: { name: `${OFFER.product} (${order.docCount} offerter)` },
+      },
+    }],
+    metadata: { order_id: order.id, offer: OFFER.version },
+    payment_intent_data: { metadata: { order_id: order.id, offer: OFFER.version } },
+  };
+  const s = await stripeFetch(env, "/checkout/sessions", { method: "POST", body, idempotencyKey: `checkout:${order.id}`, fetchImpl });
+  if (!s || typeof s.id !== "string" || typeof s.url !== "string" || !/^https:\/\//.test(s.url)) throw new Error("stripe: ogiltig session");
+  return { id: s.id, url: s.url, expiresAt: Number.isFinite(s.expires_at) ? s.expires_at * 1000 : expiresAt * 1000 };
+}
+
+export async function retrieveSession(env, sessionId, { fetchImpl } = {}) {
+  if (!/^cs_[A-Za-z0-9_]{8,}$/.test(String(sessionId))) throw new Error("ogiltigt session-id");
+  return stripeFetch(env, `/checkout/sessions/${sessionId}`, { fetchImpl });
+}
+
+export async function refundPayment(env, { paymentIntentId, orderId, fetchImpl }) {
+  if (!/^pi_[A-Za-z0-9_]{8,}$/.test(String(paymentIntentId))) throw new Error("ogiltigt betalnings-id");
+  const r = await stripeFetch(env, "/refunds", { method: "POST", body: { payment_intent: paymentIntentId, reason: "requested_by_customer", metadata: { order_id: orderId } }, idempotencyKey: `refund:${orderId}`, fetchImpl });
+  return { id: r && r.id, status: r && r.status };
+}
+
+// Verifierar Stripe-Signature (t=…,v1=…[,v1=…]) mot RÅ kropp. Ingen tolkning före verifiering.
+export async function verifyWebhook(rawBody, header, secret, { now = Date.now(), toleranceSec = 300 } = {}) {
+  if (typeof rawBody !== "string" || typeof header !== "string" || !secret) return { ok: false, reason: "saknas" };
+  let t = null; const sigs = [];
+  for (const part of header.split(",")) {
+    const i = part.indexOf("=");
+    if (i < 1) continue;
+    const k = part.slice(0, i).trim(), v = part.slice(i + 1).trim();
+    if (k === "t") t = v; else if (k === "v1") sigs.push(v);
+  }
+  if (!t || !/^\d{9,12}$/.test(t) || !sigs.length) return { ok: false, reason: "format" };
+  if (Math.abs(now / 1000 - Number(t)) > toleranceSec) return { ok: false, reason: "tid" };
+  const expected = await hmacSha256Hex(secret, `${t}.${rawBody}`);
+  if (!sigs.some((s) => /^[0-9a-f]{64}$/.test(s) && timingSafeEqual(s, expected))) return { ok: false, reason: "signatur" };
+  let event;
+  try { event = JSON.parse(rawBody); } catch { return { ok: false, reason: "json" }; }
+  if (!event || typeof event !== "object" || typeof event.id !== "string" || typeof event.type !== "string") return { ok: false, reason: "form" };
+  return { ok: true, event };
+}
+
+// Signerar en testhändelse (för enhetstester och lokal körning, aldrig mot Stripe).
+export async function signForTest(rawBody, secret, t = Math.floor(Date.now() / 1000)) {
+  return `t=${t},v1=${await hmacSha256Hex(secret, `${t}.${rawBody}`)}`;
+}
+
+// Kontroll att en Checkout-session verkligen är betalningen för DEN HÄR ordern med rätt belopp.
+// Används av både webhook och avstämning; returnsidan är aldrig bevis.
+export function evaluatePaidSession(session, order, mode) {
+  const fail = (reason) => ({ ok: false, reason });
+  if (!session || typeof session !== "object" || session.object !== "checkout.session") return fail("form");
+  if (session.mode !== "payment") return fail("mode");
+  if (session.livemode !== (mode === "live")) return fail("livemode");
+  if (session.client_reference_id !== order.id) return fail("order");
+  if (!order.stripe || session.id !== order.stripe.sessionId) return fail("session");
+  if (session.metadata && session.metadata.order_id !== undefined && session.metadata.order_id !== order.id) return fail("metadata");
+  if (session.currency !== OFFER.currency) return fail("valuta");
+  if (session.amount_total !== OFFER.priceOre) return fail("belopp");
+  if (session.status !== "complete" || session.payment_status !== "paid") return fail("ej_betald");
+  const pi = typeof session.payment_intent === "string" ? session.payment_intent : (session.payment_intent && session.payment_intent.id);
+  if (typeof pi !== "string" || !/^pi_[A-Za-z0-9_]{8,}$/.test(pi)) return fail("betalning");
+  return { ok: true, paymentIntentId: pi, amountTotal: session.amount_total };
+}

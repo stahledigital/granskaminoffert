@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="app-version" content="jamfor-v1-kandidat">
+<title>Jämför mina offerter – Granska min offert</title>
+<meta name="description" content="Lägg två till fyra hantverkaroffertar bredvid varandra och se vad som skiljer: omfattning, pris, moms och ROT. Engångsköp 49 kr.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/barlow-condensed-700.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/barlow-400.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/barlow-500.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/barlow-600.woff2) format('woff2')}</style>
+<style>
+:root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b;--acc-text:#b8431f;--ok:#2e7d4f;--warn:#8a6508;--bad:#c0392b;--oksoft:#e3f1e8;--warnsoft:#fbf0d2;--badsoft:#f9e0dc}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;padding:0 16px 56px;line-height:1.45}
+.wrap{max-width:880px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:baseline;padding-block:24px 0;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);font-weight:600}
+header a{color:var(--ink2)}
+h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:clamp(38px,8vw,60px);line-height:.95;margin:22px 0 12px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--acc-text)}
+h2{font-family:"Barlow Condensed",Barlow,sans-serif;font-size:28px;line-height:1.05;margin:0 0 10px}
+h3{font-size:17px;margin:18px 0 6px}
+.lead{font-size:18px;max-width:54ch;margin:0 0 20px;color:var(--ink2)}
+.card{border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:16px;margin:14px 0}
+.card.acc{border-left:6px solid var(--acc)}
+.steps{display:flex;gap:8px;list-style:none;padding:0;margin:0 0 14px;font-size:13px;color:var(--ink2);flex-wrap:wrap}
+.steps li{padding:4px 10px;border:1px solid var(--line);border-radius:99px;background:var(--paper)}
+.steps li[aria-current="step"]{border-color:var(--acc);color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px var(--acc)}
+.seg{display:flex;gap:8px;margin:6px 0 0}
+.seg button{flex:1;min-height:48px;border:1px solid var(--line);background:var(--paper);border-radius:10px;font:600 18px Barlow,sans-serif;cursor:pointer}
+.seg button[aria-pressed="true"]{border-color:var(--acc);background:#fff4ee;box-shadow:inset 0 0 0 2px var(--acc)}
+label.t{display:block;font-weight:600;font-size:14px;margin:12px 0 4px}
+input[type=text],textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:12px;font:16px/1.4 Barlow,sans-serif;background:#fff;color:var(--ink)}
+textarea{min-height:110px}
+.btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--ink);background:var(--ink);color:var(--bg);font:600 16px Barlow,sans-serif;padding:12px 18px;min-height:48px;border-radius:10px;cursor:pointer;text-decoration:none}
+.btn.acc{background:var(--acc);border-color:var(--acc);color:#161616}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.block{display:flex;width:100%}
+:focus-visible{outline:3px solid #1a5fd0;outline-offset:2px}
+.hint{font-size:14px;color:var(--ink2);margin:6px 0}
+.err{background:var(--badsoft);border:1px solid #c0392b66;border-radius:8px;padding:10px 12px;margin:10px 0;font-size:15px}
+.okbox{background:var(--oksoft);border:1px solid #2e7d4f55;border-radius:8px;padding:10px 12px;margin:10px 0}
+.warnbox{background:var(--warnsoft);border:1px solid #b8860b66;border-radius:8px;padding:10px 12px;margin:10px 0}
+.chk{display:flex;gap:10px;align-items:flex-start;margin:12px 0;font-size:15px}
+.chk input{width:22px;height:22px;flex:none;margin:1px 0 0;accent-color:var(--acc)}
+.price{font-family:"Barlow Condensed",Barlow,sans-serif;font-size:56px;line-height:1;font-weight:700}
+.price small{display:block;font-family:Barlow,sans-serif;font-size:15px;font-weight:400;color:var(--ink2);margin-top:4px}
+ul.tight{margin:6px 0;padding-left:20px}
+ul.tight li{margin:3px 0}
+.docrow{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin:6px 0;background:#fff}
+.tag{font-size:12px;font-weight:600;border-radius:99px;padding:2px 9px;border:1px solid var(--line);white-space:nowrap}
+.tag.ok{background:var(--oksoft);color:var(--ok)} .tag.warn{background:var(--warnsoft);color:var(--warn)} .tag.bad{background:var(--badsoft);color:var(--bad)}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.scope{border-top:1px solid var(--line);padding:10px 0}
+.scope .cells{display:grid;gap:6px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-top:6px}
+.cell{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:14px;background:#fff}
+.cell b{display:block;font-size:13px}
+.cell.ingar{border-color:#2e7d4f66;background:var(--oksoft)} .cell.ingar_inte{border-color:#c0392b55;background:var(--badsoft)} .cell.framgar_inte{background:#f1f0ec;color:var(--ink2)}
+.cell small{display:block;color:var(--ink2)}
+dl{margin:6px 0;display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:14px}
+dt{color:var(--ink2)} dd{margin:0;text-align:right}
+details{border:1px solid var(--line);border-radius:10px;background:#fff;margin:8px 0;padding:2px 12px}
+summary{cursor:pointer;font-weight:600;padding:10px 0;min-height:44px}
+.hidden{display:none!important}
+.progress{height:10px;background:#16161614;border-radius:99px;overflow:hidden;margin:10px 0}
+.progress i{display:block;height:100%;background:var(--acc);transition:width .4s}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all}
+footer{margin-top:36px;font-size:13px;color:var(--ink2)}
+@media print{body{background:#fff}.noprint{display:none!important}.card,details{break-inside:avoid}details>*{display:block}}
+</style>
+</head>
+<body>
+<main class="wrap" id="app">
+<header><span>Jämför mina offerter</span><a href="/">Granska en offert gratis</a></header>
+<h1>Jämför offerterna.<br><em>Se vad som skiljer.</em></h1>
+<p class="lead">Lägg in två till fyra offerter på samma jobb. Du får en tydlig jämförelse av omfattning, pris, moms och ROT – och frågor att ställa till varje hantverkare.</p>
+
+<div id="closed" class="card hidden" role="status"></div>
+<div id="err" class="err hidden" role="alert"></div>
+
+<!-- STEG 1 -->
+<section id="s1" class="hidden" aria-labelledby="h-s1">
+  <ol class="steps" aria-label="Steg"><li aria-current="step">1 Offerter</li><li>2 Kontroll</li><li>3 Betala</li><li>4 Resultat</li></ol>
+  <h2 id="h-s1">Hur många offerter vill du jämföra?</h2>
+  <div class="seg" role="group" aria-label="Antal offerter"><button type="button" data-n="2" aria-pressed="true">2</button><button type="button" data-n="3" aria-pressed="false">3</button><button type="button" data-n="4" aria-pressed="false">4</button></div>
+  <div id="slots"></div>
+  <p class="hint" id="limits"></p>
+  <label class="chk"><input type="checkbox" id="samejob"><span>Jag bekräftar att offerterna gäller <b>samma jobb</b>. Annars blir jämförelsen missvisande.</span></label>
+  <button type="button" class="btn acc block" id="check">Kontrollera offerterna</button>
+  <p class="hint">Kontrollen kostar ingenting. Du betalar först efter att du sett vad som kommer med.</p>
+</section>
+
+<!-- STEG 2-3 -->
+<section id="s2" class="hidden" aria-labelledby="h-s2">
+  <ol class="steps" aria-label="Steg"><li>1 Offerter</li><li aria-current="step">2 Kontroll</li><li>3 Betala</li><li>4 Resultat</li></ol>
+  <h2 id="h-s2">Kontroll</h2>
+  <div id="docs" aria-live="polite"></div>
+  <div id="offer" class="card acc hidden">
+    <div class="price">49 kr <small>inklusive moms (varav <span id="vat">9,80</span> kr moms) · engångsköp</small></div>
+    <h3>Det här får du</h3>
+    <ul class="tight"><li>Jämförelse av <span id="nn">2</span> offerter: omfattning, pris, moms och ROT, med hänvisning till var i dokumentet uppgiften står.</li><li>Tydligt markerat det som <b>inte framgår</b> – det betyder inte att det saknas.</li><li>Frågor att ställa till varje hantverkare, och ett kvitto.</li></ul>
+    <h3>Det här får du inte</h3>
+    <ul class="tight"><li>Ingen bedömning av hantverkare, kvalitet eller om priset är rimligt.</li><li>Ingen rekommendation om vem du ska välja. Lägst belopp visas bara när offerterna går att jämföra, och säger inget om kvalitet.</li><li>Inte juridisk rådgivning.</li></ul>
+    <h3>Så går det till</h3>
+    <ul class="tight"><li>Efter betalning startar jämförelsen direkt och tar oftast några minuter. Du kan stänga fliken – du får tillbaka resultatet via en länk som visas här.</li><li>Offerterna skickas till Anthropic (Claude) för avläsning. Inga namn eller offerttexter går till betalleverantören.</li><li>Dina filer och resultatet raderas efter 24 timmar, eller direkt när du själv raderar.</li><li>Går något fel och du inte får ditt resultat ska du få pengarna tillbaka. Du anger ingen e-post för detta; kontakta oss med ordernumret.</li></ul>
+    <label class="chk"><input type="checkbox" id="terms"><span>Jag har läst och godkänner <a href="/jamfor/villkor/" target="_blank" rel="noopener">villkoren och integritetsinformationen</a>.</span></label>
+    <label class="chk"><input type="checkbox" id="immediate"><span>Jag vill att jämförelsen <b>startar direkt</b> efter betalning och förstår att ångerrätten därmed kan gå förlorad när tjänsten är levererad.</span></label>
+    <button type="button" class="btn acc block" id="pay">Betala 49 kr</button>
+    <p class="hint">Betalningen sker hos Stripe. Du lämnar sidan och kommer tillbaka hit.</p>
+  </div>
+</section>
+
+<!-- STEG 4: väntan -->
+<section id="s3" class="hidden" aria-labelledby="h-s3">
+  <ol class="steps" aria-label="Steg"><li>1 Offerter</li><li>2 Kontroll</li><li>3 Betala</li><li aria-current="step">4 Resultat</li></ol>
+  <h2 id="h-s3">Din jämförelse</h2>
+  <div id="statusbox" class="card" role="status" aria-live="polite"></div>
+  <div id="recovery" class="card hidden">
+    <h3 style="margin-top:0">Spara din länk</h3>
+    <p class="hint">Med den här länken kommer du tillbaka till resultatet, även om du stänger fliken. Den fungerar i 24 timmar. Dela den inte – den ger åtkomst till din jämförelse.</p>
+    <p class="mono" id="reclink"></p>
+    <button type="button" class="btn ghost" id="copylink">Kopiera länk</button>
+  </div>
+</section>
+
+<!-- RAPPORT -->
+<section id="rep" class="hidden" aria-labelledby="h-rep"></section>
+
+<footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. Beloppen är avlästa ur dokumenten och kan innehålla avläsningsfel. Det som inte framgår av en offert är inte detsamma som att det saknas.</p></footer>
+</main>
+
+<script>
+(function(){
+'use strict';
+var H = location.hostname;
+var API_BASE = (H==='localhost'||H==='127.0.0.1') ? (new URLSearchParams(location.search).get('api')||location.origin) : 'https://granskaminoffert-api.anders-316.workers.dev';
+var $ = function(id){return document.getElementById(id)};
+var state = {n:2, slots:[], order:null, cfg:null, timer:null};
+var KR = new Intl.NumberFormat('sv-SE');
+function kr(v){return KR.format(Math.round(v))+' kr'}
+function el(tag, attrs){var e=document.createElement(tag);attrs=attrs||{};for(var k in attrs){if(k==='text')e.textContent=attrs[k];else if(k==='class')e.className=attrs[k];else e.setAttribute(k,attrs[k]);}
+  for(var i=2;i<arguments.length;i++){var c=arguments[i];if(c==null)continue;e.appendChild(typeof c==='string'?document.createTextNode(c):c);}return e}
+function show(id,on){$(id).classList.toggle('hidden',!on)}
+function err(msg){var b=$('err');b.textContent=msg||'';show('err',!!msg);if(msg)b.scrollIntoView({block:'nearest'})}
+function store(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){return null}}
+
+async function api(method, path, opt){
+  opt=opt||{};var h={};
+  if(opt.token)h['x-order-token']=opt.token;
+  if(opt.body!==undefined)h['content-type']='application/json';
+  var r=await fetch(API_BASE.replace(/\/$/,'')+path,{method:method,headers:h,body:opt.body!==undefined?JSON.stringify(opt.body):undefined});
+  var j=null;try{j=await r.json()}catch(e){}
+  return {status:r.status,json:j||{}};
+}
+
+// ---------- start ----------
+async function init(){
+  var cfg;
+  try{cfg=(await api('GET','/compare/config')).json}catch(e){cfg=null}
+  state.cfg=cfg;
+  var rec=readRecovery();
+  if(rec){state.order=rec;show('s3',true);return resume()}
+  if(!cfg||!cfg.enabled||!cfg.accepting){
+    var c=$('closed');c.textContent='';
+    c.appendChild(el('h2',{text:'Jämförelsen är inte öppen än'}));
+    c.appendChild(el('p',{text:'Vi bygger den fortfarande. Under tiden kan du granska en offert i taget gratis.'}));
+    c.appendChild(el('a',{class:'btn acc',href:'/',text:'Granska en offert gratis'}));
+    show('closed',true);return;
+  }
+  $('vat').textContent=(Math.round(cfg.offer.priceOre*cfg.offer.vatPct/(100+cfg.offer.vatPct))/100).toFixed(2).replace('.',',');
+  $('limits').textContent='Varje fil får vara högst '+Math.round(cfg.limits.maxFileBytes/1e6)+' MB (PDF, foto eller text), PDF högst ca '+cfg.limits.maxPdfPagesPerDoc+' sidor. Tillsammans högst '+Math.round(cfg.limits.maxTotalBytes/1e6)+' MB. Ta gärna bara sidorna med pris och villkor.';
+  buildSlots();show('s1',true);
+}
+function readRecovery(){
+  var p=new URLSearchParams(location.hash.replace(/^#/,''));var o=p.get('o'),t=p.get('t');
+  if(o&&t){store('jamfor_order',JSON.stringify({id:o,token:t}));history.replaceState(null,'',location.pathname+location.search)}
+  try{var v=JSON.parse(store('jamfor_order')||'null');if(v&&v.id&&v.token)return v}catch(e){}
+  return null;
+}
+
+// ---------- steg 1 ----------
+function buildSlots(){
+  var host=$('slots');host.textContent='';state.slots=[];
+  for(var i=0;i<state.n;i++){(function(i){
+    var s={label:'',file:null,text:'',name:''};state.slots[i]=s;
+    var name=el('input',{type:'text',id:'lab'+i,maxlength:'40',autocomplete:'off',placeholder:'t.ex. Byggfirma AB'});
+    name.addEventListener('input',function(){s.label=name.value});
+    var file=el('input',{type:'file',id:'f'+i,accept:'.pdf,image/*,.txt','aria-label':'Fil för offert '+(i+1)});
+    var info=el('p',{class:'hint',id:'fi'+i,text:'Ingen fil vald.'});
+    file.addEventListener('change',function(){s.file=file.files[0]||null;s.text='';ta.value='';info.textContent=s.file?s.file.name+' ('+Math.max(1,Math.round(s.file.size/1024))+' kB)':'Ingen fil vald.'});
+    var ta=el('textarea',{id:'t'+i,placeholder:'…eller klistra in offertens text här','aria-label':'Text för offert '+(i+1)});
+    ta.addEventListener('input',function(){s.text=ta.value;if(ta.value){s.file=null;file.value='';info.textContent='Inklistrad text.'}});
+    host.appendChild(el('div',{class:'card'},el('h3',{style:'margin-top:0',text:'Offert '+(i+1)}),el('label',{class:'t','for':'lab'+i,text:'Namn på hantverkaren (valfritt)'}),name,el('label',{class:'t','for':'f'+i,text:'Fil (PDF, foto eller text)'}),file,info,ta));
+  })(i)}
+}
+document.querySelector('.seg').addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b)return;state.n=Number(b.dataset.n);
+  document.querySelectorAll('.seg button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b))});buildSlots();
+});
+function readAsBase64(file){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(String(r.result).split(',')[1]||'')};r.onerror=rej;r.readAsDataURL(file)})}
+function readAsText(file){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(String(r.result))};r.onerror=rej;r.readAsText(file)})}
+async function slotPayload(s){
+  if(s.text&&s.text.trim())return {kind:'text',text:s.text};
+  if(!s.file)return null;
+  var f=s.file,nm=f.name.toLowerCase();
+  if(f.type==='application/pdf'||nm.endsWith('.pdf'))return {kind:'pdf',dataBase64:await readAsBase64(f)};
+  if(f.type.indexOf('image/')===0)return {kind:'image',mediaType:f.type,dataBase64:await readAsBase64(f)};
+  if(nm.endsWith('.txt')||f.type==='text/plain')return {kind:'text',text:await readAsText(f)};
+  return {bad:true};
+}
+
+$('check').addEventListener('click',async function(){
+  err('');
+  if(!$('samejob').checked){err('Bekräfta först att offerterna gäller samma jobb.');$('samejob').focus();return}
+  for(var i=0;i<state.n;i++){var s=state.slots[i];if(!(s.file||(s.text&&s.text.trim()))){err('Offert '+(i+1)+' saknar fil eller text.');return}}
+  var btn=$('check');btn.disabled=true;btn.textContent='Kontrollerar…';
+  try{
+    var c=await api('POST','/compare/orders',{body:{docCount:state.n,labels:state.slots.map(function(s){return s.label}),accept:{sameJob:true}}});
+    if(c.status!==201){err((c.json&&c.json.error)||'Det gick inte att starta just nu.');return}
+    state.order={id:c.json.orderId,token:c.json.token};store('jamfor_order',JSON.stringify(state.order));
+    show('s1',false);show('s2',true);$('docs').textContent='';
+    var allOk=true;
+    for(var k=0;k<state.n;k++){
+      var row=el('div',{class:'docrow'},el('span',{text:'Offert '+(k+1)+(state.slots[k].label?' – '+state.slots[k].label:'')}),el('span',{class:'tag',text:'Läser in…'}));$('docs').appendChild(row);
+      var tag=row.lastChild;
+      var p=await slotPayload(state.slots[k]);
+      if(!p||p.bad){tag.className='tag bad';tag.textContent='Filtypen går inte att läsa';allOk=false;continue}
+      var u=await api('PUT','/compare/orders/'+state.order.id+'/docs/'+k,{token:state.order.token,body:p});
+      if(u.status===200){tag.className='tag ok';tag.textContent='Klar ('+(u.json.doc.pages?u.json.doc.pages+' sidor, ':'')+Math.max(1,Math.round(u.json.doc.bytes/1024))+' kB)'}
+      else{tag.className='tag bad';tag.textContent=(u.json&&u.json.error)||'Gick inte';allOk=false}
+    }
+    if(allOk){show('offer',true);$('nn').textContent=String(state.n);$('offer').scrollIntoView({block:'start'})}
+    else{err('Någon fil gick inte att ta emot. Gå tillbaka och byt ut den, så kontrollerar vi igen.');
+      var back=el('button',{type:'button',class:'btn ghost',text:'Börja om'});back.addEventListener('click',function(){store('jamfor_order',null);location.reload()});$('docs').appendChild(back)}
+  }catch(e){err('Något gick fel. Försök igen.')}
+  finally{btn.disabled=false;btn.textContent='Kontrollera offerterna'}
+});
+
+$('pay').addEventListener('click',async function(){
+  err('');
+  if(!$('terms').checked||!$('immediate').checked){err('Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
+  var b=$('pay');b.disabled=true;b.textContent='Öppnar betalning…';
+  try{
+    var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:{terms:true,immediateDelivery:true}}});
+    if(r.status===200&&r.json.url){location.href=r.json.url;return}
+    err((r.json&&r.json.error)||'Betalningen kunde inte startas. Du har inte debiterats.');
+  }catch(e){err('Betalningen kunde inte startas. Du har inte debiterats.')}
+  b.disabled=false;b.textContent='Betala 49 kr';
+});
+
+// ---------- återupptagning och väntan ----------
+function recoveryLink(){return location.origin+location.pathname+'#o='+encodeURIComponent(state.order.id)+'&t='+encodeURIComponent(state.order.token)}
+$('copylink').addEventListener('click',function(){var t=recoveryLink();if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){$('copylink').textContent='Kopierad ✓'},function(){});});
+async function resume(){
+  show('s1',false);show('s2',false);
+  var q=new URLSearchParams(location.search);
+  tick(q.get('avbruten')==='1');
+}
+async function tick(cancelled){
+  var r;
+  try{r=await api('GET','/compare/orders/'+state.order.id,{token:state.order.token})}catch(e){setStatus('Kunde inte nå tjänsten just nu. Försöker igen…');state.timer=setTimeout(tick,4000);return}
+  if(r.status===404){store('jamfor_order',null);setStatus('Ordern hittades inte. Den kan ha gått ut (24 timmar) eller raderats.',true);return}
+  var o=r.json.order;if(!o){state.timer=setTimeout(tick,4000);return}
+  $('reclink').textContent=recoveryLink();show('recovery',true);
+  var box=$('statusbox');box.textContent='';
+  var next=null;
+  if(o.status==='draft'||o.status==='ready'||o.status==='awaiting_payment'){
+    box.appendChild(el('p',{text:cancelled?'Betalningen avbröts. Du har inte debiterats.':'Vi väntar på bekräftelse av betalningen från Stripe. Att du kommit tillbaka hit är inte i sig en bekräftelse.'}));
+    if(o.status!=='awaiting_payment'||cancelled){var b=el('button',{type:'button',class:'btn acc',text:'Gå till betalning igen'});b.addEventListener('click',retryPay);box.appendChild(b)}
+    else next=(r.json.pollMs||2000)+1000;
+    if(o.status==='awaiting_payment'&&!cancelled)box.appendChild(el('p',{class:'hint',text:'Betalade du nyss? Vänta några sekunder – sidan uppdateras själv.'}));
+  }else if(o.status==='expired'){box.appendChild(el('p',{text:'Ordern har gått ut. Du har inte debiterats. Börja om med dina offerter.'}));box.appendChild(restartBtn());}
+  else if(o.status==='paid'||o.status==='running'){
+    var pct=Math.round(100*(o.progress.extracted+(o.progress.synth==='done'||o.progress.synth==='skipped'?1:0))/(o.progress.total+1));
+    box.appendChild(el('p',{text:'Betalningen är bekräftad. Vi läser offerterna ('+o.progress.extracted+' av '+o.progress.total+' klara).'}));
+    var pr=el('div',{class:'progress',role:'progressbar','aria-valuemin':'0','aria-valuemax':'100','aria-valuenow':String(pct)},el('i',{style:'width:'+pct+'%'}));box.appendChild(pr);
+    box.appendChild(el('p',{class:'hint',text:'Du kan stänga fliken. Använd länken nedan för att komma tillbaka.'}));
+    next=(r.json.pollMs||2000)+500;
+  }else if(o.status==='delivered'){
+    var rr=await api('GET','/compare/orders/'+state.order.id+'/report',{token:state.order.token});
+    if(rr.status===200){show('s3',false);renderReport(rr.json.report,o);return}
+    if(rr.status===410){box.appendChild(el('p',{text:'Rapporten har gått ut och är raderad.'}));}
+    else{box.appendChild(el('p',{text:'Rapporten är klar men kunde inte hämtas just nu.'}));next=4000}
+  }else if(o.status==='failed'){
+    box.appendChild(el('div',{class:'err',text:'Jämförelsen kunde inte slutföras. Du ska få pengarna tillbaka'+(o.refund&&o.refund.state==='done'?' – återbetalning är gjord.':'.')}));
+    box.appendChild(el('p',{text:'Ordernummer: '+o.id.slice(2,10).toUpperCase()+(o.refund&&o.refund.state==='needed'?'. Kontakta oss med ordernumret om pengarna inte kommit tillbaka inom några dagar.':'')}));
+  }else if(o.status==='deleted'){box.appendChild(el('p',{text:'Jämförelsen är raderad.'}));store('jamfor_order',null)}
+  if(next)state.timer=setTimeout(tick,next);
+}
+function setStatus(t,bad){var b=$('statusbox');b.textContent='';b.appendChild(el('p',{text:t}));if(bad)b.appendChild(restartBtn())}
+function restartBtn(){var b=el('button',{type:'button',class:'btn ghost',text:'Börja om'});b.addEventListener('click',function(){store('jamfor_order',null);location.href=location.pathname});return b}
+async function retryPay(){
+  var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:{terms:true,immediateDelivery:true}}});
+  if(r.status===200&&r.json.url)location.href=r.json.url;else err((r.json&&r.json.error)||'Betalningen kunde inte startas.');
+}
+
+// ---------- rapport ----------
+var STATUS={ingar:'Ingår',ingar_inte:'Ingår inte',framgar_inte:'Framgår inte'};
+function ref(c){if(c.status==='framgar_inte')return null;return (c.page?'s. '+c.page+(c.ref?', ':''):'')+(c.ref||'')}
+function money(m){return m?kr(m.value):'Framgår inte'}
+function renderReport(R,o){
+  var host=$('rep');host.textContent='';show('rep',true);
+  host.appendChild(el('h2',{id:'h-rep',text:'Din jämförelse'}));
+  var L=R.offers.map(function(x){return x.label});
+  // beslutsblad
+  var ds=R.decisionSheet,sheet=el('div',{class:'card acc'});
+  sheet.appendChild(el('h3',{style:'margin-top:0',text:'Beslutsblad'}));
+  sheet.appendChild(el('p',{text:R.comparability.reasons.join(' ')}));
+  if(ds.canCompareNow.length){sheet.appendChild(el('h3',{text:'Det här går att jämföra nu'}));var u=el('ul',{class:'tight'});ds.canCompareNow.forEach(function(t){u.appendChild(el('li',{text:t}))});sheet.appendChild(u)}
+  if(ds.mustClarify.length){sheet.appendChild(el('h3',{text:'Det här behöver du få klarlagt innan du väljer'}));var u2=el('ul',{class:'tight'});ds.mustClarify.forEach(function(t){u2.appendChild(el('li',{text:t.text}))});sheet.appendChild(u2)}
+  host.appendChild(sheet);
+  // rangordning
+  var rk=R.ranking,rb=el('div',{class:rk.shown?'okbox':'warnbox'});
+  if(rk.shown){
+    rb.appendChild(el('p',{style:'margin:0 0 4px',text:rk.lowest?'Lägst angivet belopp: '+L[rk.lowest.index]+' ('+kr(rk.lowest.diffKr)+' lägre än näst lägsta, '+String(rk.lowest.diffPct).replace('.',',')+' %).':'Beloppen är lika på samma bas.'}));
+    rb.appendChild(el('p',{class:'hint',text:rk.basis+'.'}));
+  }else{
+    rb.appendChild(el('p',{style:'margin:0 0 4px',text:'Vi rangordnar inte offerterna, eftersom det inte går att veta att de omfattar samma sak:'}));
+    var ur=el('ul',{class:'tight'});rk.reasons.forEach(function(t){ur.appendChild(el('li',{text:t}))});rb.appendChild(ur);
+  }
+  (rk.shown?rk.reasons:[]).forEach(function(t){rb.appendChild(el('p',{class:'hint',text:t}))});
+  host.appendChild(rb);
+  // pris
+  host.appendChild(el('h3',{text:'Pris och moms'}));
+  var pg=el('div',{class:'grid'});
+  R.offers.forEach(function(of){
+    var p=of.price,d=el('dl');
+    function row(k,v){d.appendChild(el('dt',{text:k}));d.appendChild(el('dd',{text:v}))}
+    row('Totalt före ROT',money(p.totalBeforeRot));
+    if(!p.totalBeforeRot&&p.totalUnmarked)row('Omärkt total',kr(p.totalUnmarked.value)+' (före/efter ROT framgår inte)');
+    row('Momsbas',p.vatBasis==='inkl'?'Inklusive moms':p.vatBasis==='exkl'?'Exklusive moms':'Framgår inte');
+    row('Inklusive moms',p.normalized?kr(p.normalized.incVat):'Kan inte räknas om');
+    row('ROT-avdrag',p.rotAmount?kr(p.rotAmount.value):'Anges inte');
+    row('Att betala',p.amountToPay?kr(p.amountToPay.value):'Anges inte');
+    row('Pristyp',p.priceType==='fast'?'Fast pris':p.priceType==='ungefarligt'?'Uppskattat':p.priceType==='lopande'?'Löpande räkning':'Framgår inte');
+    var c=el('div',{class:'card',style:'margin:0'},el('h3',{style:'margin-top:0',text:of.label}),d);
+    if(of.readability!=='bra')c.appendChild(el('p',{class:'warnbox',text:of.readability==='svar'?'Mycket svårläst – bekräfta beloppen.':'Delar var svårlästa – kontrollera beloppen.'}));
+    pg.appendChild(c);
+  });host.appendChild(pg);
+  // omfattning
+  host.appendChild(el('h3',{text:'Omfattning – vad står i offerterna?'}));
+  host.appendChild(el('p',{class:'hint',text:'”Ingår” och ”Ingår inte” visas bara när offerten uttryckligen säger det, med hänvisning. Annars: ”Framgår inte”.'}));
+  var sc=el('div',{class:'card'}),more=el('details',{},el('summary',{text:'Fler punkter (villkor och övrig omfattning)'})),moreN=0;
+  R.scopeMatrix.forEach(function(m){
+    var cells=el('div',{class:'cells'});
+    m.cells.forEach(function(c,i){var cell=el('div',{class:'cell '+c.status},el('b',{text:L[i]}),el('span',{text:STATUS[c.status]}));var rf=ref(c);if(rf)cell.appendChild(el('small',{text:rf}));cells.appendChild(cell)});
+    var rowEl=el('div',{class:'scope'},el('b',{text:m.label+(m.kind==='skiljer'?'  · skiljer':m.kind==='oklart_for_nagon'?'  · oklart i någon':'')}),cells);
+    // Kärnposter och allt som skiljer visas direkt; resten ligger under en hopfällbar rubrik.
+    if(m.core||m.kind==='skiljer'||m.kind==='oklart_for_nagon')sc.appendChild(rowEl);else{more.appendChild(rowEl);moreN++}
+  });if(moreN)sc.appendChild(more);host.appendChild(sc);
+  // skillnader
+  if(R.differences.length){host.appendChild(el('h3',{text:'Skillnader, viktigast först'}));var dl=el('ul',{class:'tight'});R.differences.slice(0,12).forEach(function(d){dl.appendChild(el('li',{text:d.text}))});host.appendChild(dl)}
+  // frågor
+  host.appendChild(el('h3',{text:'Frågor att ställa till varje hantverkare'}));
+  R.questions.forEach(function(q){
+    var det=el('details',{},el('summary',{text:q.label+' ('+q.questions.length+' frågor)'}));
+    var ul=el('ul',{class:'tight'});q.questions.forEach(function(x){ul.appendChild(el('li',{text:x.text}))});det.appendChild(ul);
+    if(!q.questions.length)det.appendChild(el('p',{class:'hint',text:'Inga särskilda frågor utifrån jämförelsen.'}));
+    host.appendChild(det);
+  });
+  // datakort
+  host.appendChild(el('h3',{text:'Omdömen om företagen'}));
+  host.appendChild(el('p',{class:'hint',text:'Visas inte i den här versionen. Offertjämförelsen ovan är komplett utan dem.'}));
+  // kvitto
+  var rc=R.receipt,rd=el('dl');
+  [['Ordernummer',rc.orderNo],['Produkt',rc.product],['Belopp',kr(rc.amountOre/100)+' inkl. moms'],['Varav moms ('+rc.vatPct+' %)',(rc.vatOre/100).toFixed(2).replace('.',',')+' kr'],['Betald',rc.paidAt?new Date(rc.paidAt).toLocaleString('sv-SE'):'—'],['Betalningsreferens','…'+(rc.paymentRef||'')],['Säljare',rc.seller]].forEach(function(r){rd.appendChild(el('dt',{text:r[0]}));rd.appendChild(el('dd',{text:r[1]}))});
+  host.appendChild(el('h3',{text:'Kvitto'}));host.appendChild(el('div',{class:'card'},rd,el('p',{class:'hint',text:rc.vatNote+' '+rc.sellerNote})));
+  // förbehåll + åtgärder
+  var dis=el('ul',{class:'tight'});R.disclaimers.forEach(function(t){dis.appendChild(el('li',{text:t}))});host.appendChild(el('div',{class:'warnbox'},dis));
+  var act=el('div',{class:'noprint',style:'display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'});
+  var pb=el('button',{type:'button',class:'btn ghost',text:'Skriv ut / spara som PDF'});pb.addEventListener('click',function(){window.print()});
+  var jb=el('button',{type:'button',class:'btn ghost',text:'Ladda ner (JSON)'});jb.addEventListener('click',function(){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(R,null,2)],{type:'application/json'}));a.download='jamforelse-'+rc.orderNo+'.json';a.click()});
+  var db=el('button',{type:'button',class:'btn ghost',text:'Radera min jämförelse'});db.addEventListener('click',async function(){
+    if(!confirm('Radera jämförelsen och filerna nu? Det går inte att ångra.'))return;
+    var r=await api('DELETE','/compare/orders/'+state.order.id,{token:state.order.token});
+    if(r.status===200){store('jamfor_order',null);host.textContent='';host.appendChild(el('div',{class:'okbox',text:'Jämförelsen är raderad.'}));}else err('Kunde inte radera just nu.');
+  });
+  act.appendChild(pb);act.appendChild(jb);act.appendChild(db);host.appendChild(act);
+  host.appendChild(el('p',{class:'hint noprint',text:'Resultatet finns kvar till '+new Date(R.expiresAt).toLocaleString('sv-SE')+'. Ladda ner om du vill spara det.'}));
+  host.scrollIntoView({block:'start'});
+}
+
+init();
+})();
+</script>
+</body>
+</html>

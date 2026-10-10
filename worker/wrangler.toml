@@ -88,3 +88,18 @@ new_sqlite_classes = ["ExplainBudget"]
 #
 # BUILD_ID sätts vid publicering av DEPLOY_GRANSKAMINOFFERT_WORKER.command (--var BUILD_ID:...)
 # och visas i /health, så att live-versionen går att jämföra mot en exakt commit.
+
+# ---- Jämför mina offerter (D04) – KOMMENTERAT, INTE AKTIVERAT ----
+# Aktiveras först efter separat release-GO. Kräver också secrets STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET
+# och människosatta tak (COMPARE_*_CAP_MICRO, se COMPARE.md). Ingen resurs skapas förrän `wrangler deploy`.
+#   [[durable_objects.bindings]]
+#   name = "COMPARE_ORDERS"
+#   class_name = "CompareOrders"
+#   [[durable_objects.bindings]]
+#   name = "COMPARE_BUDGET"
+#   class_name = "CompareBudget"
+#   [[migrations]]
+#   tag = "v3"
+#   new_sqlite_classes = ["CompareOrders", "CompareBudget"]
+# OBS: koden exporterar redan klasserna, men utan bindningarna ovan och COMPARE_ENABLED="1" gör /compare ingenting (503).
+# Valfritt: [[ratelimits]] name = "COMPARE_RL" namespace_id = "1004" simple = { limit = 6, period = 60 }

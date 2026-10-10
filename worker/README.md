@@ -80,3 +80,6 @@ Workers och KV på gratisnivå. Anthropic-anropen kostar per användning: `meta.
 Origin-kontrollen på `/review` tillkom 2026-09-18: CORS stoppar andra webbplatser i en
 webbläsare men inte `curl`, och workers.dev-adressen står i klartext i `index.html`.
 Kontrollen stoppar inte en bestämd angripare — det gör bara ett spend limit hos Anthropic.
+
+## Jämför mina offerter (D04, avstängd kandidat)
+Se `COMPARE.md` (arkitektur, variabler, återstående externa steg). Aktiveras aldrig utan separat beslut.
