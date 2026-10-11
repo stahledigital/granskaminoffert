@@ -10,6 +10,7 @@ import { APPS, validActions, deterministicActions, parseExplainInput } from "./e
 import { MODELS, buildAnthropicRequest, computeCost, modelInfo } from "./models.js";
 import { ANTHROPIC_URL, ANTHROPIC_VERSION } from "./provider.js";
 import { aiGate } from "./org_probe.js";
+import { freeReserve, freeSettle, freeUnknown, freeRelease } from "./free_budget.js";
 import { reserveBudget, settleBudget, releaseBudget, budgetAvailable } from "./explain_budget.js";
 
 export const EXPLAIN_VERSION = "explain-v2";
@@ -173,8 +174,12 @@ export async function handleExplain(request, env, ctx, { tratt = () => {}, fetch
   // Konfigurerade värden får bara SÄNKA taken; allt över standard eller ogiltigt nekar.
   if (!Number.isSafeInteger(dayLimit) || dayLimit < 0 || dayLimit > DAY_LIMIT || !Number.isSafeInteger(capMicro) || capMicro < 0 || capMicro > MONTH_CAP_MICRO) return fb("konfig");
   if (!budgetAvailable(env)) return fb("ingen_budget");
+  // D12: gemensamt, ändligt pilottak för gratisgenerationer. Reservation före ExplainBudget; stängd/utgången/slut/fel ⇒ inget anrop.
+  const gateKey = `exp:${crypto.randomUUID()}`, gateMicro = Math.max(1, Math.ceil(worstMicro));
+  const g = await freeReserve(env, { key: gateKey, micro: gateMicro });
+  if (!g.ok) return fb(`gate_${g.reason}`);
   const res = await reserveBudget(env, { month, day, ipKey, micro: worstMicro, capMicro, dayLimit, ipLimit: IP_LIMIT });
-  if (!res.ok) return fb(`budget_${res.reason}`);
+  if (!res.ok) { await freeRelease(env, { key: gateKey }); return fb(`budget_${res.reason}`); }
 
   let respJson;
   try {
@@ -187,15 +192,18 @@ export async function handleExplain(request, env, ctx, { tratt = () => {}, fetch
     if (!resp.ok) {
       // Ett svar utan 2xx har inte debiterats: reservationen frigörs.
       await releaseBudget(env, { month, day, ipKey, micro: worstMicro });
+      await freeRelease(env, { key: gateKey });
       return fb("ai_fel");
     }
     respJson = await resp.json();
   } catch {
     // Okänt om anropet nådde fram och debiterades: reservationen (värsta fallet) får ligga kvar.
+    await freeUnknown(env, { key: gateKey, worstMicro: gateMicro });
     return fb("ai_oklart");
   }
 
   const cost = computeCost(model, respJson && respJson.usage);
+  await freeSettle(env, { key: gateKey, model, usage: respJson && respJson.usage, worstMicro: gateMicro });
   // Uppmätt kostnad ersätter reservationen. Okänd kostnad: värsta fallet ligger kvar.
   if (cost.status === "känd" && cost.usd !== null) {
     await settleBudget(env, { month, micro: worstMicro, actual: Math.ceil(cost.usd * 1e6) });

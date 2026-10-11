@@ -1,4 +1,5 @@
 // POST /explain (S3). Inga riktiga AI-anrop, ingen nyckel, inget nätverk: Anthropic och Turnstile är attrapper.
+import { gateVars } from "./helpers/free_gate.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
@@ -23,7 +24,7 @@ const GOOD = { priority_ids: ["agarkollen/spf/atgarda", "agarkollen/dmarc/atgard
 function env(over = {}) {
   const calls = { anthropic: 0, turnstile: 0, events: [] };
   const e = {
-    REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), EXPLAIN_BUDGET: fakeBudgetNs(), ALLOWED_ORIGIN: "https://granskaminoffert.se",
+    REVIEWS_KV: fakeKV(), QUOTA: fakeQuotaNamespace(), ...gateVars(), EXPLAIN_BUDGET: fakeBudgetNs(), ALLOWED_ORIGIN: "https://granskaminoffert.se",
     ANTHROPIC_API_KEY: "test", TURNSTILE_SECRET_KOLLAR: "ts", EXPLAIN_ENABLED: "1", EXPLAIN_CREDIT_UNTIL: "2099-01-01", ...over,
     GRANSKA_H: { writeDataPoint: (dp) => calls.events.push(dp) },
   };
@@ -260,4 +261,17 @@ test("katalog: varje kontroll har fast åtgärdstext; deterministisk ordning; h�
 test("validateModelOutput: ID måste höra till indata", () => {
   assert.equal(validateModelOutput(GOOD, "agarkollen", CHECKS).ok, true);
   assert.equal(validateModelOutput(GOOD, "agarkollen", [{ id: "spf", status: "bra" }]).ok, false);
+});
+
+test("D12: utgången/ej aktiverad/slut pilot ⇒ /explain gör inget AI-anrop och ingen Turnstile/org-kontroll är beroende av den; ExplainBudget reserveras inte", async () => {
+  const now = Date.now(), iso = (t) => new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
+  for (const over of [
+    { FREE_PILOT_FROM: iso(now - 10 * 86400000), FREE_PILOT_UNTIL: iso(now - 86400000) }, // utgången
+    { FREE_PILOT_ENABLED: "0" }, { FREE_PILOT_CAP_MICRO: "1" }, { FREE_BUDGET: undefined }, { FREE_PILOT_MANDATE: "" },
+  ]) {
+    const e = env(over); const j = await (await post(e, payload())).json();
+    assert.equal(j.mode, "fallback"); assert.match(j.reason, /^gate_/); assert.equal(e.calls.anthropic, 0); assert.equal(e.EXPLAIN_BUDGET.store.size, 0, "ingen ExplainBudget-reservation");
+  }
+  const ok = env(); assert.equal((await (await post(ok, payload())).json()).mode, "ai"); assert.equal(ok.calls.anthropic, 1);
+  const spent = [...ok.FREE_BUDGET.objects.values()][0].store.get("m").spent; assert.ok(spent > 0 && spent < 20_000_000);
 });
