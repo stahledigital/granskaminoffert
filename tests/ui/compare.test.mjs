@@ -214,28 +214,67 @@ async function payFlow(page, h, offers) {
 }
 
 for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
-  test(`ånger efter levererad rapport (${name}): knapp i rapporten, begäran sparas utan automatiskt avslag`, async () => {
+  test(`ånger efter levererad rapport (${name}): ingen ångerknapp i resultatet, normalstor länk Ditt köp och villkor till köpsidan där ångern fungerar; begäran sparas utan automatiskt avslag`, async () => {
     const h = await startHarness();
     const { ctx, page, errors } = await newPage(h, w, hgt);
     try {
       await payFlow(page, h, OFFERS);
       await page.waitForSelector("#rep:not(.hidden)", { timeout: 30000 });
-      assert.ok(await page.isVisible("#rep #withdraw"), "ångerknapp i rapporten");
-      assert.match(await page.textContent("#agreement"), /Avtals-ID avt_/);
-      assert.match(await page.textContent("#agreement"), /Utkast/);
-      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_4_rapport_med_anger.png`), fullPage: true });
-      await page.click("#rep #withdraw");
+      assert.equal(await page.locator("#rep #withdraw").count(), 0, "ingen ångerknapp i rapportens primära yta");
+      assert.equal(await page.locator("#rep #agreement").count(), 0, "inget avtalsblock i rapporten");
+      const link = page.locator("#rep a#buylink");
+      assert.equal(await link.count(), 1); assert.ok(await link.isVisible()); assert.equal((await link.textContent()).trim(), "Ditt köp och villkor");
+      const fs = await link.evaluate((e) => parseFloat(getComputedStyle(e).fontSize)); assert.ok(fs >= 16, "normalstor länk, inte minitext: " + fs);
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_4_rapport_med_koplänk.png`), fullPage: true });
+      await link.click(); await page.waitForURL("**/jamfor/kop/**");
+      await page.waitForSelector("#agreement:not(.hidden) #agtext", { timeout: 15000 });
+      assert.match(await page.textContent("#agreement"), /Avtals-ID avt_/); assert.match(await page.textContent("#agreement"), /Utkast/);
+      assert.ok(await page.isVisible("#withdraw"), "ångerfunktion finns på köpsidan"); assert.ok(await page.isVisible('a[href="/jamfor/villkor/"]'));
+      assert.match(await page.textContent("#helpcard"), /reklamation/i);
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_4b_kopsida.png`), fullPage: true });
+      await page.click("#withdraw");
       await page.waitForSelector("#wdtext", { timeout: 15000 });
       const t = await page.textContent("#wdtext");
       assert.match(t, /prövas manuellt|ingen bekräftelse|mottagen/i);
       assert.doesNotMatch(t, /avslag|avslagen|har inte rätt/i);
       assert.ok(await noSideScroll(page), "ingen sidoscroll efter ånger");
       await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_5_anger_efter_leverans.png`), fullPage: true });
-      assert.equal(await page.locator("#rep #withdraw").count(), 0, "knappen ersätts av begärans status");
+      assert.equal(await page.locator("#withdraw").count(), 0, "knappen ersätts av begärans status");
       assert.deepEqual(errors, []);
     } finally { await ctx.close(); await h.close(); }
   });
 }
+
+test("köpsidan /jamfor/kop/ utan känd order: begriplig text, villkor och supportväg, ingen krasch (mobil390)", async () => {
+  const h = await startHarness();
+  const { ctx, page, errors } = await newPage(h, 390, 844);
+  try {
+    await page.goto(h.base + "/jamfor/kop/");
+    await page.waitForSelector("#err:not(.hidden)");
+    assert.match(await page.textContent("#err"), /Vi hittar inget köp/); assert.ok(await page.isVisible('a[href="/jamfor/villkor/"]')); assert.ok(await page.isVisible('a[href="/jamfor/angra/"]'));
+    assert.ok(await noSideScroll(page)); assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});
+
+test("ånger via köpsidan under pågående jämförelse (mobil390): stoppas före leverans, ingen rapport, återbetalning", async () => {
+  const h = await startHarness();
+  h.ctl.anthropicDelayMs = 4000;
+  const { ctx, page, errors } = await newPage(h, 390, 844);
+  try {
+    await payFlow(page, h, OFFERS);
+    await page.waitForSelector("#agreement #withdraw", { timeout: 30000 });
+    await page.goto(h.base + "/jamfor/kop/");
+    await page.waitForSelector("#withdraw", { timeout: 15000 });
+    await page.click("#withdraw"); await page.waitForSelector("#wdtext", { timeout: 15000 });
+    assert.match(await page.textContent("#wdtext"), /Hela beloppet ska betalas tillbaka|återbetalning|prövas manuellt/);
+    await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#statusbox", { timeout: 15000 });
+    await page.waitForFunction(() => /ångrat|pengarna tillbaka|återbetal/i.test(document.body.textContent), null, { timeout: 15000 });
+    assert.equal(await page.locator("#rep:not(.hidden)").count(), 0, "ingen rapport efter ånger före leverans");
+    assert.ok(await noSideScroll(page)); assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});
 
 test("ånger under pågående jämförelse (mobil390): stoppas före leverans, ingen rapport, hela beloppet ska tillbaka", async () => {
   const h = await startHarness();

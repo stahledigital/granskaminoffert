@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="app-version" content="jamfor-v1-kandidat-kop">
+<title>Ditt köp och villkor – Jämför mina offerter</title>
+<meta name="description" content="Ditt köp, villkor, support och ångra köpet – Jämför mina offerter.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/barlow-condensed-700.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/barlow-400.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/barlow-500.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/barlow-600.woff2) format('woff2')}</style>
+<style>
+:root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b;--acc-text:#b8431f;--ok:#2e7d4f;--warn:#8a6508;--bad:#c0392b;--oksoft:#e3f1e8;--warnsoft:#fbf0d2;--badsoft:#f9e0dc}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;padding:0 16px 56px;line-height:1.45}
+.wrap{max-width:880px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:baseline;padding-block:24px 0;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);font-weight:600}
+header a{color:var(--ink2)}
+h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:clamp(38px,8vw,60px);line-height:.95;margin:22px 0 12px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--acc-text)}
+h2{font-family:"Barlow Condensed",Barlow,sans-serif;font-size:28px;line-height:1.05;margin:0 0 10px}
+h3{font-size:17px;margin:18px 0 6px}
+.lead{font-size:18px;max-width:54ch;margin:0 0 20px;color:var(--ink2)}
+.card{border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:16px;margin:14px 0}
+.card.acc{border-left:6px solid var(--acc)}
+.steps{display:flex;gap:8px;list-style:none;padding:0;margin:0 0 14px;font-size:13px;color:var(--ink2);flex-wrap:wrap}
+.steps li{padding:4px 10px;border:1px solid var(--line);border-radius:99px;background:var(--paper)}
+.steps li[aria-current="step"]{border-color:var(--acc);color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px var(--acc)}
+.seg{display:flex;gap:8px;margin:6px 0 0}
+.seg button{flex:1;min-height:48px;border:1px solid var(--line);background:var(--paper);border-radius:10px;font:600 18px Barlow,sans-serif;cursor:pointer}
+.seg button[aria-pressed="true"]{border-color:var(--acc);background:#fff4ee;box-shadow:inset 0 0 0 2px var(--acc)}
+label.t{display:block;font-weight:600;font-size:14px;margin:12px 0 4px}
+input[type=text],input[type=email],textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:12px;font:16px/1.4 Barlow,sans-serif;background:#fff;color:var(--ink)}
+textarea{min-height:110px}
+.btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--ink);background:var(--ink);color:var(--bg);font:600 16px Barlow,sans-serif;padding:12px 18px;min-height:48px;border-radius:10px;cursor:pointer;text-decoration:none}
+.btn.acc{background:var(--acc);border-color:var(--acc);color:#161616}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.block{display:flex;width:100%}
+:focus-visible{outline:3px solid #1a5fd0;outline-offset:2px}
+.hint{font-size:14px;color:var(--ink2);margin:6px 0}
+.err{background:var(--badsoft);border:1px solid #c0392b66;border-radius:8px;padding:10px 12px;margin:10px 0;font-size:15px}
+.okbox{background:var(--oksoft);border:1px solid #2e7d4f55;border-radius:8px;padding:10px 12px;margin:10px 0}
+.warnbox{background:var(--warnsoft);border:1px solid #b8860b66;border-radius:8px;padding:10px 12px;margin:10px 0}
+.chk{display:flex;gap:10px;align-items:flex-start;margin:12px 0;font-size:15px}
+.chk input{width:22px;height:22px;flex:none;margin:1px 0 0;accent-color:var(--acc)}
+.price{font-family:"Barlow Condensed",Barlow,sans-serif;font-size:56px;line-height:1;font-weight:700}
+.price small{display:block;font-family:Barlow,sans-serif;font-size:15px;font-weight:400;color:var(--ink2);margin-top:4px}
+ul.tight{margin:6px 0;padding-left:20px}
+ul.tight li{margin:3px 0}
+.docrow{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin:6px 0;background:#fff}
+.tag{font-size:12px;font-weight:600;border-radius:99px;padding:2px 9px;border:1px solid var(--line);white-space:nowrap}
+.tag.ok{background:var(--oksoft);color:var(--ok)} .tag.warn{background:var(--warnsoft);color:var(--warn)} .tag.bad{background:var(--badsoft);color:var(--bad)}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.scope{border-top:1px solid var(--line);padding:10px 0}
+.scope .cells{display:grid;gap:6px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-top:6px}
+.cell{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:14px;background:#fff}
+.cell b{display:block;font-size:13px}
+.cell.ingar{border-color:#2e7d4f66;background:var(--oksoft)} .cell.ingar_inte{border-color:#c0392b55;background:var(--badsoft)} .cell.framgar_inte{background:#f1f0ec;color:var(--ink2)}
+.cell small{display:block;color:var(--ink2)}
+dl{margin:6px 0;display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:14px}
+dt{color:var(--ink2)} dd{margin:0;text-align:right}
+details{border:1px solid var(--line);border-radius:10px;background:#fff;margin:8px 0;padding:2px 12px}
+summary{cursor:pointer;font-weight:600;padding:10px 0;min-height:44px}
+.hidden{display:none!important}
+.progress{height:10px;background:#16161614;border-radius:99px;overflow:hidden;margin:10px 0}
+.progress i{display:block;height:100%;background:var(--acc);transition:width .4s}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all}
+footer{margin-top:36px;font-size:13px;color:var(--ink2)}
+@media print{body{background:#fff}.noprint{display:none!important}.card,details{break-inside:avoid}details>*{display:block}}
+</style>
+</head>
+<body>
+<main class="wrap" id="app">
+<header><span>Jämför mina offerter</span><a href="/jamfor/" id="back">Till jämförelsen</a></header>
+<h1>Ditt köp<br><em>och villkor.</em></h1>
+<p class="lead">Här finns ditt avtal, villkoren, hjälp med frågor eller reklamation och möjligheten att ångra köpet när ångerrätt finns. Du behöver inte logga in; sidan känner igen ditt köp från samma enhet eller din recovery-länk. Utkast: villkoren är inte slutgiltiga.</p>
+<div id="err" class="err hidden" role="alert"></div>
+<section id="loading" class="card" aria-live="polite"><p>Hämtar ditt köp …</p></section>
+<section id="agreement" class="card acc hidden"></section>
+<section id="withdrawcard" class="card hidden"></section>
+<section id="helpcard" class="card hidden">
+  <h2>Villkor, hjälp och reklamation</h2>
+  <ul class="tight">
+    <li><a href="/jamfor/villkor/">Läs villkoren</a></li>
+    <li id="contactli">Frågor, klagomål och reklamation: kontakta oss med ditt ordernummer. Det gäller också efter att jämförelsen levererats.</li>
+    <li><a href="/jamfor/angra/">Ångra med ångerkod från avtalsbekräftelsen</a></li>
+  </ul>
+</section>
+<footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. Vi sparar din ångerbegäran och dess tidpunkt, även efter att ditt innehåll raderats. <a class="fu" href="/foretagsuppgifter">Företagsuppgifter</a></p></footer>
+</main>
+<script>
+(function(){
+var H=location.hostname;
+var API_BASE=(H==='localhost'||H==='127.0.0.1')?(new URLSearchParams(location.search).get('api')||location.origin):'https://granskaminoffert-api.anders-316.workers.dev';
+var $=function(id){return document.getElementById(id)};
+function el(tag,attrs){var e=document.createElement(tag);attrs=attrs||{};for(var k in attrs){if(k==='text')e.textContent=attrs[k];else if(k==='class')e.className=attrs[k];else e.setAttribute(k,attrs[k]);}for(var i=2;i<arguments.length;i++){var c=arguments[i];if(c==null)continue;e.appendChild(typeof c==='string'?document.createTextNode(c):c);}return e}
+function err(m){var b=$('err');b.textContent=m||'';b.classList.toggle('hidden',!m)}
+function store(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){return null}}
+function safeUrl(u){try{var x=new URL(String(u||''));return x.protocol==='https:'&&!x.username&&!x.password?x.href:''}catch(e){return ''}}
+async function api(method,path,opt){
+  opt=opt||{};var h={};if(opt.token)h['x-order-token']=opt.token;if(opt.body!==undefined)h['content-type']='application/json';
+  var r=await fetch(API_BASE.replace(/\/$/,'')+path,{method:method,headers:h,body:opt.body!==undefined?JSON.stringify(opt.body):undefined});
+  var j=null;try{j=await r.json()}catch(e){}
+  return {status:r.status,json:j||{}};
+}
+function readOrder(){
+  var p=new URLSearchParams(location.hash.replace(/^#/,''));var o=p.get('o'),t=p.get('t');
+  if(o&&t){store('jamfor_order',JSON.stringify({id:o,token:t}));history.replaceState(null,'',location.pathname+location.search)}
+  try{var v=JSON.parse(store('jamfor_order')||'null');if(v&&/^o_[0-9a-f]{32}$/.test(v.id||'')&&v.token)return v}catch(e){}
+  return null;
+}
+function mailText(st){return st==='sent'?'skickad':st==='avstamning'?'leveransen är oklar och kontrolleras manuellt (vi har inte kunnat bekräfta att den skickades)':st==='failed'?'kunde inte skickas (vi hanterar det manuellt)':'köad (ännu inte skickad)'}
+var cur=null;
+function render(o){
+  $('loading').classList.add('hidden');err('');
+  var ag=$('agreement'),wc=$('withdrawcard'),hc=$('helpcard');ag.textContent='';wc.textContent='';
+  ag.classList.remove('hidden');wc.classList.remove('hidden');hc.classList.remove('hidden');
+  if(!o.agreement){ag.appendChild(el('h2',{text:'Inget avtal hittades'}));ag.appendChild(el('p',{text:'Köpet är inte slutfört, så det finns inget avtal eller någon ånger att visa här.'}));wc.classList.add('hidden');return}
+  ag.appendChild(el('h2',{text:'Ditt avtal'}));
+  var conf=(o.agreement.mails||[]).filter(function(m){return m.kind==='avtalsbekraftelse'})[0];
+  ag.appendChild(el('p',{class:'hint',id:'agtext',text:'Avtals-ID '+o.agreement.id+'. Ordernummer '+o.id.slice(2,10).toUpperCase()+'. Avtalsbekräftelse till '+o.agreement.contact+': '+(conf?mailText(conf.state):'köad')+'. Utkast: villkoren är inte slutgiltiga.'}));
+  wc.appendChild(el('h2',{text:'Ångra köpet'}));
+  var w=o.withdrawal;
+  if(w&&w.requested){
+    var txt=w.outcome==='avbrutet_fore_leverans'?'Köpet är ångrat och jämförelsen stoppad. Hela beloppet ska betalas tillbaka.':w.outcome==='redan_avslutad'?'Din ånger är mottagen. Jämförelsen kunde redan inte slutföras; återbetalningen hanteras separat.':'Din ånger är mottagen och sparad med tidpunkten nedan. Den prövas manuellt – det här är ingen bekräftelse på att ångerrätten gäller eller inte gäller.';
+    wc.appendChild(el('p',{id:'wdtext',text:txt}));
+    wc.appendChild(el('p',{class:'hint',text:'Begäran '+w.requestId+', mottagen '+new Date(w.at).toLocaleString('sv-SE')+'. Mottagningsbevis skickas till din e-post.'}));
+  }else{
+    wc.appendChild(el('p',{text:'Du kan begära att ångra köpet. Begäran sparas med tidpunkt och prövas utifrån vad som gäller för ditt köp; att du har sett resultatet innebär inte att den nekas automatiskt. [UTKAST – hur ångerrätt och start direkt bedöms är inte slutligt fastställt.]'}));
+    var b=el('button',{type:'button',class:'btn ghost',id:'withdraw',text:'Ångra köpet'});
+    b.addEventListener('click',async function(){
+      if(!confirm('Vill du ångra köpet?'))return;
+      b.disabled=true;
+      var r=await api('POST','/compare/orders/'+cur.id+'/withdraw',{token:cur.token});
+      if(r.status===200&&r.json.ok){load()}else{b.disabled=false;err((r.json&&r.json.error)||'Det gick inte att ta emot ångern just nu. Försök igen.')}
+    });
+    wc.appendChild(b);
+  }
+}
+async function load(){
+  cur=readOrder();
+  if(!cur){$('loading').classList.add('hidden');err('Vi hittar inget köp på den här enheten. Öppna länken från din avtalsbekräftelse, eller använd ångerkoden på ångersidan. Kontakta oss med ordernumret om du behöver hjälp.');$('helpcard').classList.remove('hidden');return}
+  $('back').href='/jamfor/';
+  try{
+    var r=await api('GET','/compare/orders/'+cur.id,{token:cur.token});
+    if(r.status===200&&r.json.ok&&r.json.order)render(r.json.order);
+    else{$('loading').classList.add('hidden');$('helpcard').classList.remove('hidden');err(r.status===404?'Köpet finns inte kvar (jämförelsen kan vara raderad eller ha gått ut). Kontakta oss med ordernumret om du behöver hjälp.':'Det gick inte att hämta ditt köp just nu. Försök igen om en stund.')}
+  }catch(e){$('loading').classList.add('hidden');$('helpcard').classList.remove('hidden');err('Det gick inte att nå tjänsten. Försök igen om en stund.')}
+}
+(async function(){
+  try{var c=(await api('GET','/compare/config')).json,s=c&&c.terms&&c.terms.seller,u=s&&safeUrl(s.infoUrl);if(u)document.querySelectorAll('a.fu').forEach(function(a){a.href=u});
+    var secs=(c&&c.terms&&Array.isArray(c.terms.sections))?c.terms.sections:[];var k=secs.filter(function(x){return x.id==='kontakt'})[0];if(k&&k.text)$('contactli').textContent=String(k.text).slice(0,600)}catch(e){}
+  load();
+})();
+})();
+</script>
+</body>
+</html>

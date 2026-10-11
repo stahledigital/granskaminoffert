@@ -626,7 +626,7 @@ function renderReport(R,o){
   });
   act.appendChild(pb);act.appendChild(jb);act.appendChild(db);host.appendChild(act);
   host.appendChild(el('p',{class:'hint noprint',text:'Resultatet finns kvar till '+new Date(R.expiresAt).toLocaleString('sv-SE')+'. Ladda ner om du vill spara det.'}));
-  var wbk=withdrawBlock(o);if(wbk){wbk.classList.add('noprint');host.appendChild(wbk)}
+  host.appendChild(el('p',{class:'noprint',id:'buylinkp'},el('a',{id:'buylink',href:'/jamfor/kop/#o='+encodeURIComponent(state.order.id)+'&t='+encodeURIComponent(state.order.token),text:'Ditt köp och villkor'}),' – avtal, villkor, hjälp och reklamation samt ångra köpet när ångerrätt finns.'));
   host.scrollIntoView({block:'start'});
 }
 

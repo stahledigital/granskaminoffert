@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1v – resultatet fokuserar på jämförelsen: ingen stor "Ångra köpet"-knapp efter rapporten; ny köpsida /jamfor/kop/ (KANDIDAT – AV; ovanpå 179b22a; Anders direktorder 07:29)
+- `jamfor/index.html`: `withdrawBlock` visas inte längre i rapportens primära innehåll; i stället en normalstor länk "Ditt köp och villkor" (#buylink, 16 px+, ingen inloggning, bär orderlänken i fragmentet). Statusvyn före leverans (betald/körs/misslyckad) är oförändrad.
+- Ny `jamfor/kop/index.html` "Ditt köp och villkor": avtal/ID/bekräftelsestatus, fungerande Ångra köpet (samma serverroute och rättigheter), villkorslänk, reklamation/support (efter leverans också), ångerkodsidan, ärliga feltexter. `jamfor/angra/` pekar dit.
+- Ingen serverändring: serverrättigheter, föreleveransstopp/återbetalning och livepolicy oförändrade; ingen automatisk nekning för att rapporten visats; ingen P-/Q-ändring (P-kandidat beredes separat).
+- Tester: UI ånger efter leverans (390/1280) ersatt av länk→köpsida→ånger; köpsida utan order; ånger via köpsidan under körning.
+
 ## jamfor-v1u – mejltransport: senare stopp ersätter inte tidigare okänt utfall (root-QA ROOT_MAILER_28284; KANDIDAT – AV; ovanpå 28284f3a; ENDAST HTTP-dubbel)
 - `_stopMail`: ogiltig mottagare, ändrad nyttolast, terminal/config/409-payload efter tidigare `unknownOutcome` ⇒ `avstamning`/`utfall_okant` (`laterStop` = koden); första säkra stopp utan osäkerhet ⇒ `failed`; okänt→ID-ack ⇒ `sent`. Stabil nyckel/frusen nyttolast/dygnsreservation/confirmWait oförändrade.
 - Tester: `compare_mailer_fix.test.mjs` +7 (6 kombinationer röda mot 28284f3a); `compare_mailer.test.mjs` förväntan för 500→manipulerad nyttolast uppdaterad (failed→avstamning).
