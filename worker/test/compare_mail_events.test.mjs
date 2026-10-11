@@ -326,3 +326,107 @@ test("ledgerexport visar transportaccept och leveransläge separat och säger ut
     assert.deepEqual(row.confirmationMail, { transport: "http", accepted: true, delivery: "delivered", inboxProof: false });
   } finally { f.restore(); }
 });
+
+// ======================= D14-fix: monotont tidigt bevis + beständigt städunderlag =======================
+const resetMail = (env, id) => { const st = store(env, id); const k = `outbox:mail_avtal_${id}`; st.set(k, { ...st.get(k), nextAt: 0, leaseUntil: null }); };
+
+test("rootens oberoende repro: förlorad ack, signerad bounced FÖRST, sedan 9 email.sent med olika svix-id, sedan delivered – allt före ack ⇒ bounce tappas inte ⇒ 0 generationer, ordern misslyckas", async () => {
+  const f = installFetch();
+  try {
+    const env = mk(); f.ctl.mailModes = ["timeout_after_accept"];
+    const o = await pay(env, f); const pid = f.log.mailSent[0].id; const to = f.log.mailSent[0].body.to;
+    const post = (t, extra = {}) => mailEvent(env, t, { emailId: pid, to, mailId: tagOf(o.orderId), ...extra });
+    assert.equal((await post("email.bounced", { bounce: { type: "Permanent" } })).json.state, "tidig");
+    for (let i = 0; i < 9; i++) assert.equal((await post("email.sent", { id: "msg_FLOOD000" + i })).status, 200);
+    assert.equal((await post("email.delivered")).status, 200);
+    const early = mailOf(env, o.orderId).early;
+    assert.ok(Number.isFinite(early.ids[pid].seen.bounced), "negativ klass bevarad (monoton mängd, ingen rullande lista)");
+    resetMail(env, o.orderId); await env.COMPARE_ORDERS.runAlarms(3);
+    const m = mailOf(env, o.orderId);
+    assert.equal(m.state, "sent"); assert.equal(m.providerRef, pid); assert.equal(m.delivery.state, "bounced"); assert.equal(m.delivery.contradiction, true); assert.equal(m.delivery.bounceType, "Permanent");
+    await env.COMPARE_ORDERS.runAlarms(5);
+    assert.equal(f.log.anthropic.length, 0, "0 modellgenerationer"); assert.equal(ordOf(env, o.orderId).status, "failed"); assert.equal(ordOf(env, o.orderId).refund.state, "needed");
+  } finally { f.restore(); }
+});
+test("ordningen i bufferten spelar ingen roll: delivered före bounced före ack ger också bounced; enbart delivered före ack ger fortsatt delivered", async () => {
+  for (const [seq, want] of [[["email.delivered", "email.bounced"], "bounced"], [["email.bounced", "email.delivered"], "bounced"], [["email.sent", "email.delivery_delayed", "email.delivered"], "delivered"]]) {
+    const f = installFetch();
+    try {
+      const env = mk(); f.ctl.mailModes = ["timeout_after_accept"];
+      const o = await pay(env, f); const pid = f.log.mailSent[0].id;
+      for (const t of seq) await mailEvent(env, t, { emailId: pid, to: f.log.mailSent[0].body.to, mailId: tagOf(o.orderId), bounce: { type: "Permanent" } });
+      resetMail(env, o.orderId); await env.COMPARE_ORDERS.runAlarms(3);
+      assert.equal(mailOf(env, o.orderId).delivery.state, want, seq.join());
+      await env.COMPARE_ORDERS.runAlarms(5); assert.equal(f.log.anthropic.length > 0, want === "delivered");
+    } finally { f.restore(); }
+  }
+});
+test("overflow (fler än 8 olika provider-ID före ack) ⇒ okänd bindning ⇒ FAIL CLOSED: även riktig delivered för rätt ID öppnar aldrig grinden", async () => {
+  const f = installFetch();
+  try {
+    const env = mk(); f.ctl.mailModes = ["timeout_after_accept"];
+    const o = await pay(env, f); const pid = f.log.mailSent[0].id; const to = f.log.mailSent[0].body.to;
+    for (let i = 0; i < 10; i++) await mailEvent(env, "email.sent", { emailId: "ANNAT-id-00000" + i, to, mailId: tagOf(o.orderId) });
+    assert.equal(mailOf(env, o.orderId).early.overflow, true); assert.ok(Object.keys(mailOf(env, o.orderId).early.ids).length <= 8);
+    await mailEvent(env, "email.delivered", { emailId: pid, to, mailId: tagOf(o.orderId) });
+    resetMail(env, o.orderId); await env.COMPARE_ORDERS.runAlarms(3);
+    const m = mailOf(env, o.orderId); assert.equal(m.state, "sent"); assert.equal(m.earlyUnbound, true); assert.ok(m.anoms.some((a) => a.code === "tidig_overflow"));
+    await mailEvent(env, "email.delivered", { emailId: pid, to, mailId: tagOf(o.orderId) }); await env.COMPARE_ORDERS.runAlarms(5);
+    assert.equal(f.log.anthropic.length, 0, "ingen start"); assert.equal(ordOf(env, o.orderId).status, "paid");
+    await withClock(31 * 60_000, async () => { await env.COMPARE_ORDERS.runAlarms(3); });
+    assert.equal(ordOf(env, o.orderId).status, "failed"); assert.equal(f.log.anthropic.length, 0);
+  } finally { f.restore(); }
+});
+
+const DAY = 86400_000;
+const POL = { COMPARE_LEDGER_RETENTION_DAYS: "30", COMPARE_BOOKKEEPING_RETENTION_DAYS: "90", COMPARE_ADMIN_TOKEN: "admin-token-for-tests-0123456789abcdef" };
+const bud = (env) => env.COMPARE_BUDGET.peek("jamfor-budget").store;
+function breakUnindex(env) {
+  const real = env.COMPARE_BUDGET, flag = { fail: true };
+  env.COMPARE_BUDGET = new Proxy(real, { get(t, k) { if (k === "get") return (id) => { const s = t.get(id); return { fetch: (u, i) => (flag.fail && /mailref-unindex/.test(String(u)) ? Promise.reject(new Error("budget nere")) : s.fetch(u, i)) }; }; const v = t[k]; return typeof v === "function" ? v.bind(t) : v; } });
+  return flag;
+}
+async function deliveredHttp(env, f) {
+  const o = await pay(env, f); await ev(env, o, "email.delivered"); await env.COMPARE_ORDERS.runAlarms(8);
+  assert.equal(ordOf(env, o.orderId).status, "delivered"); return o;
+}
+const sweepAt = (env, t, month) => withClock(t - Date.now(), () => api(env, "POST", `/compare/admin/retention-sweep?month=${month}`, { headers: { authorization: "Bearer " + POL.COMPARE_ADMIN_TOKEN }, origin: "" }));
+
+test("städ: avtalsstrip tar bort globalt mr-index FÖRE lokala spår; misslyckas det sparas beständigt underlag som överlever strip OCH fullpurge, och ett senare svep slutför (ledgerindex kvar tills klart)", async () => {
+  const f = installFetch();
+  try {
+    const env = mk(POL); const flag = breakUnindex(env); flag.fail = false;
+    const o = await deliveredHttp(env, f); const pid = o.sent.id; const key = `mr:${pid}`;
+    assert.ok(bud(env).get(key), "globalt index finns efter ack"); assert.ok(store(env, o.orderId).get(`mailref:${pid}`));
+    const paidAt = store(env, o.orderId).get("ledger").agreement.payment.paidAt; const month = new Date(paidAt).toISOString().slice(0, 7);
+    // 1) strip med fungerande index ⇒ globalt borta, lokalt borta, inget underlag kvar
+    // (egen order nedan för felvarianten)
+    flag.fail = true;
+    await withClock(31 * DAY, async () => { assert.equal((await api(env, "GET", `/compare/orders/${o.orderId}`, { token: o.token })).status, 200); });
+    const st = store(env, o.orderId);
+    assert.ok(!st.get(`mailref:${pid}`), "lokalt spår borta efter strip"); assert.ok(bud(env).get(key), "globalt kvar eftersom unindex misslyckades");
+    assert.deepEqual(st.get("cleanup").mailrefs, [pid], "beständigt städunderlag sparat vid strip");
+    // 2) fullpurge medan fortfarande misslyckas ⇒ underlag + ledgerindex bevaras
+    await withClock(91 * DAY, async () => { await api(env, "GET", `/compare/orders/${o.orderId}`, { token: o.token }); });
+    assert.ok(!st.get("order") && !st.get("ledger"), "allt annat raderat");
+    assert.deepEqual(st.get("cleanup").mailrefs, [pid], "underlaget överlever fullpurge"); assert.ok(bud(env).get(key));
+    assert.ok([...bud(env).keys()].some((k) => k.startsWith("x:") && k.endsWith(o.orderId)), "ledgerindex kvar så att svepet når ordern");
+    // 3) fortsatt fel ⇒ svepet lämnar underlaget; sedan fungerar budgeten ⇒ svepet städar klart
+    const r1 = await sweepAt(env, Date.now() + 91 * DAY, month); assert.equal(r1.status, 200); assert.ok(st.get("cleanup"));
+    flag.fail = false;
+    const r2 = await sweepAt(env, Date.now() + 91 * DAY, month); assert.equal(r2.status, 200);
+    assert.ok(!bud(env).get(key), "globala mr-posten borttagen"); assert.equal(st.get("cleanup"), undefined);
+    assert.ok(![...bud(env).keys()].some((k) => k.startsWith("x:") && k.endsWith(o.orderId)), "ledgerindex borttaget först när städningen är klar");
+  } finally { f.restore(); }
+});
+test("städ: fungerande index ⇒ strip tar bort mr direkt och lämnar inget underlag; fullpurge likaså", async () => {
+  const f = installFetch();
+  try {
+    const env = mk(POL); const o = await deliveredHttp(env, f); const key = `mr:${o.sent.id}`; const st = store(env, o.orderId);
+    assert.ok(bud(env).get(key));
+    await withClock(31 * DAY, async () => { await api(env, "GET", `/compare/orders/${o.orderId}`, { token: o.token }); });
+    assert.ok(!bud(env).get(key)); assert.equal(st.get("cleanup"), undefined); assert.ok(st.get("order"), "ordern finns kvar efter strip");
+    await withClock(91 * DAY, async () => { await api(env, "GET", `/compare/orders/${o.orderId}`, { token: o.token }); });
+    assert.equal(st.size, 0, "fullpurge tömmer allt"); assert.ok(![...bud(env).keys()].some((k) => k.startsWith("x:") && k.endsWith(o.orderId)));
+  } finally { f.restore(); }
+});

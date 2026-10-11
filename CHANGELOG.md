@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v2g – D14-fix: monotont tidigt bevis + beständigt städunderlag (ovanpå f0b64d93)
+
+- **Rootens repro (förlorad ack, bounced först, 9× email.sent, delivered, allt före ack):** `early` var en rullande lista (`slice(-8)`) som tappade bounce. Nu en MONOTON mängd per provider-ID och klass (`early.ids[id].seen[klass]`); negativa klasser kan inte trängas ut. Fler än 8 olika ID:n före ack ⇒ `overflow` ⇒ `earlyUnbound` ⇒ FAIL CLOSED (`deliveryOk` falskt, aldrig leveransbevis för mejlet). Resultat: 0 modellgenerationer, order `failed`, leveransläge `bounced`.
+- **Städ:** avtalsstrip tar nu bort det globala `mr:`-indexet FÖRE lokala `mailref:`; misslyckade ID:n sparas i beständigt `cleanup`-underlag (orderId, paidAt, ID:n) som överlever både strip och fullpurge. Vid kvarstående underlag behålls ledgerindexet så att `/compare/admin/retention-sweep` når ordern; svepet försöker igen och tar bort ledgerindex + underlag först när städningen är klar.
+- Tester: +5 i `compare_mail_events.test.mjs` (rootens repro, bufferordning, overflow, städ misslyckad→klar, städ ok). Inga UI/policy/pris/liveeffekter.
+
 ## jamfor-v2f – D14: signerad Resend-eventadapter, leveransbevis skilt från transportaccept (ovanpå 140d317f)
 
 - `worker/src/compare_mailer.js`: Svix-verifiering (råbody + id/timestamp/signatur, ±300 s), sanering av Resend-händelser, ordningsoberoende leveransläge, `gmo_mail`-tagg i begäran, `COMPARE_MAIL_WEBHOOK_SECRET` (saknas ⇒ HTTP-sändning AV, `reasons: events`).

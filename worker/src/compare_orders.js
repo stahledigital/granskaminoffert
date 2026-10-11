@@ -207,10 +207,18 @@ export class CompareOrders {
       return { body: { ok: true, order: publicView(o, now) } };
     }
     const o = await this._load();
-    if (!o) return NOT_FOUND;
+    if (!o) {
+      // Fullpurge kan ha lämnat kvar ett beständigt städunderlag (global mr-post som inte gick att ta bort): försök igen vid nästa svep.
+      if (path === "/retention-sweep" && (await this.state.storage.get("cleanup"))) return { body: { ok: true, ...(await this._retryCleanup(now)) } };
+      return NOT_FOUND;
+    }
     await this._repairWithdrawal(o, now);
     if (path === "/retention-close-review") return { body: await this._closeReview(o, b, now) };
-    if (path === "/retention-sweep") return { body: { ok: true, ...(await this._retentionSweep(o, now)) } };
+    if (path === "/retention-sweep") {
+      const cl = (await this.state.storage.get("cleanup")) ? await this._retryCleanup(now) : null;
+      const sw = await this._retentionSweep(o, now);
+      return { body: { ok: true, ...sw, ...(cl && !sw.purged ? { cleanupPending: cl.pending } : {}) } };
+    }
     if (o.paidAt) { const sw = await this._retentionSweep(o, now); if (sw.purged) return NOT_FOUND; } // lazy: verklig rensning när posten åtkoms efter förfallotid
     // Obetalda utkast går ut efter retentionstiden.
     if (["draft", "ready", "awaiting_payment"].includes(o.status) && now > o.expiresAt) { o.status = "expired"; await this._save(o); }
@@ -712,16 +720,27 @@ export class CompareOrders {
     if (purgeDue) {
       try { await this._purgeDocs(o); } catch { /* 24 h TTL är reservvägen */ }
       const keys = [...(await this.state.storage.list()).keys()];
-      const refs = keys.filter((k) => k.startsWith("mailref:")).map((k) => k.slice(8));
+      const prev = await this.state.storage.get("cleanup");
+      const refs = [...new Set([...keys.filter((k) => k.startsWith("mailref:")).map((k) => k.slice(8)), ...((prev && prev.mailrefs) || [])])];
+      const failed = await this._unindexRefs(refs); // global provider-ID-post (bara ID:n); misslyckat ⇒ beständigt städunderlag som överlever purge
       for (const k of keys) await this.state.storage.delete(k);
-      try { const { mailrefUnindex } = await import("./compare_budget.js"); for (const r of refs) await mailrefUnindex(this.env, { emailId: r }); } catch { /* endast ID:n; nästa svep/TTL */ }
+      if (failed.length) {
+        await this.state.storage.put("cleanup", { orderId: o.id, paidAt, mailrefs: failed }); // behålls: nästa /retention-sweep försöker igen; ledgerindexet ligger kvar så att svepet når hit
+        return { ran: true, action: "raderad", purged: true, cleanupPending: failed.length };
+      }
       try { const { ledgerUnindex } = await import("./compare_budget.js"); await ledgerUnindex(this.env, { orderId: o.id, at: paidAt }); } catch { /* indexposten innehåller bara order-ID; nästa svep försöker igen via adminrutten */ }
       return { ran: true, action: "raderad", purged: true };
     }
     // Avtalsklassen utgången men bokföringsklassen kvar: ta bort personuppgifts-/avtalsdelen, behåll belopp/moms/datum/Stripe-referenser.
     o.accept = o.accept ? { ...o.accept, contactEmail: null, snapshot: null } : o.accept;
-    const mails = [...(await this.state.storage.list({ prefix: "outbox:" })).keys(), ...(await this.state.storage.list({ prefix: "mailref:" })).keys()];
-    await this._commit({ put: { ledger: stripLedger(ledger, now), order: o }, del: [...mails, "sources"] });
+    const outboxKeys = [...(await this.state.storage.list({ prefix: "outbox:" })).keys()];
+    const refKeys = [...(await this.state.storage.list({ prefix: "mailref:" })).keys()];
+    const prevCl = await this.state.storage.get("cleanup");
+    const failed = await this._unindexRefs([...new Set([...refKeys.map((k) => k.slice(8)), ...((prevCl && prevCl.mailrefs) || [])])]); // global mr-post tas bort FÖRE lokala spår; misslyckade ID:n sparas som beständigt städunderlag
+    const put = { ledger: stripLedger(ledger, now), order: o };
+    const del = [...outboxKeys, ...refKeys, "sources"];
+    if (failed.length) put.cleanup = { orderId: o.id, paidAt, mailrefs: failed }; else if (prevCl) del.push("cleanup");
+    await this._commit({ put, del });
     return { ran: true, action: "avtalsdel_rensad", stripped: true };
   }
 
@@ -977,15 +996,38 @@ export class CompareOrders {
     } catch { /* indexet kan återskapas vid nästa pass */ }
   }
 
+  // Tar bort globala provider-ID-poster; returnerar de ID:n som INTE gick (kastar aldrig).
+  async _unindexRefs(ids) {
+    if (!ids.length) return [];
+    let fn;
+    try { ({ mailrefUnindex: fn } = await import("./compare_budget.js")); } catch { return [...ids]; }
+    const failed = [];
+    for (const r of ids) { try { const j = await fn(this.env, { emailId: r }); if (!j || j.ok !== true) failed.push(r); } catch { failed.push(r); } }
+    return failed;
+  }
+  async _retryCleanup(now) {
+    const c = await this.state.storage.get("cleanup");
+    if (!c) return { action: "inget_stadunderlag", pending: 0 };
+    const failed = await this._unindexRefs(c.mailrefs || []);
+    if (failed.length) { await this.state.storage.put("cleanup", { ...c, mailrefs: failed }); return { action: "stadning_kvar", pending: failed.length }; }
+    const hasOrder = !!(await this.state.storage.get("order"));
+    if (!hasOrder) { try { const { ledgerUnindex } = await import("./compare_budget.js"); await ledgerUnindex(this.env, { orderId: c.orderId, at: c.paidAt }); } catch { return { action: "stadning_kvar", pending: 0, ledgerIndex: true }; } }
+    await this.state.storage.delete("cleanup");
+    return { action: "stadning_klar", pending: 0 };
+  }
+
   // ---- D14: leveranshändelser från Resend (redan SIGNATURVERIFIERADE och sanerade i Workern) ----
   _anom(m, code, now) { m.anoms = [...(Array.isArray(m.anoms) ? m.anoms : []), { code, at: now }].slice(-6); }
   _replayEarly(m, now) {
-    const early = Array.isArray(m.early) ? m.early : [];
+    const E = m.early && typeof m.early === "object" && m.early.ids ? m.early : null;
     m.early = null;
-    for (const e of early) {
-      if (e.emailId !== m.providerRef) { this._anom(m, "fel_provider_id_tidig", now); continue; }
-      applyMailEvent(m, e, now);
+    if (!E) return;
+    if (E.overflow) m.earlyUnbound = true; // okänd bindning ⇒ FAIL CLOSED: aldrig leveransbevis för detta mejl
+    for (const [id, sn] of Object.entries(E.ids)) {
+      if (id !== m.providerRef) { this._anom(m, "fel_provider_id_tidig", now); continue; }
+      for (const cls of Object.keys(sn.seen || {})) applyMailEvent(m, { cls, emailId: id, providerAt: sn.providerAt ?? null, bounceType: sn.bounceType ?? null }, now);
     }
+    if (E.overflow) this._anom(m, "tidig_overflow", now);
   }
   // Utfall: ok/dup/ignored. Ingen händelse räknas som bevis om order, mejl-ID, mottagare eller provider-ID inte stämmer med det vi själva fryst och skickat.
   async _mailEvent(o, b, now) {
@@ -1004,7 +1046,16 @@ export class CompareOrders {
       if (e.emailId !== m.providerRef) return stop("fel_provider_id");
       applyMailEvent(m, e, now);
     } else {
-      m.early = [...(Array.isArray(m.early) ? m.early : []), { emailId: e.emailId, cls: e.cls, providerAt: e.providerAt, bounceType: e.bounceType }].slice(-8); // före kvittens: binds vid kvittens
+      // Före kvittens: MONOTONT bevis per provider-ID och klass (mängd, aldrig en rullande lista) ⇒ en negativ klass kan inte trängas ut av senare händelser. Fler än 8 olika ID:n ⇒ overflow ⇒ fail closed vid ack.
+      const E = m.early && typeof m.early === "object" && m.early.ids ? m.early : { ids: {}, overflow: false };
+      if (!E.ids[e.emailId] && Object.keys(E.ids).length >= 8) E.overflow = true;
+      else {
+        const sn = E.ids[e.emailId] || (E.ids[e.emailId] = { seen: {} });
+        if (!Number.isFinite(sn.seen[e.cls])) sn.seen[e.cls] = now;
+        if (e.cls === "delivered" && sn.providerAt === undefined) sn.providerAt = e.providerAt;
+        if (e.bounceType && !sn.bounceType) sn.bounceType = e.bounceType;
+      }
+      m.early = E;
     }
     await this.state.storage.put(key, m);
     const after = m.kind === "avtalsbekraftelse" && ["paid", "running"].includes(o.status) ? async () => { await this._ensureAlarm(o, now, true); } : undefined;

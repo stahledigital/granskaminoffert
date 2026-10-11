@@ -167,7 +167,7 @@ export function applyMailEvent(m, e, now) {
 }
 // Bevis för att avtalsbekräftelsen får öppna startgrinden. HTTP: transportaccept OCH signerad leverans för SAMMA provider-ID, utan motstridig negativ händelse.
 export function deliveryOk(m) {
-  return !!(m && m.transport === "http" && m.state === "sent" && typeof m.providerRef === "string" && m.delivery && m.delivery.state === "delivered" && m.delivery.emailId === m.providerRef && Number.isFinite(m.delivery.at));
+  return !!(m && m.transport === "http" && m.state === "sent" && !m.earlyUnbound && typeof m.providerRef === "string" && m.delivery && m.delivery.state === "delivered" && m.delivery.emailId === m.providerRef && Number.isFinite(m.delivery.at));
 }
 export function mailAccepted(m) { return !!(m && m.state === "sent" && (m.transport !== "http" || deliveryOk(m))); }
 export const NEGATIVE_DELIVERY = NEG;
