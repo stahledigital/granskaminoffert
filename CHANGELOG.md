@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1t – mejltransport: dygnstak per UTC-dygn + okänt utfall som avstämning (root-QA ROOT_MAILER_37B9; KANDIDAT – AV; ovanpå 37b9c535; ENDAST HTTP-dubbel)
+- P1: `_drainOutbox` reserverar nu `countToday` per meddelande OCH faktiskt UTC-dygn (`capDay`) före HTTP, även för omförsök efter midnatt; samma meddelande räknas högst en gång per dygn; stabil nyckel/frusen nyttolast/lease/ack-lost-skydd oförändrade; nekad ⇒ inget HTTP.
+- P2: okänt utfall till försöksslut ⇒ `avstamning`/`utfall_okant` (inte `failed`); verifierade terminala avslag förblir `failed`. `jamfor/index.html` `mailText`: ärlig text för avstämning.
+- Tester: `compare_mailer_fix.test.mjs` (5; 4 röda mot 37b9c535, positiv parallellkontroll grön före/efter) + UI-test avtalsstatus (390/1280). Ingen nyckel/verkligt HTTP/utskick.
+
 ## jamfor-v1s – verklig mejltransport (HTTP, DEFAULT AV) + varaktig ångerblankett (KANDIDAT – AV; ovanpå aeec6c38; testad ENDAST med HTTP-dubbel)
 - Ny `worker/src/compare_mailer.js`: HTTP-adapter (Resend-format enligt primärdocs; ej leverantörsval) bakom fem samverkande villkor (flagga, verifierad-flagga, avsändare, dygnstak>0, nyckel); en nyckel ensam aktiverar inget. Stabil `Idempotency-Key` per meddelande, frusen begäran, 23 h-fönster ⇒ `avstamning`, lease mot dubbelsändning, 409-hantering (payloadkonflikt stoppar, pågående = begränsade omförsök), ack bara vid 2xx + giltigt ID, sent = transportaccept. Spårat dygnstak via befintlig `countToday`.
 - `compare_orders.js` `_drainOutbox` utökad (befintligt outbox-kontrakt och bekräftelse-före-generation-grind oförändrade; adapter/mock får även typade bilagor). `compare_ledger.js`: Konsumentverkets ångerblankett som faktisk text + typad bilaga, förifylld ur frusna avtalet (ersätter placeholdern); utkorgsposten bär bilagor + `payloadHash`.

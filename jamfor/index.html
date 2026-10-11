@@ -374,7 +374,7 @@ async function tick(cancelled){
   if(['paid','running','failed'].indexOf(o.status)>=0){var wb=withdrawBlock(o);if(wb)box.appendChild(wb)}
   if(next)state.timer=setTimeout(tick,next);
 }
-function mailText(st){return st==='sent'?'skickad':(st==='failed'||st==='avstamning')?'kunde inte skickas (vi hanterar det manuellt)':'köad (ännu inte skickad)'}
+function mailText(st){return st==='sent'?'skickad':st==='avstamning'?'leveransen är oklar och kontrolleras manuellt (vi har inte kunnat bekräfta att den skickades)':st==='failed'?'kunde inte skickas (vi hanterar det manuellt)':'köad (ännu inte skickad)'}
 function withdrawBlock(o){
   var box=el('div',{class:'card',id:'agreement'});
   if(!o.agreement)return null;

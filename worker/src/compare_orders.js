@@ -19,7 +19,7 @@
 
 import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy, mailerKind } from "./compare_config.js";
 import { mailHttpConfig, mailIdemKey, buildMailRequest, requestHash, sendViaHttp, validMailTo, IDEM_WINDOW_MS, LEASE_MS } from "./compare_mailer.js";
-import { countToday } from "./compare_budget.js";
+import { countToday, dayKey } from "./compare_budget.js";
 import { timingSafeEqual, sha256Hex } from "./compare_util.js";
 import { stripLedger, validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow } from "./compare_ledger.js";
 import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } from "./compare_stripe.js";
@@ -679,20 +679,28 @@ export class CompareOrders {
       const claim = await this._tx(async () => {
         const m = await this.state.storage.get(key);
         if (!m || ["sent", "failed", "avstamning"].includes(m.state)) return null;
-        if (m.attempts >= (m.kind === "avtalsbekraftelse" ? 12 : 5)) { m.state = "failed"; m.lastError = m.lastError || "for_manga_forsok"; await this.state.storage.put(key, m); return null; }
+        if (m.attempts >= (m.kind === "avtalsbekraftelse" ? 12 : 5)) {
+          // Slut på försök: har något försök haft OKÄNT utfall (timeout/förlorad kvittens/ogiltigt svar/5xx/409 pågår) kan leverantören ha accepterat ⇒ "avstamning" (manuell grind), inte "failed".
+          if (m.unknownOutcome) { m.state = "avstamning"; m.lastError = "utfall_okant"; } else { m.state = "failed"; m.lastError = m.lastError || "for_manga_forsok"; }
+          await this.state.storage.put(key, m); return null;
+        }
         if (m.leaseUntil && m.leaseUntil > now) return { wait: m.leaseUntil };
         if (m.nextAt && m.nextAt > now) return { wait: m.nextAt };
         let req = null;
         if (kind === "http") {
           if (!validMailTo(m.to)) { m.state = "failed"; m.lastError = "mejl_ogiltig_mottagare"; await this.state.storage.put(key, m); return null; }
-          if (!m.idem) {
-            // Första sändningen: spårat dygnstak (COMPARE_MAIL_DAY_CAP) räknas EN gång per meddelande, inte per omförsök. Ingen räkning möjlig ⇒ ingen sändning.
-            const c = await countToday(this.env, { name: "mail_send", limit: http.dayCap, now: new Date(now) });
-            if (!c.ok) { m.lastError = "mejl_dygnstak"; m.nextAt = now + 600_000; await this.state.storage.put(key, m); return { wait: m.nextAt }; }
-            m.idem = { key: mailIdemKey(m.id), firstAt: now };
-          } else if (now > m.idem.firstAt + IDEM_WINDOW_MS) {
+          if (m.idem && now > m.idem.firstAt + IDEM_WINDOW_MS) {
             m.state = "avstamning"; m.lastError = "idem_fonster_utgatt"; m.leaseUntil = null; await this.state.storage.put(key, m); return null; // ingen ny nyckel, ingen blind omsändning
           }
+          // Spårat dygnstak (COMPARE_MAIL_DAY_CAP): EN atomisk reservation per meddelande OCH faktiskt UTC-dygn, före varje sändningsförsök som är första för dygnet (även omförsök efter midnatt).
+          // En reservation från ett tidigare dygn ger ingen fri sändning nästa dygn. Ingen räkning möjlig/nekad ⇒ ingen HTTP.
+          const day = dayKey(new Date(now));
+          if (m.capDay !== day) {
+            const c = await countToday(this.env, { name: "mail_send", limit: http.dayCap, now: new Date(now) });
+            if (!c.ok) { m.lastError = "mejl_dygnstak"; m.nextAt = now + 600_000; await this.state.storage.put(key, m); return { wait: m.nextAt }; }
+            m.capDay = day;
+          }
+          if (!m.idem) m.idem = { key: mailIdemKey(m.id), firstAt: now };
           let text = m.body;
           for (const [k, v] of Object.entries(m.secrets || {})) text = text.split(`{{${k}}}`).join(v);
           req = buildMailRequest({ from: m.frozen ? m.frozen.from : http.from, to: m.to, subject: m.subject, text, attachments: m.attachments });
@@ -724,6 +732,7 @@ export class CompareOrders {
         else if (res && (res.kind === "payload_conflict" || res.kind === "terminal" || res.kind === "config")) { m.state = "failed"; m.lastError = res.code; }
         else {
           m.lastError = res && res.code ? res.code : "transport";
+          if (kind === "http") m.unknownOutcome = true; // ej verifierat avslag: leverantören kan ha accepterat
           const base = res && res.kind === "inprogress" ? 30_000 : 2_000 * 2 ** m.attempts;
           m.nextAt = Date.now() + Math.min(m.kind === "avtalsbekraftelse" ? 300_000 : 60_000, base); retryAt = Math.min(retryAt ?? m.nextAt, m.nextAt);
         }

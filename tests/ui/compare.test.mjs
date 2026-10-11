@@ -671,6 +671,29 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
 }
 
 for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`avtalsbekräftelsens status (${name}): okänt utfall/avstämning får ärlig text, verifierat misslyckande och skickad särskiljs`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors } = await newPage(h, w, 844);
+    try {
+      let st = "avstamning";
+      const ord = () => ({ id: "o_" + "a".repeat(32), status: "paid", waiting: null, error: null, progress: { extracted: 0, total: 2, synth: "pending" }, refund: { state: "none" }, withdrawal: { requested: false }, agreement: { id: "ag_test", contact: "kund@example.test", mails: [{ kind: "avtalsbekraftelse", state: st, attempts: 12 }] }, expiresAt: Date.now() + 3600_000 });
+      await page.route("**/compare/orders/o_*", async (route) => {
+        if (route.request().method() !== "GET" || /\/(report|sources|checkout|withdraw)/.test(route.request().url())) return route.continue();
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, order: ord(), pollMs: 600 }) });
+      });
+      await page.goto(h.base + "/jamfor/#o=o_" + "a".repeat(32) + "&t=tok_" + "b".repeat(32));
+      await page.waitForSelector("#agreement");
+      let t = await page.textContent("#agreement");
+      assert.match(t, /leveransen är oklar och kontrolleras manuellt/); assert.doesNotMatch(t, /kunde inte skickas/); assert.doesNotMatch(t, /: skickad/);
+      assert.ok(await noSideScroll(page));
+      st = "failed"; await page.waitForFunction(() => /kunde inte skickas \(vi hanterar det manuellt\)/.test(document.getElementById("agreement").textContent), null, { timeout: 8000 });
+      st = "sent"; await page.waitForFunction(() => /: skickad\./.test(document.getElementById("agreement").textContent), null, { timeout: 8000 });
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
   test(`Googlereservation (${name}): varje billbar instans (sök, preview, valbyte, återöppning, retry) kräver ny serverreservation; nekad reservation skapar ingen instans`, async () => {
     const h = await startHarness({ vars: { ...SRC_VARS, COMPARE_SOURCES_MOUNT_DAY_CAP: "5", COMPARE_SOURCES_DETAILS_DAY_CAP: "3", COMPARE_SOURCES_SEARCH_DAY_CAP: "5" } }); seedSources(h);
     const { ctx, page, errors } = await newPage(h, w, hgt);
