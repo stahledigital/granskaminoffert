@@ -7,6 +7,7 @@
 <ul><li>Vad tjänsten är och inte är (jämför innehåll i uppladdade dokument; ingen bedömning av hantverkare, kvalitet eller pris; inte juridisk rådgivning).</li><li>Pris 49 kr inklusive moms, engångsköp, betalning via Stripe.</li><li>Omedelbar leverans och ångerrätt (klassificering enligt konsumentlagstiftning – ej avgjord).</li><li>Återbetalning om leverans misslyckas.</li><li>Personuppgifter: offerterna skickas till Anthropic för avläsning; filer och resultat raderas efter 24 timmar eller på begäran; betaluppgifter hanteras av Stripe; ordernummer och betalreferens sparas för bokföring.</li><li>Kontaktväg för support och återbetalning.</li></ul>
 <div id="terms" class="sec" aria-live="polite"></div>
 <p><a href="/jamfor/">← Tillbaka</a></p>
+<footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. <a class="fu" href="/foretagsuppgifter">Företagsuppgifter</a></p></footer>
 <script>
 // Den fullständiga villkorstexten ägs av servern (samma snapshot som ingår i samtyckeshashen och i bekräftelsen). Listan ovan är bara en checklista.
 (function(){
@@ -16,6 +17,7 @@
   fetch(API.replace(/\/$/,'')+'/compare/config').then(function(r){return r.json()}).then(function(c){
     var t=c&&c.terms;if(!t||!Array.isArray(t.sections))throw new Error('x');
     box.appendChild(p('Villkorstext (version '+t.version+(t.draft?', UTKAST':'')+') – det här är exakt den text du godkänner vid köp.','h2'));
+    var iu=t.seller&&t.seller.infoUrl;try{var xu=new URL(String(iu||''));if(xu.protocol==='https:'&&!xu.username&&!xu.password){document.querySelectorAll('a.fu').forEach(function(a){a.href=xu.href})}}catch(e){}
     t.sections.forEach(function(s){var d=document.createElement('div');d.appendChild(p(s.title,'h2'));d.appendChild(p(s.text));box.appendChild(d)});
   }).catch(function(){box.appendChild(p('Villkorstexten kunde inte hämtas just nu. Försök igen senare.'))});
 })();

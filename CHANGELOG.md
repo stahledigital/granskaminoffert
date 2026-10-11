@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1q – konfigurerbar säljarinfo AB/ENSKILD (Modesty §5h; teknisk OFFLINEförlaga, KANDIDAT – AV; ovanpå b9650b3f)
+- `COMPARE_SELLER_FORM` (AB|ENSKILD) obligatorisk; ENSKILD kräver ägare och tomt org.nr (annars konfigfel `orgnr_forbidden_enskild`, värdet återges aldrig, ordrar stängda i alla lägen); AB kräver org.nr med Luhn + tredje siffran ≥ 2 (personnummer avvisas). Namn/adress/e-post/telefon/https-företagsuppgiftslänk krävs. VAT valfri, visas bara med `COMPARE_CONFIRM_SHOW_VAT=1` (då SE+12 krävs).
+- Form/ägare/org.nr-rad/VAT-flagga/länk ingår i termsSnapshot ⇒ samtyckeshash, avtalspost, bekräftelse. Kassan visar samma säljarrader direkt; länk "Företagsuppgifter" i footer på /jamfor/, villkor, ångra. Ingen ändring av offert-/prislogik, canonical eller publik företagssida.
+- Syntetisk fixtur 556000-0001 (beräknad kontrollsiffra, ingen registerkontroll); 556000-0000 bara negativt fall. Enskild-firma-tolkningen är OPEN.
+
 ## jamfor-v1p-fix3 – docs-only: förköpets kostnadsrad (root-QA; KANDIDAT – AV; ovanpå 03aa366e)
 - `worker/COMPARE.md`: budgetnyckel är `pid:<order>:<claimId>` (inte `<idx>:<försök>`); ~0,27 USD vid ~3 000 tokens/4 dokument är endast ett SCENARIO, inte ett universellt minsta ordertak – reservationen beräknas efter verkligt maxindata (dokumenttokens + marginal) och försök, och människosatt tak måste täcka den; inget tak antaget. Modell (Sonnet 5.5) och gemensam 20 USD-pott borttagna ur human-beslutslistan (redan beslutade). Ingen kod/test ändrad.
 

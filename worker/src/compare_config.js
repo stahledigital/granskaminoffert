@@ -62,28 +62,76 @@ export function retentionPolicy(env) {
   return { ok: avtal !== null && bokforing !== null, avtalDays: avtal, bokforingDays: bokforing };
 }
 // Säljaruppgifter till avtalsbekräftelsen/villkoren. ALLT kommer från konfiguration (miljövariabler) – inga riktiga identifierare finns i koden.
-// Saknas fält i testläge används tydligt märkta platshållare; live kräver namn, id-nummer, adress, e-post, TELEFON (informationskrav) och momsreg.nr.
-// Id-numret är en ren formatkontroll (organisationsnummer ELLER personnummer-format för enskild firma, 10 eller 12 siffror); AB antas inte.
-// Momsreg.nr: SE + 10 siffror + 01 (SE + 12 siffror) gäller både AB och enskild firma. Erbjudandet är 49 kr INKLUSIVE moms; är säljaren inte momsregistrerad
-// måste pris-/momstexten beslutas av människa (T4) innan live – koden hittar inte på en momsfri variant.
+// TEKNISK OFFLINEFÖRLAGA enligt Modesty §5h (fältmatris WEBB/FÖREKÖP/BEKRÄFTELSE) – inte juridisk slutaccept. Tolkningen för enskild firma är OPEN (se COMPARE.md).
+// COMPARE_SELLER_FORM = AB | ENSKILD (obligatorisk). Alltid krav för live: namn, adress, e-post, telefon, COMPARE_COMPANY_INFO_URL (https).
+// AB: org.nr krävs (10 siffror, Luhn, tredje siffran >= 2 ⇒ personnummer godkänns aldrig). ENSKILD: ägarens namn krävs och org.nr MÅSTE VARA TOMT –
+// ett angivet värde ger konfigfel `orgnr_forbidden_enskild` och värdet återges/loggas aldrig (varken i vyer, snapshot, mejl eller fel).
+// Momsreg.nr: valfritt. Visas i bekräftelsen bara med COMPARE_CONFIRM_SHOW_VAT=1 (standard 0) och är då obligatoriskt (SE+12 siffror). Webbens eget momskrav
+// ligger på den statiska företagsuppgiftssidan, inte här. Erbjudandet är 49 kr INKLUSIVE moms; är säljaren inte momsregistrerad krävs ett mänskligt T4-beslut om pris-/momstext.
 const clip = (v, n) => String((v == null ? "" : v)).replace(/[\r\n\t]+/g, " ").trim().slice(0, n);
+export const SELLER_FORMS = Object.freeze(["AB", "ENSKILD"]);
+// Organisationsnummer för juridisk person: 10 siffror (valfritt bindestreck efter sex), tredje siffran >= 2, Luhn-kontrollsiffra. Returnerar NNNNNN-NNNN eller null.
+export function normalizeOrgNrAB(v) {
+  const m = /^(\d{6})-?(\d{4})$/.exec(String(v == null ? "" : v));
+  if (!m) return null;
+  const d = (m[1] + m[2]).split("").map(Number);
+  if (d[2] < 2) return null;
+  let sum = 0;
+  for (let i = 0; i < 10; i++) { let x = d[i] * (i % 2 === 0 ? 2 : 1); if (x > 9) x -= 9; sum += x; }
+  return sum % 10 === 0 ? `${m[1]}-${m[2]}` : null;
+}
+// Publik https-länk utan inloggningsuppgifter, söksträng eller fragment, med värdnamn som innehåller punkt. Returnerar normaliserad href eller null.
+export function httpsInfoUrl(v) {
+  const raw = String(v == null ? "" : v).trim();
+  if (!raw || raw.length > 200 || /[\s<>"'\\]/.test(raw)) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" || u.username || u.password || u.search || u.hash || u.port) return null;
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(u.hostname)) return null;
+    return u.href;
+  } catch { return null; }
+}
 export function sellerInfo(env) {
   const g = (k, n) => clip(env && env[k], n);
-  const name = g("COMPARE_SELLER_NAME", 120), orgnr = g("COMPARE_SELLER_ORGNR", 20), email = g("COMPARE_SELLER_EMAIL", 120);
-  const address = g("COMPARE_SELLER_ADDRESS", 200), phone = g("COMPARE_SELLER_PHONE", 30), vat = g("COMPARE_SELLER_VAT", 20).replace(/\s+/g, "");
+  const form = g("COMPARE_SELLER_FORM", 10);
+  const name = g("COMPARE_SELLER_NAME", 120), owner = g("COMPARE_SELLER_OWNER_NAME", 120);
+  const orgRaw = g("COMPARE_SELLER_ORGNR", 20), vatRaw = g("COMPARE_SELLER_VAT", 20).replace(/\s+/g, "");
+  const email = g("COMPARE_SELLER_EMAIL", 120), address = g("COMPARE_SELLER_ADDRESS", 200), phone = g("COMPARE_SELLER_PHONE", 30);
+  const infoUrl = httpsInfoUrl(env && env.COMPARE_COMPANY_INFO_URL);
+  const showVat = !!env && env.COMPARE_CONFIRM_SHOW_VAT === "1";
+  const formOk = SELLER_FORMS.includes(form);
+  const orgAB = form === "AB" ? normalizeOrgNrAB(orgRaw) : null;
   const ok = {
-    name: !!name, orgnr: /^(\d{6}|(19|20)\d{6})-?\d{4}$/.test(orgnr), email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
-    address: address.length >= 8, vat: /^SE\d{12}$/.test(vat), phone: /^[+0-9][0-9 ()-]{5,29}$/.test(phone),
+    form: formOk, name: !!name, owner: form !== "ENSKILD" || !!owner,
+    orgnr: form === "AB" ? orgAB !== null : form === "ENSKILD" ? orgRaw === "" : false,
+    vat: !showVat || /^SE\d{12}$/.test(vatRaw),
+    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email), address: address.length >= 8, phone: /^[+0-9][0-9 ()-]{5,29}$/.test(phone),
+    infoUrl: infoUrl !== null,
   };
-  const complete = Object.values(ok).every(Boolean);
+  const missing = Object.entries(ok).filter(([, v]) => !v).map(([k]) => k);
+  // Konfigfel rapporteras som kod, aldrig med värdet.
+  const errors = form === "ENSKILD" && orgRaw !== "" ? ["orgnr_forbidden_enskild"] : [];
   const ph = (v, label) => v || `[${label} – fylls i före skarp drift]`;
   return {
-    name: ph(name, "Säljare"), orgnr: ph(orgnr, "org.nr"), email: ph(email, "kontakt-e-post"), address: ph(address, "adress"), vat: ph(vat, "momsreg.nr"), phone: ph(phone, "telefon"),
-    placeholder: !complete, missing: Object.entries(ok).filter(([, v]) => !v).map(([k]) => k),
+    form: formOk ? form : "",
+    name: ph(name, "Säljare"), owner: form === "ENSKILD" ? ph(owner, "ägarens namn") : "",
+    orgnr: form === "AB" ? ph(orgAB, "org.nr") : "", // ENSKILD: aldrig något nummer; ogiltigt/förbjudet värde återges aldrig
+    email: ph(email, "kontakt-e-post"), address: ph(address, "adress"), phone: ph(phone, "telefon"),
+    infoUrl: ph(infoUrl, "länk till företagsuppgifter"),
+    showVat, vat: showVat ? ph(ok.vat ? vatRaw : "", "momsreg.nr") : "",
+    placeholder: missing.length > 0 || errors.length > 0, missing, errors,
   };
 }
 export function sellerLines(sel) {
-  return [`Säljare: ${sel.name}`, `Organisationsnummer: ${sel.orgnr}`, `Momsregistreringsnummer: ${sel.vat}`, `Adress: ${sel.address}`, `E-post: ${sel.email}`, `Telefon: ${sel.phone}`];
+  const orgLine = sel.form === "ENSKILD" ? "Organisationsnummer: saknas (enskild firma)" : `Organisationsnummer: ${sel.orgnr || "[org.nr – fylls i före skarp drift]"}`;
+  return [
+    `Säljare: ${sel.name}`,
+    ...(sel.form === "ENSKILD" ? [`Ägare: ${sel.owner}`] : []),
+    orgLine,
+    ...(sel.showVat ? [`Momsregistreringsnummer: ${sel.vat}`] : []),
+    `Adress: ${sel.address}`, `E-post: ${sel.email}`, `Telefon: ${sel.phone}`,
+    `Fler företagsuppgifter: ${sel.infoUrl}`,
+  ];
 }
 const krText = (ore) => `${(ore / 100).toFixed(2).replace(".", ",")} kr`;
 // Fullständig villkors-/avtalstext (UTKAST) ägd av servern. Den som kunden ser, godkänner (hash) och får i bekräftelsen är EXAKT denna snapshot.
@@ -225,6 +273,7 @@ export function acceptingOrders(env, allowedOrigins) {
   const mode = compareEnabled(env) ? paymentsMode(env) : null;
   if (mode === null) return false;
   if (mode === "live" && CONSENT.draft) return false; // utkasttext: ingen skarp betalning
+  if (sellerInfo(env).errors.length > 0) return false; // konfigfel i säljaruppgifter (t.ex. förbjudet org.nr för enskild firma) stänger i ALLA lägen
   if (mode === "live" && (!retentionPolicy(env).ok || sellerInfo(env).placeholder)) return false; // retention och säljare måste vara satta
   if (mailerKind(env) === null) return false; // utan transport kan avtalsbekräftelsen (som måste ges före tjänsten) inte levereras
   return budgetConfig(env).ok && returnUrl(env, allowedOrigins) !== null;

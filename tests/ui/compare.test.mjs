@@ -319,14 +319,58 @@ test("startsidans och jämförsidans sidfot länkar till ångersidan", async () 
 });
 
 test("villkorssidan renderar serverns fullständiga villkorstext (säljare, pris, ångerrätt, personuppgifter) som UTKAST, utan sidoscroll", async () => {
-  const h = await startHarness({ vars: { COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0000", COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_VAT: "SE556000000001" } });
+  const h = await startHarness({ vars: { COMPARE_SELLER_FORM: "AB", COMPARE_COMPANY_INFO_URL: "https://example.test/foretagsuppgifter", COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0001", COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_VAT: "SE556000000101", COMPARE_CONFIRM_SHOW_VAT: "1" } });
   const { ctx, page, errors } = await newPage(h, 390, 844);
   try {
     await page.goto(h.base + "/jamfor/villkor/");
     await page.waitForSelector("#terms h2");
     const t = await page.textContent("#terms");
-    for (const v of ["version villkor-utkast-1, UTKAST", "Syntetisk Säljare AB", "SE556000000001", "Exempelgatan 1", "49,00 kr inklusive moms", "Ångra köpet", "Personuppgifter och lagring"]) assert.ok(t.includes(v), v);
+    for (const v of ["version villkor-utkast-1, UTKAST", "Syntetisk Säljare AB", "SE556000000101", "Exempelgatan 1", "49,00 kr inklusive moms", "Ångra köpet", "Personuppgifter och lagring"]) assert.ok(t.includes(v), v);
     assert.ok(await noSideScroll(page));
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});
+
+// ---------------- Säljaruppgifter (AB/ENSKILD) i kassan + länk "Företagsuppgifter" i footern. Syntetiska värden; tolkningen för enskild firma är OPEN. ----------------
+const SELLER_BASE = { COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_PHONE: "+46 8 000 00 00", COMPARE_COMPANY_INFO_URL: "https://example.test/foretagsuppgifter" };
+for (const [label, vars, expectIn, expectOut] of [
+  ["AB", { ...SELLER_BASE, COMPARE_SELLER_FORM: "AB", COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0001", COMPARE_SELLER_VAT: "SE556000000101" }, ["Säljare: Syntetisk Säljare AB", "Organisationsnummer: 556000-0001", "Adress: Exempelgatan 1", "E-post: kontakt@example.test", "Telefon: +46 8 000 00 00", "Fler företagsuppgifter: https://example.test/foretagsuppgifter"], ["Momsregistreringsnummer", "SE556000000101"]],
+  ["ENSKILD", { ...SELLER_BASE, COMPARE_SELLER_FORM: "ENSKILD", COMPARE_SELLER_NAME: "Syntetisk Firma", COMPARE_SELLER_OWNER_NAME: "Syntetisk Ägare" }, ["Säljare: Syntetisk Firma", "Ägare: Syntetisk Ägare", "Organisationsnummer: saknas (enskild firma)", "Telefon: +46 8 000 00 00"], ["Momsregistreringsnummer"]],
+]) {
+  test(`kassan visar säljaruppgifter (${label}) direkt, och footerlänken Företagsuppgifter finns på /jamfor/, villkor och ångra (390 px, utan sidoscroll)`, async () => {
+    const h = await startHarness({ vars });
+    const { ctx, page, errors } = await newPage(h, 390, 844);
+    try {
+      await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)");
+      await fillAndCheck(page, [OFFERS[0], OFFERS[1]]);
+      await page.waitForSelector("#seller div");
+      const t = await page.textContent("#seller");
+      for (const v of expectIn) assert.ok(t.includes(v), v);
+      for (const v of expectOut) assert.ok(!t.includes(v), "ej i kassan: " + v);
+      assert.ok(await noSideScroll(page));
+      // samma rader som i den godkända villkorstexten
+      const cfg = await (await fetch(h.base + "/compare/config")).json();
+      assert.equal(t.replace("Du köper av", ""), cfg.terms.sections.find((x) => x.id === "saljare").text.split("\n").join(""));
+      for (const path of ["/jamfor/", "/jamfor/villkor/", "/jamfor/angra/"]) {
+        await page.goto(h.base + path);
+        const a = page.locator("footer a.fu"); assert.equal(await a.count(), 1, path); assert.equal((await a.textContent()).trim(), "Företagsuppgifter");
+        if (path !== "/jamfor/angra/") { await page.waitForFunction(() => document.querySelector("footer a.fu").href === "https://example.test/foretagsuppgifter", null, { timeout: 4000 }).catch(async () => { throw new Error(path + " href=" + await a.getAttribute("href")); }); }
+        else assert.match(await a.getAttribute("href"), /^\/foretagsuppgifter/);
+        assert.ok(await noSideScroll(page), path);
+      }
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
+test("ENSKILD med förbjudet org.nr: kassan öppen? nej – ordrar stängs och värdet syns inte på någon sida", async () => {
+  const h = await startHarness({ vars: { ...SELLER_BASE, COMPARE_SELLER_FORM: "ENSKILD", COMPARE_SELLER_NAME: "Syntetisk Firma", COMPARE_SELLER_OWNER_NAME: "Syntetisk Ägare", COMPARE_SELLER_ORGNR: "556000-0001" } });
+  const { ctx, page, errors } = await newPage(h, 390, 844);
+  try {
+    const cfg = await (await fetch(h.base + "/compare/config")).json();
+    assert.equal(cfg.accepting, false); assert.deepEqual(cfg.terms.seller.errors, ["orgnr_forbidden_enskild"]);
+    for (const path of ["/jamfor/", "/jamfor/villkor/"]) { await page.goto(h.base + path); await page.waitForTimeout(600); const html = await page.content(); assert.ok(!html.includes("556000-0001") && !html.includes("5560000001"), path); }
+    assert.ok(!JSON.stringify(cfg).includes("556000"));
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); await h.close(); }
 });

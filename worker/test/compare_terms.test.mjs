@@ -1,24 +1,21 @@
 // D06-rättning: fullt konfigurerbar säljarinfo + fullständig (UTKAST-)villkorssnapshot i samtyckeshash, avtalspost och bekräftelsemejl.
-// Syntetiska uppgifter (example.test, 556000-0000): inga riktiga privata identifierare.
+// Syntetiska uppgifter (example.test, 556000-0001: formatgiltigt med beräknad Luhn-kontrollsiffra, ingen registerkontroll): inga riktiga privata identifierare.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sellerInfo, termsSnapshot, termsPlain, consentSnapshot, acceptingOrders } from "../src/compare_config.js";
 import { sha256Hex } from "../src/compare_util.js";
 import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, consentOf } from "./helpers/compare_env.mjs";
 
-const FULL = { COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0000", COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_VAT: "SE556000000001", COMPARE_SELLER_PHONE: "+46 8 000 00 00" };
+const FULL = { COMPARE_SELLER_FORM: "AB", COMPARE_COMPANY_INFO_URL: "https://example.test/foretagsuppgifter", COMPARE_CONFIRM_SHOW_VAT: "1", COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0001", COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_VAT: "SE556000000101", COMPARE_SELLER_PHONE: "+46 8 000 00 00" };
 const S = (t) => ({ extracted: { totalBeforeRotSek: t, totalVatBasis: "inkl" }, scope: { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" } });
 
-test("säljarinfo: alla fält konfigurerbara; platshållare utan konfiguration; live-komplett kräver adress+momsnr+org.nr+e-post; ogiltigt format räknas som saknat", () => {
-  const d = sellerInfo({}); assert.equal(d.placeholder, true); assert.ok(Object.values({ a: d.name, b: d.orgnr, c: d.address, d: d.vat, e: d.email }).every((v) => /^\[.*fylls i/.test(v) || /^\[/.test(v)));
-  assert.deepEqual(d.missing.sort(), ["address", "email", "name", "orgnr", "phone", "vat"]);
-  const f = sellerInfo(FULL); assert.equal(f.placeholder, false); assert.equal(f.phone, "+46 8 000 00 00"); assert.equal(f.vat, "SE556000000001");
-  assert.equal(sellerInfo({ ...FULL, COMPARE_SELLER_PHONE: "" }).placeholder, true, "telefon är ett informationskrav");
+test("säljarinfo (AB): platshållare utan konfiguration; komplett kräver form, namn, org.nr (Luhn), adress, e-post, telefon och https-länk", () => {
+  const d = sellerInfo({}); assert.equal(d.placeholder, true); assert.ok(Object.values({ a: d.name, c: d.address, e: d.email, f: d.phone, g: d.infoUrl }).every((v) => /^\[.*fylls i/.test(v)));
+  assert.deepEqual(d.missing.sort(), ["address", "email", "form", "infoUrl", "name", "orgnr", "phone"]);
+  const f = sellerInfo(FULL); assert.equal(f.placeholder, false); assert.equal(f.phone, "+46 8 000 00 00"); assert.equal(f.vat, "SE556000000101"); assert.equal(f.orgnr, "556000-0001");
   assert.deepEqual(sellerInfo({ ...FULL, COMPARE_SELLER_PHONE: "" }).missing, ["phone"]);
-  for (const id of ["19800101-0000", "198001010000", "800101-0000", "556000-0000"]) assert.equal(sellerInfo({ ...FULL, COMPARE_SELLER_ORGNR: id }).placeholder, false, "enskild firma (personnummerformat) tvingas inte till AB-format: " + id);
-  assert.equal(sellerInfo({ ...FULL, COMPARE_SELLER_NAME: "Syntetisk Enskild Firma" }).placeholder, false);
-  for (const bad of [{ COMPARE_SELLER_VAT: "556000000001" }, { COMPARE_SELLER_ADDRESS: "x" }, { COMPARE_SELLER_ORGNR: "123" }, { COMPARE_SELLER_PHONE: "abc" }]) assert.equal(sellerInfo({ ...FULL, ...bad }).placeholder, true);
   assert.equal(sellerInfo({ ...FULL, COMPARE_SELLER_NAME: "A\nB\tC" }).name, "A B C");
+  for (const bad of [{ COMPARE_SELLER_VAT: "556000000101" }, { COMPARE_SELLER_ADDRESS: "x" }, { COMPARE_SELLER_ORGNR: "123" }, { COMPARE_SELLER_PHONE: "abc" }]) assert.equal(sellerInfo({ ...FULL, ...bad }).placeholder, true);
   // live stängt tills säljaren är komplett (och villkorstexten inte längre är utkast)
   assert.equal(acceptingOrders({ ...FULL, COMPARE_ENABLED: "1", COMPARE_PAYMENTS: "live" }, ["x"]), false);
 });
@@ -28,7 +25,7 @@ test("villkorssnapshot: fullständig, serverägd, följer konfigurationen och in
   assert.equal(t.draft, true);
   assert.deepEqual(t.sections.map((s) => s.id), ["saljare", "tjansten", "pris", "avtal", "angerratt", "aterbetalning", "personuppgifter", "kontakt"]);
   const all = termsPlain(t);
-  for (const v of ["Syntetisk Säljare AB", "556000-0000", "SE556000000001", "Exempelgatan 1", "kontakt@example.test", "+46 8 000 00 00"]) assert.ok(all.includes(v), v);
+  for (const v of ["Syntetisk Säljare AB", "556000-0001", "SE556000000101", "Exempelgatan 1", "kontakt@example.test", "+46 8 000 00 00"]) assert.ok(all.includes(v), v);
   assert.match(all, /49,00 kr inklusive moms \(varav moms 9,80 kr, 25 %\)/);
   assert.match(all, /\[lagringstid för avtalspost är inte fastställd\]/, "ingen vald retentionlängd i texten");
   assert.doesNotMatch(all, /ARN|Allmänna reklamationsnämnden/, "ingen kategorisk tvistlösningsutfästelse");
@@ -52,7 +49,7 @@ test("hela villkorstexten når den varaktiga avtalsposten och mockbekräftelsen 
     assert.equal(ledger.agreement.seller.address, FULL.COMPARE_SELLER_ADDRESS); assert.equal(ledger.agreement.seller.vat, FULL.COMPARE_SELLER_VAT);
     const mail = [...st].find(([k]) => k.startsWith("outbox:"))[1];
     assert.ok(mail.body.includes(termsPlain(snap.terms)), "bekräftelsen innehåller exakt den godkända villkorstexten");
-    for (const v of ["Organisationsnummer: 556000-0000", "Momsregistreringsnummer: SE556000000001", "Adress: Exempelgatan 1", "Telefon: +46 8 000 00 00"]) assert.ok(mail.body.includes(v), v);
+    for (const v of ["Organisationsnummer: 556000-0001", "Momsregistreringsnummer: SE556000000101", "Adress: Exempelgatan 1", "Telefon: +46 8 000 00 00", "Fler företagsuppgifter: https://example.test/foretagsuppgifter"]) assert.ok(mail.body.includes(v), v);
     assert.match(mail.body, /Villkor \(version villkor-utkast-1, UTKAST\)/);
     assert.equal(ledger.agreement.accepted.hash, (await consentOf(env)).hash);
     // konfigurationsändring efter godkännande: gammal hash gäller inte längre

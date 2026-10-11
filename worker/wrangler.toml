@@ -130,5 +130,5 @@ new_sqlite_classes = ["FreeBudget"]
 # D10: betalmetoder: COMPARE_PAYMENT_METHODS=card (standard) | card,swish | dynamic; Swish/dynamic kräver även COMPARE_SWISH_VERIFIED=1 (människa, kontoåtkomst verifierad). Ändrar inte Stripe-kontots metoder.
 # D09: Google-instanser kräver reservation: COMPARE_SOURCES_MOUNT_DAY_CAP (gemensamt) + COMPARE_SOURCES_SEARCH_DAY_CAP / COMPARE_SOURCES_DETAILS_DAY_CAP (per SKU), människosatta; saknas ⇒ stängt.
 # D08b: avtalsbekräftelsen kräver transport: COMPARE_MAILER-bindning (AV tills människa kopplar) – eller, ENDAST i test, COMPARE_MAILER_MODE=mock (nekas i live).
-# D06-rättning (inga värden satta här): säljare COMPARE_SELLER_NAME/ORGNR/EMAIL/ADDRESS/VAT (+ COMPARE_SELLER_PHONE, obligatorisk för live), COMPARE_ADMIN_TOKEN (secret),
+# D06-rättning (inga värden satta här): säljare COMPARE_SELLER_FORM(AB|ENSKILD)/NAME/OWNER_NAME(ENSKILD)/ORGNR(endast AB)/EMAIL/ADDRESS/PHONE/VAT(valfri), COMPARE_COMPANY_INFO_URL (https), COMPARE_CONFIRM_SHOW_VAT (standard 0) – alla krävs för live utom VAT, COMPARE_ADMIN_TOKEN (secret),
 #   retention COMPARE_LEDGER_RETENTION_DAYS + COMPARE_BOOKKEEPING_RETENTION_DAYS (människa; saknas ⇒ svepet gör ingenting och live är stängt).

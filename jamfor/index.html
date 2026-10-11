@@ -151,6 +151,7 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
       <details id="srcmanual"><summary>Lägg till företag själv (valfritt)</summary><div id="srcform"></div></details><div id="srcfirms" aria-live="polite"></div>
       <ul class="tight" id="srccov"></ul>
     </div>
+    <div id="seller" class="hint" aria-label="Säljare"></div>
     <label for="email" style="display:block;font-weight:600;margin:12px 0 4px">E-postadress för avtalsbekräftelsen</label>
     <input type="email" id="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="namn@exempel.se" aria-describedby="emailhint">
     <p class="hint" id="emailhint">Bekräftelsen med din ångerlänk skickas hit. Adressen används bara för det.</p>
@@ -177,7 +178,7 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
 <!-- RAPPORT -->
 <section id="rep" class="hidden" aria-labelledby="h-rep"></section>
 
-<footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. Beloppen är avlästa ur dokumenten och kan innehålla avläsningsfel. Det som inte framgår av en offert är inte detsamma som att det saknas. <a href="/jamfor/angra/">Ångra ett köp</a></p></footer>
+<footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. Beloppen är avlästa ur dokumenten och kan innehålla avläsningsfel. Det som inte framgår av en offert är inte detsamma som att det saknas. <a href="/jamfor/angra/">Ångra ett köp</a> · <a class="fu" href="/foretagsuppgifter">Företagsuppgifter</a></p></footer>
 </main>
 
 <script>
@@ -208,7 +209,7 @@ async function api(method, path, opt){
 async function init(){
   var cfg;
   try{cfg=(await api('GET','/compare/config')).json}catch(e){cfg=null}
-  state.cfg=cfg;
+  state.cfg=cfg;footerInfoLink(cfg);
   var rec=readRecovery();
   if(rec){state.order=rec;show('s3',true);return resume()}
   if(!cfg||!cfg.enabled||!cfg.accepting){
@@ -231,7 +232,19 @@ function fillCopy(cfg){
   $('t-terms').textContent=t.terms||'';$('t-immediate').textContent=t.immediate||'';if(t.sameJob)$('t-samejob').textContent=t.sameJob;
   $('coverage').textContent=$('coverage1').textContent=(cfg.dataCoverage&&cfg.dataCoverage.text)||'';
   show('draftnote',!!(cfg.consent&&cfg.consent.draft));
+  fillSeller(cfg);
 }
+// Säljaruppgifter direkt i kassan: exakt samma rader som ingår i villkorssnapshoten och bekräftelsen (serverns avsnitt "saljare"). textContent, aldrig HTML.
+function safeInfoUrl(u){try{var x=new URL(String(u||''));return x.protocol==='https:'&&!x.username&&!x.password?x.href:''}catch(e){return ''}}
+function fillSeller(cfg){
+  var box=$('seller');if(!box)return;box.textContent='';
+  var secs=(cfg.terms&&Array.isArray(cfg.terms.sections))?cfg.terms.sections:[];var s=null;
+  for(var i=0;i<secs.length;i++){if(secs[i]&&secs[i].id==='saljare'){s=secs[i];break}}
+  if(!s||typeof s.text!=='string')return;
+  box.appendChild(el('b',{text:'Du köper av'}));
+  s.text.split('\n').forEach(function(l){box.appendChild(el('div',{text:l}))});
+}
+function footerInfoLink(cfg){var u=cfg&&cfg.terms&&cfg.terms.seller&&safeInfoUrl(cfg.terms.seller.infoUrl);if(u){document.querySelectorAll('a.fu').forEach(function(a){a.href=u})}}
 function readRecovery(){
   var p=new URLSearchParams(location.hash.replace(/^#/,''));var o=p.get('o'),t=p.get('t');
   if(o&&t){store('jamfor_order',JSON.stringify({id:o,token:t}));history.replaceState(null,'',location.pathname+location.search)}

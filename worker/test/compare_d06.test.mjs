@@ -9,7 +9,7 @@ import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheck
 
 const S = (total, scope = {}) => ({ extracted: { totalBeforeRotSek: total, totalVatBasis: "inkl" }, scope });
 const ALL = { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" };
-const SELLER_FULL = { COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0000", COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_VAT: "SE556000000001", COMPARE_SELLER_PHONE: "+46 8 000 00 00" };
+const SELLER_FULL = { COMPARE_SELLER_FORM: "AB", COMPARE_COMPANY_INFO_URL: "https://example.test/foretagsuppgifter", COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0001", COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_VAT: "SE556000000101", COMPARE_SELLER_PHONE: "+46 8 000 00 00" };
 const ADMIN = "admin-token-for-tests-0123456789abcdef";
 const status = async (env, id, token) => (await api(env, "GET", `/compare/orders/${id}`, { token })).json.order;
 const ledgerOf = (env, id) => env.COMPARE_ORDERS.peek(id).store.get("ledger");
@@ -293,7 +293,7 @@ test("retention: klasser uttryckliga; policy för avtal/bokföring har inget sta
   assert.deepEqual(retentionPolicy({ COMPARE_LEDGER_RETENTION_DAYS: "400", COMPARE_BOOKKEEPING_RETENTION_DAYS: "2600" }), { ok: true, avtalDays: 400, bokforingDays: 2600 });
   for (const bad of ["0", "-1", "abc", "1e3", "99999999"]) assert.equal(retentionPolicy({ COMPARE_LEDGER_RETENTION_DAYS: bad, COMPARE_BOOKKEEPING_RETENTION_DAYS: "10" }).ok, false, bad);
   assert.equal(sellerInfo({}).placeholder, true);
-  assert.equal(sellerInfo({ COMPARE_SELLER_NAME: "X AB", COMPARE_SELLER_ORGNR: "556000-0000", COMPARE_SELLER_EMAIL: "a@x.se" }).placeholder, true, "adress och momsnr saknas");
+  assert.equal(sellerInfo({ COMPARE_SELLER_FORM: "AB", COMPARE_SELLER_NAME: "X AB", COMPARE_SELLER_ORGNR: "556000-0001", COMPARE_SELLER_EMAIL: "a@x.se" }).placeholder, true, "adress, telefon och länk saknas");
   assert.equal(sellerInfo(SELLER_FULL).placeholder, false);
   assert.deepEqual(parseWithdrawToken("ang_o_" + "a".repeat(32) + "." + "B".repeat(32)), { orderId: "o_" + "a".repeat(32), secret: "B".repeat(32) });
   assert.equal(parseWithdrawToken("ang_o_zz.x"), null);
