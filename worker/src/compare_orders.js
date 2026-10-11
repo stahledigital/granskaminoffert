@@ -30,7 +30,9 @@ import { PREID_MAX_ATTEMPTS } from "./compare_preid.js";
 const MAX_EVENTS = 64;
 
 // Start-/förlustsamtycke fullständigt för ordern: policy P kräver BÅDA rutorna (frusna värden med tid), policy Q den gamla rutan.
-const startAccepted = (a) => !!a && (a.policy === "P" ? a.startNow === true && a.loseRight === true && a.terms === true && !!(a.consents && ["terms", "startNow", "loseRight"].every((k) => a.consents[k] && a.consents[k].value === true && Number.isFinite(a.consents[k].at))) : a.immediateDelivery === true);
+// Frusen form avgör vilka bevis som krävs: utkast-2 = EN gemensam deklaration (+ villkor via köpknappen), utkast-1 = tre separata rutor (äldre ordrar behåller sina exakta bevis).
+const consentKeys = (a) => (a && a.consents && a.consents.declaration ? ["terms", "declaration"] : ["terms", "startNow", "loseRight"]);
+const startAccepted = (a) => !!a && (a.policy === "P" ? a.startNow === true && a.loseRight === true && a.terms === true && (!a.consents || !a.consents.declaration || a.declaration === true) && !!(a.consents && consentKeys(a).every((k) => a.consents[k] && a.consents[k].value === true && Number.isFinite(a.consents[k].at))) : a.immediateDelivery === true);
 
 // ---- Policy P: stark bevisprövning (servern litar aldrig på att fälten bara finns) ----
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -46,7 +48,7 @@ async function consentProblems(o, ledger) {
   if (typeof a.consentVersion !== "string" || snap.consentVersion !== a.consentVersion) bad.push("version");
   if (!FULFILMENT_POINTS.includes(a.fulfilmentPoint) || a.fulfilmentPoint !== snap.fulfilmentPoint) bad.push("fullgorandepunkt");
   const cons = a.consents || {};
-  for (const k of ["terms", "startNow", "loseRight"]) {
+  for (const k of consentKeys(a)) {
     const c = cons[k];
     if (!c || c.value !== true) { bad.push(`${k}:varde`); continue; }
     if (c.orderId !== o.id) bad.push(`${k}:order`);
@@ -59,7 +61,7 @@ async function consentProblems(o, ledger) {
   if (!ag || ag.orderId !== o.id || !ag.p || ag.p.policy !== "P") bad.push("ledger");
   else {
     const pr = (c) => ({ at: c && c.at, textId: c && c.textId, textHash: c && c.textHash });
-    for (const k of ["terms", "startNow", "loseRight"]) if (!jeq(pr(ag.p.consents && ag.p.consents[k]), pr(cons[k]))) bad.push(`ledger:${k}`);
+    for (const k of consentKeys(a)) if (!jeq(pr(ag.p.consents && ag.p.consents[k]), pr(cons[k]))) bad.push(`ledger:${k}`);
     if (ag.p.fulfilmentPoint !== a.fulfilmentPoint) bad.push("ledger:punkt");
     if (ag.p.agreed !== undefined && !jeq(ag.p.agreed, a.agreed)) bad.push("ledger:avtalat");
     if (ag.accepted && ag.accepted.hash !== undefined && ag.accepted.hash !== a.consentHash) bad.push("ledger:hash");
@@ -318,7 +320,7 @@ export class CompareOrders {
       const a = b.accept;
       const snapshot = consentSnapshot(this.env); // policyn (P/Q) avgörs av servern ur snapshoten, aldrig av klienten
       const P = snapshot.policy === "P";
-      if (!a || a.terms !== true || (P ? a.startNow !== true || a.loseRight !== true : a.immediateDelivery !== true) || typeof a.consentHash !== "string" || a.consentHash.length !== 64 || typeof a.consentVersion !== "string") return { status: 400, body: { ok: false, error: "ogiltig" } };
+      if (!a || a.terms !== true || (P ? a.declaration !== true : a.immediateDelivery !== true) || typeof a.consentHash !== "string" || a.consentHash.length !== 64 || typeof a.consentVersion !== "string") return { status: 400, body: { ok: false, error: "ogiltig" } };
       if (!validEmail(a.contactEmail)) return { status: 400, body: { ok: false, error: "epost" } };
       // De FAKTISKT visade texterna fryses här: hashen måste stämma mot texten som sparas (inte bara en hash som senare saknar text).
       if ((await sha256Hex(JSON.stringify(snapshot))) !== a.consentHash) return { status: 409, body: { ok: false, error: "samtycke_andrat" } };
@@ -334,8 +336,9 @@ export class CompareOrders {
         const ev = async (key) => ({ value: true, at: now, textId: `${key}@${snapshot.consentVersion}`, textHash: await sha256Hex(snapshot.texts[key]), orderId: o.id });
         const coveredIds = sv.active ? sv.firms.filter((f) => f.google.state === "tillganglig" || f.trustpilot.state === "tillganglig").map((f) => f.id) : [];
         const providers = Object.fromEntries(sv.firms.filter((f) => coveredIds.includes(f.id)).map((f) => [f.id, ["google", "trustpilot"].filter((pv) => f[pv].state === "tillganglig")])); // exakt vilka källor som är avtalade per firma
-        o.accept = { ...base, policy: "P", startNow: true, loseRight: true, fulfilmentPoint: snapshot.fulfilmentPoint,
-          consents: { terms: await ev("terms"), startNow: await ev("startNow"), loseRight: await ev("loseRight") },
+        // EN faktisk handling: den ENA aktiva deklarationen (kryssruta) + köpklicket (villkoren). startNow/loseRight är HÄRLEDDA ur deklarationen, inte tre separata val.
+        o.accept = { ...base, policy: "P", declaration: true, startNow: true, loseRight: true, derivedFrom: "declaration", fulfilmentPoint: snapshot.fulfilmentPoint,
+          consents: { terms: { ...(await ev("terms")), via: "kopknapp" }, declaration: { ...(await ev("declaration")), covers: ["startNow", "loseRight"] } },
           agreed: { report: true, sources: { required: coveredIds.length > 0, coveredIds, providers, coverageHash: await sha256Hex(JSON.stringify(cv.lines || [])) } } };
       }
       await this._save(o);

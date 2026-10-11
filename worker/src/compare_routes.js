@@ -537,12 +537,12 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     const bodyIn = await readJson(request, 2_000);
     const acc = bodyIn.value && bodyIn.value.accept;
     if (acc) {
-      // Policy P: TVÅ separata, aktivt valda rutor (startNow + loseRight) utöver villkoren; policy Q: den gamla "start direkt"-rutan. Servern avgör policy (ur snapshoten), aldrig klienten.
+      // Policy P: EN gemensam, aktivt vald deklaration (start direkt + ångerrätten upphör) och villkoren via köpklicket; policy Q: den gamla "start direkt"-rutan. Servern avgör policy (ur snapshoten), aldrig klienten.
       const P = snap.policy === "P";
-      if (acc.terms !== true || (P ? acc.startNow !== true || acc.loseRight !== true : acc.immediateDelivery !== true) || typeof acc.consentHash !== "string") return reply({ error: P ? "Du behöver godkänna villkoren och själv välja båda rutorna (start direkt och att ångerrätten upphör när tjänsten är fullt utförd)." : "Du behöver godkänna villkoren och att leveransen startar direkt.", needAccept: true }, 400);
+      if (acc.terms !== true || (P ? acc.declaration !== true : acc.immediateDelivery !== true) || typeof acc.consentHash !== "string") return reply({ error: P ? "Du behöver själv markera rutan att jämförelsen börjar direkt och att ångerrätten upphör när tjänsten är helt utförd." : "Du behöver godkänna villkoren och att leveransen startar direkt.", needAccept: true }, 400);
       if (acc.consentHash !== hash || acc.consentVersion !== snap.consentVersion) return reply({ error: "Villkoren eller erbjudandet har ändrats sedan du läste dem. Läs och godkänn igen.", needAccept: true, consentChanged: true }, 409);
       if (!validEmail(acc.email)) return reply({ error: "Ange en giltig e-postadress för avtalsbekräftelsen.", needAccept: true, needEmail: true }, 400);
-      const ac = await orderCall(env, id, "/accept", { tokenHash, accept: { terms: true, ...(snap.policy === "P" ? { startNow: true, loseRight: true } : { immediateDelivery: true }), consentHash: hash, consentVersion: snap.consentVersion, contactEmail: acc.email, draft: snap.draft, offerVersion: snap.offerVersion, priceOre: snap.priceOre, currency: snap.currency }, now: Date.now() });
+      const ac = await orderCall(env, id, "/accept", { tokenHash, accept: { terms: true, ...(snap.policy === "P" ? { declaration: true } : { immediateDelivery: true }), consentHash: hash, consentVersion: snap.consentVersion, contactEmail: acc.email, draft: snap.draft, offerVersion: snap.offerVersion, priceOre: snap.priceOre, currency: snap.currency }, now: Date.now() });
       if (ac.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
       if (ac.status !== 200) return reply({ error: "Ordern kan inte betalas i det här läget." }, 409);
     } else {

@@ -261,7 +261,7 @@ export async function consentOf(env) { const c = await api(env, "GET", "/compare
 export const TEST_EMAIL = "kund@example.test";
 export async function startCheckout(env, orderId, token, accept) {
   if (accept === null) return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token });
-  if (accept === undefined) { const c = await consentOf(env); accept = c.policy === "P" ? { terms: true, startNow: true, loseRight: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL } : { terms: true, immediateDelivery: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL }; }
+  if (accept === undefined) { const c = await consentOf(env); accept = c.policy === "P" ? { terms: true, declaration: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL } : { terms: true, immediateDelivery: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL }; }
   return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { accept } });
 }
 

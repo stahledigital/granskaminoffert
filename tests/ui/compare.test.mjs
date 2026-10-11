@@ -736,45 +736,53 @@ async function payFlowP(page, h, offers, { reqs, here = false } = {}) {
   if (!here) { await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, offers); }
   await page.fill("#email", "kund@example.test");
   if (reqs) page.on("request", (r) => { if (/\/checkout$/.test(r.url()) && r.method() === "POST") reqs.push(JSON.parse(r.postData() || "{}")); });
-  await page.check("#terms"); await page.check("#startnow"); await page.check("#loseright"); await page.click("#pay");
+  await page.check("#declaration"); await page.click("#pay");
   await page.waitForURL("https://checkout.stripe.test/**"); await page.click("#pay");
   await page.waitForURL(h.base + "/jamfor/**");
 }
 
 for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
-  test(`policy P (${name}): två ej förkryssade rutor, knappen inaktiv tills alla val gjorts, rätt knapptext; leverans → inget stort ångerblock, köpsidan visar att ångerrätten upphört + reklamation; ingen sidoscroll`, async () => {
+  test(`policy P (${name}): EN ej förkryssad gemensam ruta, knappen inaktiv tills den markerats, köpsammanfattning + villkorsmening vid knappen, Läs mer för långa texter; leverans → inget ångerblock/ingen ångerlänk, köpsidan neutral; ingen sidoscroll`, async () => {
     const h = await startHarness({ vars: { COMPARE_CONSENT_POLICY: "P" } });
     const { ctx, page, errors } = await newPage(h, w, hgt);
     try {
       await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, OFFERS);
-      assert.equal(await page.locator("#startnow").isChecked(), false); assert.equal(await page.locator("#loseright").isChecked(), false); assert.equal(await page.locator("#terms").isChecked(), false);
-      assert.match(await page.textContent("#emailhint"), /länken till Ditt köp och villkor/); assert.doesNotMatch(await page.textContent("#emailhint"), /ångerlänk/);
-      assert.match(await page.textContent("#copy-how"), /länk till Ditt köp och villkor/);
-      assert.ok(await page.isVisible("#lbl-startnow")); assert.ok(await page.isVisible("#lbl-loseright")); assert.equal(await page.isVisible("#lbl-immediate"), false);
-      assert.match(await page.textContent("#t-startnow"), /startar direkt efter att jag betalat/); assert.match(await page.textContent("#t-loseright"), /förlorar min ångerrätt när tjänsten är fullt utförd/);
+      assert.equal(await page.locator("#declaration").isChecked(), false);
+      assert.equal(await page.locator('#offer input[type=checkbox]:visible').count(), 1, "exakt EN synlig ruta");
+      for (const gone of ["#lbl-terms", "#lbl-immediate", "#angerinfo", "#pnote", "#startnow", "#loseright"]) assert.equal(await page.locator(gone).isVisible().catch(() => false), false, gone + " ej synlig");
+      assert.equal((await page.textContent("#emailhint")).trim(), "Kvitto och avtalsbekräftelse skickas hit."); assert.doesNotMatch(await page.textContent("#emailhint"), /ånger/i);
+      assert.equal((await page.textContent("#t-decl")).trim(), "Jag vill att jämförelsen börjar direkt och godtar att ångerrätten upphör när tjänsten är helt utförd.");
+      assert.match(await page.textContent("#pterms"), /^Genom att köpa godkänner du köpvillkoren\.$/); assert.equal(await page.locator('#pterms a[href="/jamfor/villkor/"]').isVisible(), true);
+      // köpsammanfattning vid knappen: antal, pris/moms/engångs, täckning, säljare, när utfört, e-post
+      const sum = await page.textContent("#psum"); assert.match(sum, /2 hantverkarofferter för samma jobb/); assert.match(sum, /49 kr inklusive moms, engångsköp, ingen prenumeration/); assert.match(sum, /Tjänsten är helt utförd när jag har fått min jämförelserapport/); assert.match(sum, /Säljare:/); assert.match(sum, /Begränsningar/);
+      assert.equal(await page.isVisible("#psum"), true); assert.equal(await page.isVisible("#pay"), true);
+      // långa texter bakom Läs mer (stängda), tydligt märkta
+      assert.equal(await page.locator("#more-how").evaluate((d) => d.open), false); assert.match(await page.textContent("#more-how-s"), /Läs mer/);
+      assert.equal(await page.locator("#terms-more").evaluate((d) => d.open), false); assert.match(await page.textContent("#terms-more summary"), /Köpvillkor, ångerrätt och företagsuppgifter/);
+      assert.match(await page.textContent("#angertext"), /14 dagars ångerrätt.*hela beloppet tillbaka/s); assert.match(await page.textContent("#seller2"), /Du köper av/);
       assert.match(await page.textContent("#pay"), /Beställ med betalningsskyldighet: 49 kr/);
-      assert.ok(await page.isVisible("#angerinfo")); assert.match(await page.textContent("#angertext"), /14 dagars ångerrätt.*hela beloppet tillbaka/s);
+      // en ruta: 0 → disabled → markera → enabled → avmarkera → disabled
       assert.equal(await page.locator("#pay").isDisabled(), true);
       await page.fill("#email", "kund@example.test");
-      await page.check("#terms"); assert.equal(await page.locator("#pay").isDisabled(), true, "villkor ensamt räcker inte");
-      await page.check("#startnow"); assert.equal(await page.locator("#pay").isDisabled(), true, "en ruta räcker inte");
-      await page.check("#loseright"); assert.equal(await page.locator("#pay").isDisabled(), false);
-      await page.uncheck("#startnow"); assert.equal(await page.locator("#pay").isDisabled(), true);
+      await page.check("#declaration"); assert.equal(await page.locator("#pay").isDisabled(), false);
+      await page.uncheck("#declaration"); assert.equal(await page.locator("#pay").isDisabled(), true);
       assert.equal(h.stats.stripeCreate, 0, "ingen betalsession utan val");
+      await page.keyboard.press("Tab"); // tangentbord når rutan
+      await page.focus("#declaration"); await page.keyboard.press("Space"); assert.equal(await page.locator("#declaration").isChecked(), true); assert.equal(await page.locator("#pay").isDisabled(), false);
       assert.ok(await noSideScroll(page));
       await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_P1_samtycken.png`), fullPage: true });
+      await page.uncheck("#declaration");
       // helt flöde
-      await page.check("#startnow"); await page.uncheck("#terms"); await page.uncheck("#startnow"); await page.uncheck("#loseright");
       const reqs = [];
       await payFlowP(page, h, OFFERS, { reqs, here: true });
       await page.waitForSelector("#rep:not(.hidden)", { timeout: 30000 });
-      assert.equal(reqs.length >= 1, true); assert.equal(reqs[0].accept.startNow, true); assert.equal(reqs[0].accept.loseRight, true); assert.equal(reqs[0].accept.immediateDelivery, undefined);
+      assert.equal(reqs.length >= 1, true); assert.equal(reqs[0].accept.declaration, true); assert.equal(reqs[0].accept.startNow, undefined); assert.equal(reqs[0].accept.loseRight, undefined); assert.equal(reqs[0].accept.immediateDelivery, undefined);
       assert.equal(await page.locator("#rep #withdraw").count(), 0); assert.equal(await page.locator("#rep #agreement").count(), 0);
-      const link = page.locator("#rep a#buylink"); assert.equal((await link.textContent()).trim(), "Ditt köp och villkor");
+      const link = page.locator("#rep a#buylink"); assert.equal((await link.textContent()).trim(), "Ditt köp och hjälp"); assert.equal(await page.locator("#rep #angralink").count(), 0, "full giltig leverans: ingen Ångra-länk"); assert.doesNotMatch(await page.textContent("#buylinkp"), /ånger|Ångra/i);
       await link.click(); await page.waitForURL("**/jamfor/kop/**");
       await page.waitForSelector("#rightsend", { timeout: 15000 });
       assert.match(await page.textContent("#rightsend"), /ångerrätt upphörde .* när tjänsten var fullt utförd/);
-      assert.equal(await page.locator("#withdraw").count(), 0, "ingen ångerknapp efter giltigt fullgörande (ingen dold/nekande knapp)");
+      assert.equal(await page.locator("#withdraw").count(), 0, "ingen ångerknapp efter giltigt fullgörande (ingen dold/nekande knapp)"); assert.equal(await page.locator("#withdrawcard").isVisible(), false, "inget ångerkort"); assert.equal(await page.locator("#withdrawcard a, #rightsend a, #agreement a").count(), 0, "ingen Skicka ångerbegäran ändå-länk"); assert.equal(await page.locator("#angali").isVisible(), false, "ingen ångerkodslänk vid full giltig P");
       assert.match(await page.textContent("#helpcard"), /reklamation/i); assert.ok(await page.isVisible('a[href="/jamfor/villkor/"]'));
       assert.ok(await noSideScroll(page));
       await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_P2_kopsida_upphord.png`), fullPage: true });
@@ -814,6 +822,8 @@ for (const [label, tpFails] of [["lyckad visning ⇒ ångerrätten upphör", fal
         await page.waitForTimeout(1500);
         assert.equal(receipts.length, 0, "ingen kvittens vid källfel");
       }
+      if (tpFails) { const al = page.locator("#rep #angralink"); assert.equal(await al.isVisible(), true, "källfel: tydlig normalstor Ångra-funktion i resultatets köprad"); assert.equal((await al.textContent()).trim(), "Ångra avtalet"); assert.ok((await al.boundingBox()).height >= 44); }
+      else { await page.waitForFunction(() => !document.getElementById("angralink"), null, { timeout: 10000 }); assert.equal(await page.locator("#rep #angralink").count(), 0, "full giltig leverans med lyckad källvisning: ingen Ångra-länk"); }
       await page.click("#rep a#buylink"); await page.waitForURL("**/jamfor/kop/**");
       if (!tpFails) { await page.waitForSelector("#rightsend", { timeout: 15000 }); assert.equal(await page.locator("#withdraw").count(), 0); }
       else { await page.waitForSelector("#rightskept", { timeout: 15000 }); assert.ok(await page.isVisible("#withdraw")); }
@@ -1422,6 +1432,7 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
     const { ctx, page, errors, calls, reqs } = await freePage(h, w, hgt);
     try {
       await page.goto(h.base + "/"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
+      await page.waitForTimeout(700); // sena gratis-händelser från själva granskningen ska inte räknas som klickets
       const before = reqs.length; calls.length = 0;
       await page.click("#cmpr-go"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#carry:not(.hidden)");
       assert.match(page.url(), /\/jamfor\/#fran=gratis$/); assert.ok(!page.url().includes("Taktäckarna") && !decodeURIComponent(page.url()).includes("Offert tak"), "innehåll aldrig i adressen");
@@ -1618,3 +1629,52 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
     } finally { await ctx.close(); await h.close(); }
   });
 }
+
+// Commit 2 – EN gemensam P-deklaration: ändrad text, checkout-retry och reload kräver nytt aktivt val; ofullständig/oklar leverans behåller en tydlig vanlig Ångra-funktion.
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`policy P (${name}): ändrad text (409 consentChanged) och checkout-retry nollställer rutan – ingen tyst accept; retry-vyn har EN ruta + villkorsmening`, async () => {
+    const h = await startHarness({ vars: { COMPARE_CONSENT_POLICY: "P" } });
+    const { ctx, page, errors } = await newPage(h, w, hgt);
+    try {
+      await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, OFFERS);
+      await page.fill("#email", "kund@example.test"); await page.check("#declaration");
+      const bodies = [];
+      await page.route("**/compare/orders/*/checkout", async (route) => { bodies.push(JSON.parse(route.request().postData() || "{}")); if (bodies.length === 1) return route.fulfill({ status: 409, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ error: "Villkoren eller erbjudandet har ändrats sedan du läste dem. Läs och godkänn igen.", needAccept: true, consentChanged: true }) }); return route.continue(); });
+      await page.click("#pay"); await page.waitForSelector("#err:not(.hidden)");
+      assert.match(await page.textContent("#err"), /ändrats/); assert.equal(await page.locator("#declaration").isChecked(), false, "ny text ⇒ rutan nollställd"); assert.equal(await page.locator("#pay").isDisabled(), true, "köp inaktivt tills nytt aktivt val");
+      assert.equal(bodies[0].accept.declaration, true); assert.equal(h.stats.stripeCreate, 0);
+      await page.check("#declaration"); await page.click("#pay"); await page.waitForURL("https://checkout.stripe.test/**");
+      assert.equal(bodies.length, 2); assert.equal(bodies[1].accept.declaration, true); assert.equal(bodies[1].accept.terms, true);
+      assert.equal(bodies[1].accept.startNow, undefined);
+      // reload på den ofullständiga ordern (nytt ordertillstånd utan accept i denna kontext): retry-vyn
+      const h2 = await startHarness({ vars: { COMPARE_CONSENT_POLICY: "P" } });
+      const c2 = await newPage(h2, w, hgt);
+      try {
+        await c2.page.goto(h2.base + "/jamfor/"); await c2.page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(c2.page, OFFERS);
+        await c2.page.goto(h2.base + "/jamfor/?avbruten=1"); await c2.page.waitForSelector("text=Gå till betalning igen"); await c2.page.click("text=Gå till betalning igen");
+        await c2.page.waitForSelector("#decl2");
+        assert.equal(await c2.page.locator("#decl2").isChecked(), false); assert.equal(await c2.page.locator("#terms2").count(), 0, "ingen separat villkorsruta"); assert.equal(await c2.page.locator("#immediate2").count(), 0);
+        assert.match(await c2.page.textContent("#pterms2"), /Genom att köpa godkänner du köpvillkoren\./);
+        assert.equal((await c2.page.textContent('label:has(#decl2)')).trim(), "Jag vill att jämförelsen börjar direkt och godtar att ångerrätten upphör när tjänsten är helt utförd.");
+        await c2.page.fill("#email2", "kund@example.test"); await c2.page.click("#pay2"); assert.match(await c2.page.textContent("#err"), /Markera själv rutan/); assert.equal(h2.stats.stripeCreate, 0, "ingen tyst accept");
+        await c2.page.check("#decl2"); await c2.page.click("#pay2"); await c2.page.waitForURL("https://checkout.stripe.test/**");
+        assert.equal(h2.stats.stripeCreate, 1);
+      } finally { await c2.ctx.close(); await h2.close(); }
+      assert.deepEqual(errors.filter((e) => !/status of 4|Failed to load/.test(String(e))), []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
+test("policy P: sidfoten är neutral 'Köp, villkor och hjälp' (båda sidorna) och destinationen ger riktig väg (hjälp, villkor, ångerkod); policy Q behåller 'Ångra ett köp'", async () => {
+  const h = await startHarness({ vars: { COMPARE_CONSENT_POLICY: "P" } });
+  const { ctx, page } = await newPage(h, 390, 844);
+  try {
+    await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)");
+    const f1 = page.locator("footer #ftbuy"); assert.equal((await f1.textContent()).trim(), "Köp, villkor och hjälp"); assert.equal(await f1.getAttribute("href"), "/jamfor/kop/");
+    await page.goto(h.base + "/"); await page.waitForFunction(() => /Köp, villkor/.test(document.getElementById("ftbuy").textContent));
+    await page.click("#ftbuy"); await page.waitForURL("**/jamfor/kop/");
+    await page.waitForSelector("#helpcard:not(.hidden)"); assert.match(await page.textContent("#err"), /Vi hittar inget köp/);
+    assert.ok(await page.isVisible('#helpcard a[href="/jamfor/villkor/"]')); assert.ok(await page.isVisible('#helpcard a[href="/jamfor/angra/"]')); assert.match(await page.textContent("#helpcard"), /reklamation/i);
+    assert.ok(await noSideScroll(page));
+  } finally { await ctx.close(); await h.close(); }
+});

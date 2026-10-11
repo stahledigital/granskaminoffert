@@ -63,16 +63,17 @@ export function fulfilmentPoint(env) {
   if (v === undefined || v === "") return { ok: true, point: "leverans", explicit: false };
   return FULFILMENT_POINTS.includes(v) ? { ok: true, point: v, explicit: true } : { ok: false, point: null, explicit: true };
 }
-export const CONSENT_P_VERSION = "samtycke-p-utkast-1";
+export const CONSENT_P_VERSION = "samtycke-p-utkast-2"; // utkast-1 (tre rutor) lever kvar i redan frusna ordrar; ny text = ny hash = nytt aktivt val
 export function consentTexts(env) {
   if (consentPolicy(env) !== "P") return CONSENT.texts;
   const rev = reviewsActive(env), win = fulfilmentPoint(env).point === "fonster_slut";
   const what = "jag har fått min jämförelserapport" + (rev ? " och de omdömesvisningar som ingår i min order" : "") + (win ? ", och tiden på 24 timmar för att spara rapporten har gått ut" : "");
   return Object.freeze({
     sameJob: CONSENT.texts.sameJob,
-    terms: CONSENT.texts.terms,
-    startNow: "Jag vill att analysen startar direkt efter att jag betalat, innan ångerfristen på 14 dagar har gått ut.",
-    loseRight: `Jag förstår och godtar att jag förlorar min ångerrätt när tjänsten är fullt utförd, det vill säga när ${what}.`,
+    // Policy P: EN gemensam, aktiv deklaration (startbegäran + godtagande att ångerrätten upphör, Kommissionen 2021/C525/01 avsn. 5.6.1) och villkorsgodkännandet som knyts till köpknappen.
+    terms: "Genom att köpa godkänner du köpvillkoren.",
+    declaration: "Jag vill att jämförelsen börjar direkt och godtar att ångerrätten upphör när tjänsten är helt utförd.",
+    fulfilmentDef: `Tjänsten är helt utförd när ${what}.`,
   });
 }
 export const consentVersion = (env) => (consentPolicy(env) === "P" ? CONSENT_P_VERSION : CONSENT.version);
@@ -221,8 +222,8 @@ export const DATA_COVERAGE = Object.freeze({ reviews: false, text: "Omdömen om 
 // så kunden aldrig lovas något som inte är påslaget. Aldrig i rapport, export, mejl eller modell.
 export const reviewsActive = (env) => !!env && env.COMPARE_REVIEWS === "1" && env.COMPARE_REVIEWS_VERIFIED === "1";
 const REVIEWS_ON_GETSNOT = "Omdömen om företagen räknas inte in i jämförelsen och står inte i rapporten eller mejlen. Där en källa är tillgänglig för just din firma visas Googles och Trustpilots egna omdömen separat, med källans eget urval och datum. Vi ger inget eget betyg, ingen rangordning och ingen bedömning av företaget, och vi lovar inte att en källa finns eller har omdömen för varje firma (se täckningen innan du betalar).";
-const HOW_P_START = "Analysen startar först när betalningen är genomförd, du har valt båda rutorna och vi har skickat din avtalsbekräftelse. Det tar oftast några minuter. Du kan stänga fliken – du får tillbaka resultatet via en länk som visas här.";
-const HOW_P_EMAIL = "Du anger en e-postadress. Vi skickar en avtalsbekräftelse dit, med en länk till Ditt köp och villkor: avtal, hjälp och reklamation samt ånger när ångerrätt finns. Adressen används bara för det.";
+const HOW_P_START = "Analysen startar först när betalningen är genomförd, du har markerat rutan och vi har skickat din avtalsbekräftelse. Det tar oftast några minuter. Du kan stänga fliken – du får tillbaka resultatet via en länk som visas här.";
+const HOW_P_EMAIL = "Du anger en e-postadress. Kvitto och avtalsbekräftelse med alla villkor skickas dit, med en länk till Ditt köp och hjälp. Adressen används bara för det.";
 export function offerCopy(env) {
   let c = OFFER_COPY;
   if (reviewsActive(env)) c = { ...c, getsNot: c.getsNot.map((t) => (/^Inga omdömen om företagen/.test(t) ? REVIEWS_ON_GETSNOT : t)) };

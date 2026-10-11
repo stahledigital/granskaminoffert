@@ -127,9 +127,16 @@ function pLines(ag) {
   return [
     ``,
     `Vad du köpt: jämförelserapport för ${ag.docCount} offerter${cov ? `, samt källans egna omdömesvisning för de ${ag.p.agreed.sources.coveredIds.length} företag där täckning visades före köpet (täckningskontrollsumma ${ag.p.agreed.sources.coverageHash})` : ""}.`,
-    `Dina val (var och en vald av dig, ej förkryssad; texterna ordagrant):`,
-    `1. ${t.startNow} ${f("startNow")}`,
-    `2. ${t.loseRight} ${f("loseRight")}`,
+    ...(c.declaration ? [
+      `Din bekräftelse (en enda markering som du själv gjorde, ej förkryssad; texten ordagrant):`,
+      `- ${t.declaration} ${f("declaration")}`,
+      `${t.fulfilmentDef}`,
+      `Villkoren godkände du genom köpklicket: ${t.terms} ${f("terms")}`,
+    ] : [
+      `Dina val (var och en vald av dig, ej förkryssad; texterna ordagrant):`,
+      `1. ${t.startNow} ${f("startNow")}`,
+      `2. ${t.loseRight} ${f("loseRight")}`,
+    ]),
     `Analysen startar först när den här bekräftelsen har skickats. Fullgörandepunkt: ${ag.p.fulfilmentPoint === "fonster_slut" ? "leveransen plus att 24 h-fönstret för att spara rapporten gått ut" : "när rapporten (och ingående omdömesvisningar) har levererats"}.`,
     `Innan tjänsten är fullt utförd kan du ångra avtalet och få hela beloppet tillbaka. När den är fullt utförd upphör ångerrätten, men reklamation och övriga rättigheter gäller. Du kan alltid kontakta oss: ${ag.seller.email}.`,
   ];

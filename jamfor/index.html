@@ -142,10 +142,12 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
     <p id="coverage" class="hint"></p>
     <h3>Det här får du</h3>
     <ul class="tight" id="copy-gets"></ul>
+    <details id="more-how" open><summary id="more-how-s">Det här får du inte och så går det till</summary>
     <h3>Det här får du inte</h3>
     <ul class="tight" id="copy-getsnot"></ul>
     <h3>Så går det till</h3>
     <ul class="tight" id="copy-how"></ul>
+    </details>
     <div id="srcbox" class="hidden" aria-labelledby="h-src">
       <h3 id="h-src">Omdömen om hantverkarna (valfritt)</h3>
       <p class="hint">Googles och Trustpilots egna omdömen, visade separat per firma med källans eget urval. De ingår inte i jämförelsen eller rapporten och är ingen bedömning av företaget. Vi bekräftar inte att en källa finns för just din firma – täckningen visas här innan du betalar.</p>
@@ -155,16 +157,16 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
       <ul class="tight" id="srccov"></ul>
     </div>
     <div id="seller" class="hint" aria-label="Säljare"></div>
+    <div id="psum" class="card hidden" role="group" aria-labelledby="psum-h"><h3 id="psum-h" style="margin-top:0">Det här köper du</h3><p id="psum-what"></p><p id="psum-limits" class="hint"></p><p id="psum-done" class="hint"></p><p id="psum-seller" class="hint"></p></div>
     <label for="email" style="display:block;font-weight:600;margin:12px 0 4px">E-postadress för avtalsbekräftelsen</label>
     <input type="email" id="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="namn@exempel.se" aria-describedby="emailhint">
     <p class="hint" id="emailhint">Bekräftelsen med din ångerlänk skickas hit. Adressen används bara för det.</p>
-    <div id="angerinfo" class="card hidden" role="note"><h3 style="margin-top:0">Ångerrätt och start direkt</h3><p id="angertext" style="margin:0"></p></div>
-    <label class="chk"><input type="checkbox" id="terms"><span id="t-terms"></span> <a href="/jamfor/villkor/" target="_blank" rel="noopener">Läs villkoren</a></label>
+    <details id="terms-more" class="hidden"><summary>Köpvillkor, ångerrätt och företagsuppgifter</summary><p id="angertext"></p><p><a href="/jamfor/villkor/" target="_blank" rel="noopener">Läs de fullständiga köpvillkoren</a></p><div id="seller2" class="hint" aria-label="Företagsuppgifter"></div></details>
+    <label class="chk" id="lbl-terms"><input type="checkbox" id="terms"><span id="t-terms"></span> <a href="/jamfor/villkor/" target="_blank" rel="noopener">Läs villkoren</a></label>
     <label class="chk" id="lbl-immediate"><input type="checkbox" id="immediate"><span id="t-immediate"></span></label>
-    <label class="chk hidden" id="lbl-startnow"><input type="checkbox" id="startnow"><span id="t-startnow"></span></label>
-    <label class="chk hidden" id="lbl-loseright"><input type="checkbox" id="loseright"><span id="t-loseright"></span></label>
-    <p class="hint hidden" id="pnote">Du väljer själv båda rutorna; ingen är förkryssad. Utan båda startar inget och du kan ångra avtalet.</p>
+    <label class="chk hidden" id="lbl-decl"><input type="checkbox" id="declaration"><span id="t-decl"></span></label>
     <button type="button" class="btn acc block" id="pay">Betala 49 kr</button>
+    <p class="hint hidden" id="pterms"></p>
     <p class="hint">Betalningen sker hos Stripe. Du lämnar sidan och kommer tillbaka hit.</p>
   </div>
 </section>
@@ -185,7 +187,7 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
 <!-- RAPPORT -->
 <section id="rep" class="hidden" aria-labelledby="h-rep"></section>
 
-<footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. Beloppen är avlästa ur dokumenten och kan innehålla avläsningsfel. Det som inte framgår av en offert är inte detsamma som att det saknas. <a href="/jamfor/angra/">Ångra ett köp</a> · <a class="fu" href="/foretagsuppgifter">Företagsuppgifter</a></p></footer>
+<footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. Beloppen är avlästa ur dokumenten och kan innehålla avläsningsfel. Det som inte framgår av en offert är inte detsamma som att det saknas. <a href="/jamfor/angra/" id="ftbuy">Ångra ett köp</a> · <a class="fu" href="/foretagsuppgifter">Företagsuppgifter</a></p></footer>
 </main>
 
 <script>
@@ -249,26 +251,42 @@ function fillCopy(cfg){
   var c=cfg.offerCopy||{},t=(cfg.consent&&cfg.consent.texts)||{};
   fillList('copy-gets',c.gets);fillList('copy-getsnot',c.getsNot);fillList('copy-how',c.how);
   $('t-terms').textContent=t.terms||'';$('t-immediate').textContent=t.immediate||'';if(t.sameJob)$('t-samejob').textContent=t.sameJob;
-  state.cfg=cfg;var P=isP(cfg);if($('emailhint'))$('emailhint').textContent=P?'Bekräftelsen med länken till Ditt köp och villkor (avtal, hjälp och ånger när rätt finns) skickas hit. Adressen används bara för det.':'Bekräftelsen med din ångerlänk skickas hit. Adressen används bara för det.';$('t-startnow').textContent=t.startNow||'';$('t-loseright').textContent=t.loseRight||'';
-  var secs=(cfg.terms&&Array.isArray(cfg.terms.sections))?cfg.terms.sections:[],ag=secs.filter(function(x){return x.id==='angerratt'})[0];$('angertext').textContent=(P&&ag&&ag.text)||'';show('angerinfo',!!(P&&ag&&ag.text));
-  show('lbl-immediate',!P);show('lbl-startnow',P);show('lbl-loseright',P);show('pnote',P);
-  ['immediate','startnow','loseright'].forEach(function(id){$(id).checked=false}); // aldrig förkryssade
+  state.cfg=cfg;var P=isP(cfg);if($('emailhint'))$('emailhint').textContent=P?'Kvitto och avtalsbekräftelse skickas hit.':'Bekräftelsen med din ångerlänk skickas hit. Adressen används bara för det.';
+  var secs=(cfg.terms&&Array.isArray(cfg.terms.sections))?cfg.terms.sections:[],ag=secs.filter(function(x){return x.id==='angerratt'})[0];
+  $('angertext').textContent=(P&&ag&&ag.text)||'';show('terms-more',!!(P&&ag&&ag.text));
+  $('t-decl').textContent=t.declaration||'';
+  show('lbl-immediate',!P);show('lbl-terms',!P);show('lbl-decl',P);show('seller',!P);show('pterms',P);show('psum',P);
+  var mh=$('more-how'),ms=$('more-how-s');if(mh){mh.open=!P;if(ms)ms.textContent=P?'Läs mer: vad som inte ingår och hur det går till':'Det här får du inte och så går det till'}
+  fillPSum(cfg,t);
+  ['immediate','terms','declaration'].forEach(function(id){$(id).checked=false}); // aldrig förkryssade
   $('pay').textContent=payLabel();syncPay();
   $('coverage').textContent=$('coverage1').textContent=(cfg.dataCoverage&&cfg.dataCoverage.text)||'';
   show('draftnote',!!(cfg.consent&&cfg.consent.draft));
   fillSeller(cfg);
 }
+function fillPSum(cfg,t){
+  if(!isP(cfg))return;
+  var secs=(cfg.terms&&Array.isArray(cfg.terms.sections))?cfg.terms.sections:[],sl=secs.filter(function(x){return x.id==='saljare'})[0];
+  var first=sl&&typeof sl.text==='string'?String(sl.text).split('\n')[0]:'';
+  $('psum-what').textContent='Du köper en jämförelse av '+state.n+' hantverkarofferter för samma jobb: en rapport som visar vad som ingår, pris och villkor sida vid sida, med frågor att ställa. Pris: 49 kr inklusive moms, engångsköp, ingen prenumeration. '+((cfg.dataCoverage&&cfg.dataCoverage.text)||'');
+  $('psum-limits').textContent='Begränsningar: ingen bedömning av hantverkare, kvalitet eller om priset är rimligt. Det som inte framgår av en offert är inte detsamma som att det saknas. Källtäckningen för dina firmor visas ovan innan du betalar.';
+  $('psum-done').textContent=(t.fulfilmentDef||'')+' Kvitto och avtalsbekräftelse med alla villkor skickas till din e-post.';
+  $('psum-seller').textContent=first?first+'. Fler företagsuppgifter och köpvillkor: se Köpvillkor, ångerrätt och företagsuppgifter nedan.':'';
+  var pt=$('pterms');pt.textContent='';var tt=t.terms||'',i=tt.indexOf('köpvillkoren'),a=el('a',{href:'/jamfor/villkor/',target:'_blank',rel:'noopener'});
+  if(i>=0){a.textContent='köpvillkoren';pt.appendChild(document.createTextNode(tt.slice(0,i)));pt.appendChild(a);pt.appendChild(document.createTextNode(tt.slice(i+'köpvillkoren'.length)))}else{a.textContent='Köpvillkor';pt.appendChild(document.createTextNode(tt+' '));pt.appendChild(a)}
+}
 // Säljaruppgifter direkt i kassan: exakt samma rader som ingår i villkorssnapshoten och bekräftelsen (serverns avsnitt "saljare"). textContent, aldrig HTML.
 function safeInfoUrl(u){try{var x=new URL(String(u||''));return x.protocol==='https:'&&!x.username&&!x.password?x.href:''}catch(e){return ''}}
 function fillSeller(cfg){
-  var box=$('seller');if(!box)return;box.textContent='';
+  var box=$('seller');if(!box)return;box.textContent='';var b2=$('seller2');if(b2)b2.textContent='';
   var secs=(cfg.terms&&Array.isArray(cfg.terms.sections))?cfg.terms.sections:[];var s=null;
   for(var i=0;i<secs.length;i++){if(secs[i]&&secs[i].id==='saljare'){s=secs[i];break}}
   if(!s||typeof s.text!=='string')return;
   box.appendChild(el('b',{text:'Du köper av'}));
   s.text.split('\n').forEach(function(l){box.appendChild(el('div',{text:l}))});
+  if(b2){b2.appendChild(el('b',{text:'Du köper av'}));s.text.split('\n').forEach(function(l){b2.appendChild(el('div',{text:l}))})}
 }
-function footerInfoLink(cfg){var u=cfg&&cfg.terms&&cfg.terms.seller&&safeInfoUrl(cfg.terms.seller.infoUrl);if(u){document.querySelectorAll('a.fu').forEach(function(a){a.href=u})}}
+function footerInfoLink(cfg){var fb=$('ftbuy');if(fb&&isP(cfg)){fb.href='/jamfor/kop/';fb.textContent='Köp, villkor och hjälp'} var u=cfg&&cfg.terms&&cfg.terms.seller&&safeInfoUrl(cfg.terms.seller.infoUrl);if(u){document.querySelectorAll('a.fu').forEach(function(a){a.href=u})}}
 function readRecovery(){
   var p=new URLSearchParams(location.hash.replace(/^#/,''));var o=p.get('o'),t=p.get('t');
   if(o&&t){store('jamfor_order',JSON.stringify({id:o,token:t}));history.replaceState(null,'',location.pathname+location.search)}
@@ -424,13 +442,13 @@ $('pay').addEventListener('click',async function(){
   err('');
   if(!EMAIL_OK.test(($('email').value||'').trim())){err('Ange en giltig e-postadress för avtalsbekräftelsen.');$('email').focus();return}
   state.email=$('email').value.trim();
-  if(isP(state.cfg)){if(!$('terms').checked||!$('startnow').checked||!$('loseright').checked){err('Godkänn villkoren och välj själv båda rutorna (start direkt och att ångerrätten upphör när tjänsten är fullt utförd) för att gå vidare.');return}}
+  if(isP(state.cfg)){if(!$('declaration').checked){err('Markera själv rutan om att jämförelsen börjar direkt och att ångerrätten upphör när tjänsten är helt utförd för att gå vidare.');$('declaration').focus();return}}
   else if(!$('terms').checked||!$('immediate').checked){err('Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
   var b=$('pay');b.disabled=true;b.textContent='Öppnar betalning…';
   try{
     var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:acceptBody()}});
     if(r.status===200&&r.json.url){location.href=r.json.url;return}
-    if(r.json&&r.json.consentChanged){try{state.cfg=(await api('GET','/compare/config')).json;fillCopy(state.cfg);$('terms').checked=false}catch(e){}}
+    if(r.json&&r.json.consentChanged){try{state.cfg=(await api('GET','/compare/config')).json;fillCopy(state.cfg);$('terms').checked=false;$('declaration').checked=false;syncPay()}catch(e){}}
     err((r.json&&r.json.error)||'Betalningen kunde inte startas. Du har inte debiterats.');
   }catch(e){err('Betalningen kunde inte startas. Du har inte debiterats.')}
   b.textContent=payLabel();syncPay();
@@ -438,9 +456,9 @@ $('pay').addEventListener('click',async function(){
 
 function isP(cfg){return !!(cfg&&cfg.consent&&cfg.consent.policy==='P')}
 function payLabel(){return isP(state.cfg)?'Beställ med betalningsskyldighet: 49 kr':'Betala 49 kr'}
-function syncPay(){if(!isP(state.cfg)){$('pay').disabled=false;return}$('pay').disabled=!($('terms').checked&&$('startnow').checked&&$('loseright').checked)} // P: knappen är inaktiv tills alla val gjorts aktivt
-function acceptBody(){var c=(state.cfg&&state.cfg.consent)||{};var em=$('email');var base={terms:true,consentHash:c.hash,consentVersion:c.version,email:((em&&em.value)||state.email||'').trim()};if(isP(state.cfg)){base.startNow=true;base.loseRight=true}else base.immediateDelivery=true;return base}
-['terms','startnow','loseright'].forEach(function(id){$(id).addEventListener('change',syncPay)});
+function syncPay(){if(!isP(state.cfg)){$('pay').disabled=false;return}$('pay').disabled=!$('declaration').checked} // P: knappen är inaktiv tills den ENA deklarationen aktivt markerats
+function acceptBody(){var c=(state.cfg&&state.cfg.consent)||{};var em=$('email');var base={terms:true,consentHash:c.hash,consentVersion:c.version,email:((em&&em.value)||state.email||'').trim()};if(isP(state.cfg)){base.declaration=true}else base.immediateDelivery=true;return base}
+['terms','declaration'].forEach(function(id){$(id).addEventListener('change',syncPay)});
 var EMAIL_OK=/^[^\s@,;<>()"]{1,64}@[^\s@,;<>()"]{1,190}\.[A-Za-z]{2,}$/;
 
 // ---------- återupptagning och väntan ----------
@@ -530,13 +548,13 @@ async function consentAgain(msg){
   function chk(id,text){var l=el('label',{class:'chk'});l.appendChild(el('input',{type:'checkbox',id:id}));l.appendChild(el('span',{text:text}));return l}
   var le=el('label',{for:'email2',style:'display:block;font-weight:600;margin:10px 0 4px',text:'E-postadress för avtalsbekräftelsen'});box.appendChild(le);
   box.appendChild(el('input',{type:'email',id:'email2',autocomplete:'email',maxlength:'254'}));
-  var PP=isP(cfg);box.appendChild(chk('terms2',t.terms||''));if(PP){box.appendChild(chk('startnow2',t.startNow||''));box.appendChild(chk('loseright2',t.loseRight||''))}else box.appendChild(chk('immediate2',t.immediate||''));
+  var PP=isP(cfg);if(PP){box.appendChild(chk('decl2',t.declaration||''));var pt=el('p',{class:'hint',id:'pterms2'});var tt=t.terms||'',ix=tt.indexOf('köpvillkoren'),lk=el('a',{href:'/jamfor/villkor/',target:'_blank',rel:'noopener'});if(ix>=0){lk.textContent='köpvillkoren';pt.appendChild(document.createTextNode(tt.slice(0,ix)));pt.appendChild(lk);pt.appendChild(document.createTextNode(tt.slice(ix+12)))}else{lk.textContent='Köpvillkor';pt.appendChild(document.createTextNode(tt+' '));pt.appendChild(lk)}box.appendChild(pt)}else{box.appendChild(chk('terms2',t.terms||''));box.appendChild(chk('immediate2',t.immediate||''))}
   var b=el('button',{type:'button',class:'btn acc',id:'pay2',text:'Godkänn och gå till betalning'});
   b.addEventListener('click',async function(){
     err('');
     if(!EMAIL_OK.test(($('email2').value||'').trim())){err('Ange en giltig e-postadress för avtalsbekräftelsen.');return}
     state.email=$('email2').value.trim();
-    if(PP?!($('terms2').checked&&$('startnow2').checked&&$('loseright2').checked):!($('terms2').checked&&$('immediate2').checked)){err(PP?'Godkänn villkoren och välj själv båda rutorna för att gå vidare.':'Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
+    if(PP?!$('decl2').checked:!($('terms2').checked&&$('immediate2').checked)){err(PP?'Markera själv rutan om att jämförelsen börjar direkt och att ångerrätten upphör när tjänsten är helt utförd för att gå vidare.':'Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
     b.disabled=true;
     var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:acceptBody()}});
     if(r.status===200&&r.json.url){location.href=r.json.url;return}
@@ -652,6 +670,23 @@ function buildGrid(R,mode,view){
   });
   t.appendChild(tb);wrap.appendChild(t);return wrap;
 }
+var lastOrderForLink=null;
+function buyLinkNode(o){
+  var kopHref='/jamfor/kop/#o='+encodeURIComponent(state.order.id)+'&t='+encodeURIComponent(state.order.token);
+  if(isP(state.cfg)){
+    // Policy P: neutral köp- och hjälplänk. Finns ångerrätten faktiskt kvar (ofullständig/oklar leverans) visas en tydligt märkt, normalstor Ångra-länk – aldrig gömd under Läs mer. Full giltig leverans: ingen ångerreklam.
+    var rg=o&&o.rights,rightHere=!(rg&&rg.angerratt==='upphord');
+    var bp=el('p',{class:'noprint',id:'buylinkp'},el('a',{id:'buylink',href:kopHref,text:'Ditt köp och hjälp'}),' – avtal, villkor och reklamation.');
+    if(rightHere){bp.appendChild(document.createTextNode(' '));bp.appendChild(el('a',{id:'angralink',class:'btn ghost',href:kopHref,text:'Ångra avtalet'}))}
+    return bp;
+  }
+  return el('p',{class:'noprint',id:'buylinkp'},el('a',{id:'buylink',href:kopHref,text:'Ditt köp och villkor'}),' – avtal, villkor, hjälp och reklamation samt ångra köpet när ångerrätt finns.');
+}
+// Efter lyckad källkvittens kan rätten ha upphört: hämta ordern på nytt och bygg om länkraden (så en fullt giltig leverans aldrig lämnar en kvarvarande Ångra-länk).
+function syncBuyLink(){
+  if(!isP(state.cfg)||!state.order)return;
+  api('GET','/compare/orders/'+state.order.id,{token:state.order.token}).then(function(r){var o=r.json&&r.json.order,old=$('buylinkp');if(!o||!old||!old.parentNode)return;lastOrderForLink=o;old.parentNode.replaceChild(buyLinkNode(o),old)},function(){});
+}
 function renderReport(R,o){
   var host=$('rep');host.textContent='';show('rep',true);
   host.appendChild(el('h2',{id:'h-rep',text:'Din jämförelse'}));
@@ -741,7 +776,7 @@ function renderReport(R,o){
   });
   act.appendChild(pb);act.appendChild(jb);act.appendChild(db);host.appendChild(act);
   host.appendChild(el('p',{class:'hint noprint',text:'Resultatet finns kvar till '+new Date(R.expiresAt).toLocaleString('sv-SE')+'. Ladda ner om du vill spara det.'}));
-  host.appendChild(el('p',{class:'noprint',id:'buylinkp'},el('a',{id:'buylink',href:'/jamfor/kop/#o='+encodeURIComponent(state.order.id)+'&t='+encodeURIComponent(state.order.token),text:'Ditt köp och villkor'}),' – avtal, villkor, hjälp och reklamation samt ångra köpet när ångerrätt finns.'));
+  host.appendChild(buyLinkNode(o));
   host.scrollIntoView({block:'start'});
 }
 
@@ -831,7 +866,7 @@ function gmpReport(f,outcome){
 // Kvittens på avtalad källvisning (policy P): skickas bara efter LYCKAD visning i rapportläget. Servern prövar sin egen källstatus – klientens påstående räknas inte; fel/tomt/delvis ger ingen kvittens.
 function srcReceipt(firmId){
   if(!state.order||SRC.mode!=='report')return;
-  api('POST','/compare/orders/'+state.order.id+'/source-delivered',{token:state.order.token,body:{firmId:firmId,state:'visad'}}).then(function(){},function(){});
+  api('POST','/compare/orders/'+state.order.id+'/source-delivered',{token:state.order.token,body:{firmId:firmId,state:'visad'}}).then(function(){syncBuyLink()},function(){});
 }
 // Serverreservation FÖRE varje billbar Googleinstans (Search/AdvancedDetails): preview, valbyte, återöppning och retry/remount ger ny reservation.
 // Varje instans får ett nytt mountId; servern ger aldrig ny tillåtelse på ett gammalt. Nekas/fel ⇒ ingen instans skapas (fail closed).

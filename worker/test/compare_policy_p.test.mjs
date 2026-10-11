@@ -34,10 +34,10 @@ test("policy: default Q oförändrad; P kräver explicit flagga, har egen versio
   assert.equal(consentPolicy(q), "Q"); assert.equal(consentPolicy(p), "P"); assert.equal(consentPolicy(makeEnv({ COMPARE_CONSENT_POLICY: "p" })), "Q"); assert.equal(consentPolicy(makeEnv({ COMPARE_CONSENT_POLICY: "1" })), "Q");
   const cq = await consentOf(q), cp = await consentOf(p);
   assert.equal(cq.policy, "Q"); assert.ok(cq.texts.immediate); assert.equal(cq.texts.startNow, undefined);
-  assert.equal(cp.policy, "P"); assert.ok(cp.texts.startNow && cp.texts.loseRight); assert.equal(cp.texts.immediate, undefined); assert.notEqual(cp.hash, cq.hash); assert.notEqual(cp.version, cq.version);
-  assert.match(cp.texts.startNow, /startar direkt/); assert.match(cp.texts.loseRight, /fullt utförd/);
+  assert.equal(cp.policy, "P"); assert.ok(cp.texts.declaration && cp.texts.terms && cp.texts.fulfilmentDef); assert.equal(cp.texts.startNow, undefined); assert.equal(cp.texts.loseRight, undefined); assert.equal(cp.texts.immediate, undefined); assert.notEqual(cp.hash, cq.hash); assert.notEqual(cp.version, cq.version);
+  assert.equal(cp.texts.declaration, "Jag vill att jämförelsen börjar direkt och godtar att ångerrätten upphör när tjänsten är helt utförd."); assert.equal(cp.texts.terms, "Genom att köpa godkänner du köpvillkoren."); assert.match(cp.texts.fulfilmentDef, /helt utförd när jag har fått min jämförelserapport/);
   assert.equal(cp.fulfilmentPoint, "leverans"); assert.equal(fulfilmentPoint(p).explicit, false);
-  const w = makeEnv({ ...P, COMPARE_FULFILMENT_POINT: "fonster_slut" }); assert.equal(fulfilmentPoint(w).point, "fonster_slut"); assert.match((await consentOf(w)).texts.loseRight, /24 timmar/);
+  const w = makeEnv({ ...P, COMPARE_FULFILMENT_POINT: "fonster_slut" }); assert.equal(fulfilmentPoint(w).point, "fonster_slut"); assert.match((await consentOf(w)).texts.fulfilmentDef, /24 timmar/);
   assert.equal(consentSnapshot(w).fulfilmentPoint, "fonster_slut"); assert.notEqual((await consentOf(w)).hash, cp.hash, "fullgörandepunkten ingår i hashen");
   const bad = makeEnv({ ...P, COMPARE_FULFILMENT_POINT: "nagonannan" }); assert.equal(fulfilmentPoint(bad).ok, false); assert.equal(acceptingOrders(bad, ["https://granskaminoffert.se"]), false);
   assert.equal((await api(bad, "GET", "/compare/config")).json.accepting, false);
@@ -46,20 +46,20 @@ test("policy: default Q oförändrad; P kräver explicit flagga, har egen versio
   const ids = (await api(p, "GET", "/compare/config")).json.terms.sections.map((x) => x.id);
   for (const id of ["angerratt", "efterleverans", "ofullstandig", "aterbetalning", "kontakt"]) assert.ok(ids.includes(id), id);
   const terms = JSON.stringify((await api(p, "GET", "/compare/config")).json.terms);
-  assert.match(terms, /hela beloppet tillbaka/); assert.match(terms, /Analysen startar först när betalningen är genomförd, du har valt båda rutorna och vi har skickat din avtalsbekräftelse/); assert.match(terms, /reklamera/);
+  assert.match(terms, /hela beloppet tillbaka/); assert.match(terms, /Analysen startar först när betalningen är genomförd, du har markerat rutan och vi har skickat din avtalsbekräftelse/); assert.match(terms, /reklamera/);
 });
 
 test("samtyckesmatris: båda rutorna + villkor krävs aktivt; saknad/felaktig/Q-stil ruta ⇒ 400, ingen betalsession, ingen start", async () => {
   const f = installFetch();
   try {
     const env = makeEnv(PE); const c = await consentOf(env); const { orderId, token } = await create(env, f);
-    const base = { terms: true, startNow: true, loseRight: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL };
+    const base = { terms: true, declaration: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL };
     const cases = [
-      ["startNow saknas", { ...base, startNow: undefined }], ["loseRight saknas", { ...base, loseRight: undefined }], ["båda saknas", { ...base, startNow: undefined, loseRight: undefined }],
+      ["deklaration saknas", { ...base, declaration: undefined }], ["gamla tre rutor utan deklaration", { terms: true, startNow: true, loseRight: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL }],
       ["bara villkor", { terms: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL }], ["terms saknas", { ...base, terms: undefined }],
-      ["startNow false", { ...base, startNow: false }], ["loseRight false", { ...base, loseRight: false }], ["sträng 'true'", { ...base, startNow: "true" }], ["1", { ...base, loseRight: 1 }],
+      ["deklaration false", { ...base, declaration: false }], ["sträng 'true'", { ...base, declaration: "true" }], ["1", { ...base, declaration: 1 }],
       ["Q-stil (immediateDelivery) under P", { terms: true, immediateDelivery: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL }],
-      ["Q-stil + en P-ruta", { ...base, loseRight: undefined, immediateDelivery: true }],
+      ["Q-stil utan deklaration", { ...base, declaration: undefined, immediateDelivery: true }],
     ];
     for (const [name, accept] of cases) { const r = await startCheckout(env, orderId, token, accept); assert.equal(r.status, 400, name); assert.equal(r.json.needAccept, true, name); }
     assert.equal(f.sessions.size, 0, "ingen betalsession skapad"); assert.equal(f.log.anthropic.length, 0); assert.equal(orderOf(env, orderId).accept.policy, undefined, "inget samtycke sparat av avvisade försök");
@@ -70,10 +70,10 @@ test("samtyckesmatris: båda rutorna + villkor krävs aktivt; saknad/felaktig/Q-
     // giltigt
     assert.equal((await startCheckout(env, orderId, token, base)).status, 200);
     const a = orderOf(env, orderId).accept;
-    assert.equal(a.policy, "P"); assert.equal(a.startNow, true); assert.equal(a.loseRight, true); assert.equal(a.immediateDelivery, undefined);
+    assert.equal(a.policy, "P"); assert.equal(a.declaration, true); assert.equal(a.derivedFrom, "declaration"); assert.equal(a.startNow, true); assert.equal(a.loseRight, true); assert.deepEqual(Object.keys(a.consents).sort(), ["declaration", "terms"], "EN deklaration + villkor via köpklick, inga tre loggade rutor"); assert.deepEqual(a.consents.declaration.covers, ["startNow", "loseRight"]); assert.equal(a.consents.terms.via, "kopknapp"); assert.equal(a.immediateDelivery, undefined);
     // Q: den gamla rutan; P-fält ensamma räcker inte
     const q = makeEnv(); const cq = await consentOf(q); const o2 = await create(q, f);
-    const r = await startCheckout(q, o2.orderId, o2.token, { terms: true, startNow: true, loseRight: true, consentHash: cq.hash, consentVersion: cq.version, email: TEST_EMAIL });
+    const r = await startCheckout(q, o2.orderId, o2.token, { terms: true, declaration: true, consentHash: cq.hash, consentVersion: cq.version, email: TEST_EMAIL });
     assert.equal(r.status, 400); assert.equal(orderOf(q, o2.orderId).accept.policy, undefined);
   } finally { f.restore(); }
 });
@@ -82,7 +82,7 @@ test("tamper/version: ändrad hash eller version ⇒ 409 consentChanged; hash av
   const f = installFetch();
   try {
     const env = makeEnv(PE); const c = await consentOf(env); const { orderId, token } = await create(env, f);
-    const ok = { terms: true, startNow: true, loseRight: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL };
+    const ok = { terms: true, declaration: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL };
     assert.equal((await startCheckout(env, orderId, token, { ...ok, consentHash: "0".repeat(64) })).status, 409);
     assert.equal((await startCheckout(env, orderId, token, { ...ok, consentVersion: "samtycke-utkast-1" })).status, 409);
     const qh = await consentOf(makeEnv()); assert.equal((await startCheckout(env, orderId, token, { ...ok, consentHash: qh.hash, consentVersion: qh.version })).status, 409, "Q-hash godtas inte under P");
@@ -101,7 +101,7 @@ test("frusna samtycken: två val med tid/text-ID/text-hash/order, avtalad presta
     const env = makeEnv(PE); const mm = mailer(); mm.down = true; env.COMPARE_MAILER = mm;
     const o = await paidP(env, f, { run: false });
     const a = orderOf(env, o.orderId).accept;
-    for (const k of ["startNow", "loseRight", "terms"]) { assert.equal(a.consents[k].value, true); assert.ok(a.consents[k].at > 0); assert.equal(a.consents[k].orderId, o.orderId); assert.equal(a.consents[k].textHash, await sha256Hex(a.snapshot.texts[k])); assert.match(a.consents[k].textId, new RegExp(`^${k}@samtycke-p-utkast-1$`)); }
+    for (const k of ["declaration", "terms"]) { assert.equal(a.consents[k].value, true); assert.ok(a.consents[k].at > 0); assert.equal(a.consents[k].orderId, o.orderId); assert.equal(a.consents[k].textHash, await sha256Hex(a.snapshot.texts[k])); assert.match(a.consents[k].textId, new RegExp(`^${k}@samtycke-p-utkast-2$`)); }
     assert.deepEqual(a.agreed.report, true); assert.equal(a.agreed.sources.required, false); assert.equal(a.fulfilmentPoint, "leverans");
     await env.COMPARE_ORDERS.runAlarms(1);
     assert.equal(f.log.anthropic.length, 0, "ingen generation före bekräftelsen"); assert.equal((await view(env, o.orderId, o.token)).waiting, "avtalsbekraftelse"); assert.equal(orderOf(env, o.orderId).accept.confirmation, undefined);
@@ -109,11 +109,11 @@ test("frusna samtycken: två val med tid/text-ID/text-hash/order, avtalad presta
     mm.down = false; const s = st(env, o.orderId); for (const [k, v] of [...s]) if (k.startsWith("outbox:") && v.nextAt) s.set(k, { ...v, nextAt: 0, leaseUntil: null });
     await env.COMPARE_ORDERS.runAlarms();
     const conf = mm.sent.find((m) => m.id.startsWith("mail_avtal_"));
-    for (const t of [a.snapshot.texts.startNow, a.snapshot.texts.loseRight]) assert.ok(conf.body.includes(t), "ordagrant: " + t);
-    for (const k of ["startNow", "loseRight"]) { assert.ok(conf.body.includes(a.consents[k].textHash)); assert.ok(conf.body.includes(new Date(a.consents[k].at).toISOString())); }
+    for (const t of [a.snapshot.texts.declaration, a.snapshot.texts.terms, a.snapshot.texts.fulfilmentDef]) assert.ok(conf.body.includes(t), "ordagrant: " + t);
+    for (const k of ["declaration", "terms"]) { assert.ok(conf.body.includes(a.consents[k].textHash)); assert.ok(conf.body.includes(new Date(a.consents[k].at).toISOString())); }
     assert.match(conf.body, /Analysen startar först när den här bekräftelsen har skickats/); assert.match(conf.body, /\/jamfor\/kop\//); assert.match(conf.body, /reklamation/i); assert.ok(!/\{\{/.test(conf.body), "inga kvarvarande platshållare");
     const o2 = orderOf(env, o.orderId); assert.ok(o2.accept.confirmation && o2.accept.confirmation.sentAt <= o2.work.deliveredAt); assert.equal(o2.status, "delivered");
-    const ag = ledgerOf(env, o.orderId).agreement; assert.equal(ag.p.policy, "P"); assert.equal(ag.p.consents.loseRight.textHash, a.consents.loseRight.textHash);
+    const ag = ledgerOf(env, o.orderId).agreement; assert.equal(ag.p.policy, "P"); assert.equal(ag.p.consents.declaration.textHash, a.consents.declaration.textHash);
     assert.equal(JSON.stringify(ag).includes("FIXTURE"), false);
   } finally { f.restore(); }
 });
@@ -135,7 +135,7 @@ test("manipulerad orderpost: saknat frusen samtycke vid start ⇒ ingen generati
   try {
     const env = makeEnv(PE); env.COMPARE_MAILER = mailer();
     const o = await paidP(env, f, { run: false });
-    const s = st(env, o.orderId); const ord = s.get("order"); delete ord.accept.consents.loseRight; s.set("order", ord);
+    const s = st(env, o.orderId); const ord = s.get("order"); delete ord.accept.consents.declaration; s.set("order", ord);
     await env.COMPARE_ORDERS.runAlarms();
     const v = orderOf(env, o.orderId); assert.equal(v.status, "failed"); assert.equal(v.work.error, "samtycke_saknas"); assert.equal(f.log.anthropic.length, 0); assert.equal(f.log.refunds.length, 1);
   } finally { f.restore(); }
@@ -245,7 +245,7 @@ test("bevis saknas/motstridigt ⇒ fail closed: ångerrätt kvar (ingen automati
       ["rapportens hash saknas", (o) => { o.delivery.report.hash = null; }, "rapport"],
       ["leveranshändelse saknas", (o) => { delete o.delivery; }, "rapport"],
       ["bekräftelse ej registrerad", (o) => { delete o.accept.confirmation; }, "bekraftelse"],
-      ["samtycke ofullständigt", (o) => { o.accept.consents.startNow.textHash = null; }, "samtycke"],
+      ["samtycke ofullständigt", (o) => { o.accept.consents.declaration.textHash = null; }, "samtycke"],
       ["fullgörandepunkt saknas", (o) => { o.accept.fulfilmentPoint = "okand"; }, "fullgorandepunkt"],
     ]) {
       const o = await paidP(env, f); const s = st(env, o.orderId); const ord = s.get("order"); tamper(ord); s.set("order", ord);

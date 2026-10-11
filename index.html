@@ -213,7 +213,7 @@ details.gmo-all{margin-top:12px}
 </div>
 </details>
 
-<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital</a> · <a href="/foretagsuppgifter/">Företagsuppgifter</a> · <a href="/jamfor/angra/">Ångra ett köp</a> · <a href="mailto:hej@stahledigital.se" data-cta="epost">hej@stahledigital.se</a></p>
+<p class="foot">Ett verktyg från <a href="https://stahledigital.se/verkstaden">Ståhle Digital</a> · <a href="/foretagsuppgifter/">Företagsuppgifter</a> · <a href="/jamfor/angra/" id="ftbuy">Ångra ett köp</a> · <a href="mailto:hej@stahledigital.se" data-cta="epost">hej@stahledigital.se</a></p>
 </main>
 
 <script>
@@ -629,7 +629,7 @@ function syncCmp(){
     const local=/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
     const base=local?(new URLSearchParams(location.search).get('api')||location.origin):API_BASE;
     fetch(base.replace(/\/$/,'')+'/compare/config',{headers:{accept:'application/json'}}).then(r=>r.ok?r.json():null).then(c=>{
-      if(c&&c.enabled===true&&c.accepting===true&&c.offer&&Number.isFinite(c.offer.priceOre)){cmpOpen=true;cmpPrice=Math.round(c.offer.priceOre/100)+' kr';syncCmp();}
+      if(c&&c.enabled===true&&c.accepting===true&&c.offer&&Number.isFinite(c.offer.priceOre)){cmpOpen=true;cmpPrice=Math.round(c.offer.priceOre/100)+' kr';syncCmp();} if(c&&c.consent&&c.consent.policy==='P'){const fb=document.getElementById('ftbuy');if(fb){fb.href='/jamfor/kop/';fb.textContent='Köp, villkor och hjälp';}}
     }).catch(()=>{});
   }catch(e){}
 })();

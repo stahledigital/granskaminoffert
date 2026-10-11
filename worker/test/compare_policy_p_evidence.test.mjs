@@ -37,16 +37,16 @@ async function covered(env, f, { google = true, tp = true } = {}) {
 
 // ---- rotens prov som regressionstester ----
 const PRE = [
-  ["loseRight.value=false före start", (o) => { o.accept.consents.loseRight.value = false; }],
-  ["startNow.value=false före start", (o) => { o.accept.consents.startNow.value = false; }],
+  ["declaration.value=false före start", (o) => { o.accept.consents.declaration.value = false; }],
   ["terms.value=false före start", (o) => { o.accept.consents.terms.value = false; }],
-  ["fel textHash", (o) => { o.accept.consents.startNow.textHash = "0".repeat(64); }],
-  ["fel orderID i samtycke", (o) => { o.accept.consents.loseRight.orderId = "o_" + "1".repeat(32); }],
-  ["fel text-ID/version", (o) => { o.accept.consents.loseRight.textId = "loseRight@samtycke-p-utkast-0"; }],
-  ["ändrad frusen text (snapshot ≠ consentHash)", (o) => { o.accept.snapshot.texts.loseRight += " (ändrad)"; }],
+  ["terms.value=false före start", (o) => { o.accept.consents.terms.value = false; }],
+  ["fel textHash", (o) => { o.accept.consents.declaration.textHash = "0".repeat(64); }],
+  ["fel orderID i samtycke", (o) => { o.accept.consents.declaration.orderId = "o_" + "1".repeat(32); }],
+  ["fel text-ID/version", (o) => { o.accept.consents.declaration.textId = "declaration@samtycke-p-utkast-0"; }],
+  ["ändrad frusen text (snapshot ≠ consentHash)", (o) => { o.accept.snapshot.texts.declaration += " (ändrad)"; }],
   ["ändrad version", (o) => { o.accept.consentVersion = "samtycke-p-utkast-0"; }],
   ["fullgörandepunkt ≠ snapshot", (o) => { o.accept.fulfilmentPoint = "fonster_slut"; }],
-  ["samtyckestid ≠ accepttid", (o) => { o.accept.consents.startNow.at += 5; }],
+  ["samtyckestid ≠ accepttid", (o) => { o.accept.consents.declaration.at += 5; }],
   ["motstridig förhandsbekräftelse (fel mejl-ID)", (o) => { o.accept.confirmation = { mailId: "mail_avtal_fel", sentAt: 1, at: 2 }; }],
 ];
 test("rotens prov före start: falskt/motstridigt samtycke ⇒ INGEN generation, ordern avbryts och återbetalas fullt (varje variant)", async () => {
@@ -68,7 +68,7 @@ test("rotens prov före start: falskt/motstridigt samtycke ⇒ INGEN generation,
 test("ledger-korskontroll före start: saknad/ändrad avtalspost ⇒ ingen generation", async () => {
   for (const [name, mut] of [
     ["ledger saknas", (s) => s.delete("ledger")],
-    ["ledger-samtycke annan textHash", (s) => { const l = s.get("ledger"); l.agreement.p.consents.loseRight.textHash = "f".repeat(64); s.set("ledger", l); }],
+    ["ledger-samtycke annan textHash", (s) => { const l = s.get("ledger"); l.agreement.p.consents.declaration.textHash = "f".repeat(64); s.set("ledger", l); }],
     ["ledger annan fullgörandepunkt", (s) => { const l = s.get("ledger"); l.agreement.p.fulfilmentPoint = "fonster_slut"; s.set("ledger", l); }],
     ["ledger annan avtalad prestation", (s) => { const l = s.get("ledger"); l.agreement.p.agreed.sources.required = true; s.set("ledger", l); }],
     ["ledger annan order", (s) => { const l = s.get("ledger"); l.agreement.orderId = "o_" + "2".repeat(32); s.set("ledger", l); }],
@@ -84,8 +84,8 @@ test("ledger-korskontroll före start: saknad/ändrad avtalspost ⇒ ingen gener
 });
 
 const POST = [
-  ["loseRight.value=false efter leverans", (o) => { o.accept.consents.loseRight.value = false; }],
-  ["fel textHash efter leverans", (o) => { o.accept.consents.startNow.textHash = "0".repeat(64); }],
+  ["declaration.value=false efter leverans", (o) => { o.accept.consents.declaration.value = false; }],
+  ["fel textHash efter leverans", (o) => { o.accept.consents.declaration.textHash = "0".repeat(64); }],
   ["fel orderID efter leverans", (o) => { o.accept.consents.terms.orderId = "o_" + "3".repeat(32); }],
   ["bekräftelsen senare än rapporten", (o, s) => { const t = o.delivery.report.at + 5000; o.accept.confirmation.sentAt = t; o.accept.confirmation.at = t; const m = s.get(`outbox:mail_avtal_${o.id}`); m.sentAt = t; s.set(`outbox:mail_avtal_${o.id}`, m); }],
   ["bekräftelsen senare än arbetsstart", (o) => { o.work.startedAt = o.accept.confirmation.sentAt - 1; }],
@@ -232,10 +232,57 @@ test("injicerad täckning + klientens ingen_kalla (rotens prov 6) kan inte ta bo
   } finally { f.restore(); }
 });
 
-test("copy: P beskriver den faktiska köplänken (Ditt köp och villkor) i förköpets 'så går det till' och villkoren; Q oförändrad", () => {
+test("copy: P beskriver den faktiska köplänken (Ditt köp och hjälp, neutral) i förköpets 'så går det till' och villkoren; Q oförändrad", () => {
   const p = makeEnv({ COMPARE_CONSENT_POLICY: "P" }), q = makeEnv();
   const pc = offerCopy(p).how.join(" ");
-  assert.match(pc, /länk till Ditt köp och villkor: avtal, hjälp och reklamation samt ånger när ångerrätt finns/); assert.doesNotMatch(pc, /länk för att ångra köpet/);
+  assert.match(pc, /Kvitto och avtalsbekräftelse med alla villkor skickas dit, med en länk till Ditt köp och hjälp/); assert.doesNotMatch(pc, /ånger/); assert.doesNotMatch(pc, /länk för att ångra köpet/);
   assert.equal(offerCopy(q), OFFER_COPY); assert.match(offerCopy(q).how.join(" "), /länk för att ångra köpet/);
   const terms = JSON.stringify(consentSnapshot(p).terms); assert.match(terms, /Ditt köp och villkor/); assert.doesNotMatch(terms, /länk för att ångra avtalet/);
+});
+
+// ---- Policy P, EN gemensam deklaration (utkast-2) vs äldre frusna tre-rutors ordrar (utkast-1) ----
+const sha = async (t) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+test("äldre frusen P-order (utkast-1, tre rutor) består oförändrad: samma bevis, startar, levereras och bekräftelsen visar sina tre val", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv(PE); const mm = mailer(); env.COMPARE_MAILER = mm;
+    const o = await plain(env, f, { run: false });
+    const s = st(env, o.orderId); const ord = s.get("order"), led = s.get("ledger"), ver = "samtycke-p-utkast-1", at = ord.accept.acceptedAt;
+    const T = { startNow: "Jag vill att analysen startar direkt efter att jag betalat, innan ångerfristen på 14 dagar har gått ut.", loseRight: "Jag förstår och godtar att jag förlorar min ångerrätt när tjänsten är fullt utförd, det vill säga när jag har fått min jämförelserapport.", terms: ord.accept.snapshot.texts.terms };
+    const texts = { sameJob: ord.accept.snapshot.texts.sameJob, terms: T.terms, startNow: T.startNow, loseRight: T.loseRight };
+    ord.accept.snapshot = { ...ord.accept.snapshot, consentVersion: ver, texts };
+    ord.accept.consentVersion = ver; ord.accept.consentHash = await sha(JSON.stringify(ord.accept.snapshot));
+    delete ord.accept.declaration; delete ord.accept.derivedFrom;
+    const ev = async (k) => ({ value: true, at, textId: `${k}@${ver}`, textHash: await sha(T[k]), orderId: o.orderId });
+    ord.accept.consents = { terms: await ev("terms"), startNow: await ev("startNow"), loseRight: await ev("loseRight") };
+    led.agreement.p.consents = ord.accept.consents; led.agreement.accepted = { ...led.agreement.accepted, texts, version: ver, hash: ord.accept.consentHash };
+    s.set("order", ord); s.set("ledger", led);
+    await env.COMPARE_ORDERS.runAlarms();
+    const v = orderOf(env, o.orderId);
+    assert.equal(v.status, "delivered", v.work && v.work.error); assert.ok(f.log.anthropic.length > 0); assert.equal(f.log.refunds.length, 0);
+    assert.ok(!v.work.error);
+  } finally { f.restore(); }
+});
+test("ny deklaration: gamla tre-rutors bevis under ny (utkast-2) snapshot, eller deklaration utan egen text i snapshoten, godtas inte; accept utan deklaration nekas", async () => {
+  for (const [name, mut] of [
+    ["tre rutor-bevis under utkast-2-snapshot", (o) => { const c = o.accept.consents; o.accept.consents = { terms: c.terms, startNow: { ...c.declaration, textId: "startNow@samtycke-p-utkast-2" }, loseRight: { ...c.declaration, textId: "loseRight@samtycke-p-utkast-2" } }; }],
+    ["deklaration utan text i snapshoten", (o) => { delete o.accept.snapshot.texts.declaration; }],
+    ["deklaration=false (härledda flaggor true)", (o) => { o.accept.declaration = false; }],
+    ["härledda flaggor saknas", (o) => { o.accept.startNow = false; }],
+  ]) {
+    const f = installFetch();
+    try {
+      const env = makeEnv(PE); env.COMPARE_MAILER = mailer();
+      const o = await plain(env, f, { run: false });
+      const s = st(env, o.orderId); const ord = s.get("order"); mut(ord); s.set("order", ord);
+      await env.COMPARE_ORDERS.runAlarms();
+      const v = orderOf(env, o.orderId);
+      assert.equal(f.log.anthropic.length, 0, `${name}: ingen generation`); assert.equal(v.status, "failed", name); assert.equal(v.work.error, "samtycke_saknas", name); assert.equal(f.log.refunds.length, 1, name);
+    } finally { f.restore(); }
+  }
+  const f = installFetch();
+  try { const env = makeEnv(PE); const o = await readyOrder(env, [S(100000), S(110000)]); const c = await consentOf(env);
+    const r = await startCheckout(env, o.orderId, o.token, { terms: true, startNow: true, loseRight: true, consentHash: c.hash, consentVersion: c.version, email: "kund@example.test" });
+    assert.equal(r.status, 400); assert.equal(f.sessions.size, 0, "ingen betalsession utan deklaration");
+  } finally { f.restore(); }
 });
