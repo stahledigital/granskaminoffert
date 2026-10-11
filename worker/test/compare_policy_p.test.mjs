@@ -101,7 +101,7 @@ test("frusna samtycken: två val med tid/text-ID/text-hash/order, avtalad presta
     const env = makeEnv(PE); const mm = mailer(); mm.down = true; env.COMPARE_MAILER = mm;
     const o = await paidP(env, f, { run: false });
     const a = orderOf(env, o.orderId).accept;
-    for (const k of ["declaration", "terms"]) { assert.equal(a.consents[k].value, true); assert.ok(a.consents[k].at > 0); assert.equal(a.consents[k].orderId, o.orderId); assert.equal(a.consents[k].textHash, await sha256Hex(a.snapshot.texts[k])); assert.match(a.consents[k].textId, new RegExp(`^${k}@samtycke-p-utkast-2$`)); }
+    for (const k of ["declaration", "terms"]) { assert.equal(a.consents[k].value, true); assert.ok(a.consents[k].at > 0); assert.equal(a.consents[k].orderId, o.orderId); assert.equal(a.consents[k].textHash, await sha256Hex(a.snapshot.texts[k])); assert.match(a.consents[k].textId, new RegExp(`^${k}@samtycke-p-1$`)); }
     assert.deepEqual(a.agreed.report, true); assert.equal(a.agreed.sources.required, false); assert.equal(a.fulfilmentPoint, "leverans");
     await env.COMPARE_ORDERS.runAlarms(1);
     assert.equal(f.log.anthropic.length, 0, "ingen generation före bekräftelsen"); assert.equal((await view(env, o.orderId, o.token)).waiting, "avtalsbekraftelse"); assert.equal(orderOf(env, o.orderId).accept.confirmation, undefined);

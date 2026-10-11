@@ -7,7 +7,7 @@
 // Betalningsbevis kommer bara från signerad webhook eller serveravstämning mot Stripe – returadressen
 // (success_url) bevisar ingenting.
 
-import { OFFER, LIMITS, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, consentPolicy, consentTexts, consentVersion, fulfilmentPoint, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
+import { OFFER, LIMITS, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, consentDraft, consentPolicy, consentTexts, consentVersion, fulfilmentPoint, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
@@ -93,10 +93,10 @@ async function publicConfig(env, allowedOrigins) {
     },
     // Det kunden ska se och godkänna kommer från servern; hashen bindes till ordern vid köp.
     offerCopy: offerCopy(env),
-    consent: { version: consentVersion(env), draft: CONSENT.draft, hash: await consentHash(env), texts: consentTexts(env), policy: consentPolicy(env), ...(consentPolicy(env) === "P" ? { fulfilmentPoint: fulfilmentPoint(env).point } : {}) },
+    consent: { version: consentVersion(env), draft: consentDraft(env), hash: await consentHash(env), texts: consentTexts(env), policy: consentPolicy(env), ...(consentPolicy(env) === "P" ? { fulfilmentPoint: fulfilmentPoint(env).point } : {}) },
     dataCoverage: dataCoverage(env),
     terms: termsSnapshot(env), // fullständig villkorstext (UTKAST) som ingår i samtyckeshashen och i bekräftelsen
-    draft: CONSENT.draft,
+    draft: consentDraft(env),
     requiresEmail: true,
     withdrawUrl: "/jamfor/angra/",
     retention: { classes: Object.fromEntries(Object.entries(RETENTION_CLASSES).map(([k, v]) => [k, v.hours ? `${v.hours} h` : "policy ej fastställd"])), policyOk: retentionPolicy(env).ok },

@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v2i – D15: fastställda P-villkor (villkor-p-1) + automatisk rensning av obetalda ordrar (ovanpå bb79162e)
+- D15b/S2 (Anders "kör d15" 2026-10-11 18:38): `consentDraft(env)` – policy P är inte längre utkast (villkor-p-1 / samtycke-p-1, ARN-text enligt Modesty SLUTPOLICY_FORLAGA §12.5, inga [UTKAST]/[platshållare]); policy Q förblir utkast och kan inte gå live. Bekräftelsemejl, mottagningsbevis, avtalspost (`avtal-1`) och sidorna villkor/kop/angra/jamfor visar bara utkastrader när draft=true. Live-betalning kräver fortfarande alla övriga grindar (nycklar, säljare, retention, caps, mejltransport, leveransbevis). Ingen ny funktion, 49 kr/P/enruta/gratisflöde oförändrat.
+- D15a: obetalda ordrar rensas automatiskt (larm vid skapande; fas 1 utgång+65 min: filer/ext/preid/sources; fas 2 +72 h: hela posten) i ett serialiserat steg med återkontroll före fullwipe; betald order/avtalspost raderas aldrig. Retention av betalda ordrar är oförändrat manuell/lazy.
+- Tester: worker 429/429, ui 27/27, compare-UI 74/74.
+
+
 ## jamfor-v2h – D14-fix2: avbruten fullpurge förlorar aldrig städunderlaget (ovanpå 4d633e46)
 - Fullpurge skriver `cleanup` BESTÄNDIGT före all radering (kastar skrivningen ⇒ inget raderas, nästa svep försöker om); själva raderingen är EN atomär transaktion som aldrig rör `cleanup`; ett befintligt underlag raderas först när allt (global mr + ledgerindex) är städat via `_retryCleanup`. Avbruten radering rullas tillbaka. `_retryCleanup` sväljer skriv-/raderingsfel och behåller underlaget. Ingen policy-, UI-, provider- eller liveändring.
 - Tester: 3 nya regressioner (skrivavbrott, raderingsavbrott/rollback, återhämtning utan orderobjekt); de två första faller på 4d633e46.
