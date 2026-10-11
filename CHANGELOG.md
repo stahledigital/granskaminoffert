@@ -1,5 +1,8 @@
 # Granska min offert – ändringslogg
 
+## d07-srconly-css – dölj fristående mejlrubrik i återupptagen källvy
+- Samma Donatellos f4a59903: en CSS-regel gäller endast source-only; originalköpets mejlfält och källpanelen bevaras. Root full patch/MD/SHA review och en riktad visningskontroll PASS.
+
 ## d07-resume-labels – företag per offert även när återupptagen order saknar firmor
 - Samma Donatellos a9f21a82: åtkomlig Lägg till/Ändra företag per befintlig offert; riktiga etiketter är förslag, sparas endast aktivt; originalfullnyckel och nytt samtycke efter ändring. Källintron lovar bara aktiva leverantörer.
 - Root full patch/MD review, frontend byteexact 2aa47ae6 och 2/2 riktade resumeprov PASS. Backend/auth/kostnadstak oförändrade; Googlevisning återstår i faktisk drift.

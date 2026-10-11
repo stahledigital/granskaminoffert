@@ -69,3 +69,21 @@ test("D07 resume-UI (0 firmor / 2 dokument): riktiga etiketter föreslås men sp
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)); assert.deepEqual(errors, []);
   } finally { await ctx.close(); await h.close(); }
 });
+
+test("D07 resume-UI visningskontroll: source-only döljer även label[for=email] (inline display), srcbox synlig; normala köpflödets e-postfält/label synliga", async () => {
+  const h = await startHarness({ vars: { ...REVIEW_VARS, ...GOOGLE_VARS } });
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "sv-SE" }); const page = await ctx.newPage(); const errors = []; page.on("pageerror", (e) => errors.push(String(e)));
+  try {
+    await page.route(/\/compare\/orders(\/.*)?$/, (r) => { const sub = new URL(r.request().url()).pathname.replace(/^.*\/compare\/orders/, ""); const j = (b, s = 200) => r.fulfill({ status: s, contentType: "application/json", body: JSON.stringify(b) });
+      if (sub === "/" + ID) return j({ ok: true, order: { id: ID, kind: "compare", status: "ready", docCount: 2, labels: ["Offert 1", "Offert 2"], progress: { extracted: 0, total: 2, synth: "pending" } }, pollMs: 2000 });
+      if (sub.startsWith("/" + ID + "/sources")) return j({ ok: true, sources: { active: true, firms: [], coverage: { active: true, firms: 0, lines: [], google: {}, trustpilot: {} } } }); return j({ ok: false }, 404); });
+    await page.goto(h.base + "/jamfor/"); await page.evaluate(([o, t]) => localStorage.setItem("jamfor_order", JSON.stringify({ id: o, token: t })), [ID, KEY]);
+    await page.reload(); await page.waitForSelector("#srcresume [data-resume]");
+    assert.equal(await page.locator('label[for="email"]').isVisible(), false, "label[for=email] dold i source-only"); assert.equal(await page.locator("#email").isVisible(), false); assert.equal(await page.locator("#pay").isVisible(), false);
+    assert.equal(await page.locator("#srcbox").isVisible(), true, "srcbox synlig");
+    // normala köpflödet: fältet/labeln synliga när srconly inte är satt
+    await page.evaluate(() => { const o = document.getElementById("offer"); o.classList.remove("srconly"); });
+    assert.equal(await page.locator('label[for="email"]').isVisible(), true); assert.equal(await page.locator("#email").isVisible(), true);
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});
