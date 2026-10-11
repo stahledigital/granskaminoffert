@@ -152,7 +152,7 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
     </details>
     <div id="srcbox" class="hidden" aria-labelledby="h-src">
       <h3 id="h-src">Omdömen om hantverkarna (valfritt)</h3>
-      <p class="hint">Googles och Trustpilots egna omdömen, visade separat per firma med källans eget urval. De ingår inte i jämförelsen eller rapporten och är ingen bedömning av företaget. Vi bekräftar inte att en källa finns för just din firma – täckningen visas här innan du betalar.</p>
+      <p class="hint" id="srcintro">Googles och Trustpilots egna omdömen, visade separat per firma med källans eget urval. De ingår inte i jämförelsen eller rapporten och är ingen bedömning av företaget. Vi bekräftar inte att en källa finns för just din firma – täckningen visas här innan du betalar.</p>
       <div id="preid" class="hidden" aria-live="polite"></div>
       <div id="srcpropPre" aria-live="polite"></div>
       <details id="srcmanual"><summary>Lägg till företag själv (valfritt)</summary><div id="srcform"></div></details><div id="srcfirms" aria-live="polite"></div>
@@ -571,16 +571,38 @@ async function tick(cancelled){
   if(next)state.timer=setTimeout(tick,next);
 }
 // D07: återupptagen obetald order (draft/ready/awaiting_payment) ska kunna se och ange sina befintliga firmor och källor INNAN betalning. Inga dokument/AI läses om, ingen ny order, ingen checkout. Källtäckningen hämtas färsk från servern.
+// Sidans källintro ska bara utlova aktiva leverantörer (Google när Trustpilot är av osv.).
+function srcIntro(){
+  var c=srcCfg(),p=$('srcintro');if(!c||!p)return;var g=c.google&&c.google.state!=='ej_aktiverad',t=c.trustpilot&&c.trustpilot.state!=='ej_aktiverad';
+  var who=g&&t?'Googles och Trustpilots':g?'Googles':t?'Trustpilots':'';if(!who)return;
+  p.textContent=p.textContent.replace(/^Googles och Trustpilots/,who);
+}
+// En riktig offertetikett (inte standardnamnet "Offert N") får föreslås som företagsnamn – men sparas aldrig utan att kunden själv trycker Spara.
+function realLabel(l){var t=String(l||'').trim();return t&&!/^offert\s*\d+$/i.test(t)?t:''}
+function resumeRows(){
+  var host=$('srcresume');if(!host||!SRC.view)return;host.textContent='';
+  for(var i=0;i<state.n;i++)(function(i){
+    var f=(SRC.view.firms||[]).filter(function(x){return (x.offers||[]).indexOf(i)>=0})[0]||null;
+    var row=el('div',{class:'srcfirm','data-resume':String(i)});
+    row.appendChild(el('b',{text:'Offert '+(i+1)+': '+(f?f.name+(f.city?', '+f.city:''):'inget företag angivet')}));
+    var lbl=realLabel(state.labels&&state.labels[i]);
+    var b=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:f?'Ändra företag':'Lägg till företag'});
+    b.addEventListener('click',function(){srcEditForm(row,i,f?{name:f.name,city:f.city,domain:f.domain}:(lbl?{name:lbl}:null))});
+    row.appendChild(b);host.appendChild(row);
+  })(i);
+}
+// D07: återupptagen obetald order (draft/ready/awaiting_payment) ska kunna se och ange sina firmor och källor INNAN betalning, även när 0 firmor finns. Inga dokument/AI läses om, ingen ny order, ingen checkout. Källtäckningen hämtas färsk från servern.
 async function resumeSources(o){
   if(state.resumeSrc||!srcActive())return;
   var n=Number.isInteger(o.docCount)?o.docCount:0;if(n<1)return;
   var r;try{r=await srcApi('GET','')}catch(e){return}
   if(r.status!==200||!r.json||!r.json.sources)return;
-  state.resumeSrc=true;state.n=n;state.docCount=n;state.slots=[];for(var i=0;i<n;i++)state.slots.push({label:''});
-  (r.json.sources.firms||[]).forEach(function(f){(f.offers||[]).forEach(function(i){if(i<n)state.slots[i].label=f.name})});
+  state.resumeSrc=true;state.n=n;state.docCount=n;state.labels=Array.isArray(o.labels)?o.labels.slice(0,n):[];
   var off=$('offer'),box=$('statusbox');if(!off||!box||!box.parentNode)return;
   box.parentNode.insertBefore(off,box.nextSibling);off.classList.add('srconly');show('offer',true);show('srcbox',true);
-  srcForm();srcRender(r.json.sources,'offer');preidBlock();
+  var man=$('srcmanual');if(man)man.classList.add('hidden');
+  if(!$('srcresume')){var rr=el('div',{id:'srcresume','aria-live':'polite'});var fh=$('srcfirms');fh.parentNode.insertBefore(rr,fh)}
+  srcIntro();srcRender(r.json.sources,'offer');resumeRows();preidBlock();
 }
 function mailText(st){return st==='sent'?'skickad':st==='avstamning'?'leveransen är oklar och kontrolleras manuellt (vi har inte kunnat bekräfta att den skickades)':st==='failed'?'kunde inte skickas (vi hanterar det manuellt)':'köad (ännu inte skickad)'}
 function withdrawBlock(o){
@@ -1237,12 +1259,12 @@ function srcForm(){
 function srcFirmRows(view){var rows=[];(view.firms||[]).forEach(function(f){f.offers.forEach(function(i){rows.push({offerIndex:i,name:f.name,city:f.city,domain:f.domain||'',origin:f.origin||'kund'})})});return rows}
 async function srcPutFirms(rows){
   var r=await srcApi('PUT','/firms',{firms:rows});
-  if(r.status===200){srcRender(r.json.sources,SRC.mode==='offer'?'offer':'report');srcPanel()}else err((r.json&&r.json.error)||'Gick inte att spara firmauppgifterna.');
+  if(r.status===200){srcRender(r.json.sources,SRC.mode==='offer'?'offer':'report');srcPanel();if(state.resumeSrc)resumeRows()}else err((r.json&&r.json.error)||'Gick inte att spara firmauppgifterna.');
   return r;
 }
 // Kort formulär för att ändra/lägga till företag för en offert. Kundens egna uppgifter vinner över dokumentförslag.
 function srcEditForm(after,offerIndex,pre){
-  var old=document.querySelector('#rep .srcedit[data-offer="'+offerIndex+'"]');if(old){old.remove()}
+  var old=document.querySelector('.srcedit[data-offer="'+offerIndex+'"]');if(old){old.remove()}
   var w=el('div',{class:'srcedit','data-offer':String(offerIndex)});
   var n=el('input',{type:'text',maxlength:'80',autocomplete:'off',id:'se-n'+offerIndex,value:(pre&&pre.name)||''});
   var c=el('input',{type:'text',maxlength:'50',autocomplete:'off',id:'se-c'+offerIndex,value:(pre&&pre.city)||''});
@@ -1323,7 +1345,7 @@ async function srcStart(host,mode){
   try{
     var r=await srcApi('GET','');
     if(r.status!==200){if(mode!=='offer'){host.textContent='';host.appendChild(el('p',{class:'hint','data-srcmsg':'1',text:'Källstatus kunde inte hämtas just nu. Det betyder inte att omdömen saknas. Ladda om sidan om en stund.'}))}return}
-    if(mode==='offer'){show('srcbox',true);if(state.slots&&state.slots.length)srcForm();srcRender(r.json.sources,'offer');preidBlock()}
+    if(mode==='offer'){show('srcbox',true);srcIntro();if(state.slots&&state.slots.length)srcForm();srcRender(r.json.sources,'offer');preidBlock()}
     else{host.textContent='';host.appendChild(el('p',{class:'hint',text:'Omdömen visas separat från rapporten, med källans eget urval. De ingår inte i jämförelsen och är ingen bedömning av företaget.'}));
       host.appendChild(el('div',{id:'srcprop','aria-live':'polite'}));
       var props=[];if(!SRC.ro){var ir=await srcApi('GET','/identity');props=(ir.status===200&&ir.json.proposals)||[];SRCPROP=props}

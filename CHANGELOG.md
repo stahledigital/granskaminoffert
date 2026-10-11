@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## d07-resume-labels – företag per offert även när återupptagen order saknar firmor
+- Samma Donatellos a9f21a82: åtkomlig Lägg till/Ändra företag per befintlig offert; riktiga etiketter är förslag, sparas endast aktivt; originalfullnyckel och nytt samtycke efter ändring. Källintron lovar bara aktiva leverantörer.
+- Root full patch/MD review, frontend byteexact 2aa47ae6 och 2/2 riktade resumeprov PASS. Backend/auth/kostnadstak oförändrade; Googlevisning återstår i faktisk drift.
+
 ## d07-resume-ui – återupptagen obetald order visar/anger firmor och källor före betalning (ovanpå 8bb1b03 + d07-rattelse)
 - `jamfor/index.html` (endast frontend): `resumeSources()` i `tick()` för draft/ready/awaiting_payment – återanvänder befintliga källpaneler (`srcForm`/`srcRender`/`preidBlock`), rätt `docCount`, firmor ur serverns sourcesview, fullnyckel (aldrig r-token). Inga dokument/AI, ingen ny order, ingen checkout.
 - Ändras källorna efter återupptagning kräver betalningen nytt aktivt samtycke (`consentAgain`) i stället för tyst retry.
