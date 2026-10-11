@@ -1,6 +1,7 @@
 name = "granskaminoffert-api"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
+keep_vars = true
 
 # KV-namespace för 24h felsökningslagring och anonyma räknare.
 # Id:t fylls i automatiskt av DEPLOY_GRANSKAMINOFFERT_WORKER.command
@@ -26,7 +27,7 @@ dataset = "granska_handelser"
 # D12: gratis-kostnadsskyddet är AV (nekar all gratisgenerering) tills en människa sätter ALLA fem värdena:
 #   FREE_PILOT_ENABLED="1", FREE_PILOT_ID (a-z0-9-, 3–41 tecken), FREE_PILOT_CAP_MICRO (µUSD, TOTALT för perioden),
 #   FREE_PILOT_FROM och FREE_PILOT_UNTIL (ISO med Z eller +hh:mm, max 92 dygn), FREE_PILOT_MANDATE (spårbar referens, 8–120 tecken, inga hemligheter).
-FREE_PILOT_ENABLED = "0"
+FREE_PILOT_ENABLED = "1"
 # Kommaseparerad lista om fler origins behövs (t.ex. under test).
 ALLOWED_ORIGIN = "https://granskaminoffert.se"
 # Modell. claude-sonnet-4-5-20250929 är "Deprecated" sedan 2026-09-30 med preliminärt
@@ -65,6 +66,41 @@ EXPLAIN_ALLOWED_ORIGIN = "https://stahledigital.se"
 # Paid-planer (developers.cloudflare.com/durable-objects/platform/pricing/, läst 2026-10-09).
 # Detta är lokal konfiguration i repot: ingen molnresurs skapas förrän `wrangler deploy` körs,
 # och migrationen skapar klassen i samband med den. Publicering kräver separat release-GO.
+
+# GMO Premium: USER live-GO 2026-10-11. Köpen förblir stängda tills riktiga secrets, mailproof och slutlig P-snapshot finns.
+FREE_PILOT_ID = "gmo-free-20261011"
+FREE_PILOT_CAP_MICRO = "20000000"
+FREE_PILOT_FROM = "2026-10-11T00:10:38+02:00"
+FREE_PILOT_UNTIL = "2026-11-01T00:00:00+01:00"
+FREE_PILOT_MANDATE = "ANDERS-2026-10-10T23:36:49+02:00 kor-pa-det"
+COMPARE_ENABLED = "1"
+COMPARE_PAYMENTS = "live"
+COMPARE_CONSENT_POLICY = "P"
+COMPARE_FULFILMENT_POINT = "leverans"
+COMPARE_PAYMENT_METHODS = "card"
+COMPARE_RETURN_URL = "https://granskaminoffert.se/jamfor/"
+COMPARE_SELLER_FORM = "ENSKILD"
+COMPARE_SELLER_NAME = "Ståhle Digital"
+COMPARE_SELLER_OWNER_NAME = "Anders Ståhle"
+COMPARE_SELLER_EMAIL = "hej@stahledigital.se"
+COMPARE_SELLER_ADDRESS = "Vikaholmsallén 2 E, 352 20 Växjö"
+COMPARE_SELLER_PHONE = "+46768525947"
+COMPARE_COMPANY_INFO_URL = "https://granskaminoffert.se/foretagsuppgifter/"
+COMPARE_LEDGER_RETENTION_DAYS = "430"
+COMPARE_BOOKKEEPING_RETENTION_DAYS = "2930"
+COMPARE_MONTH_CAP_MICRO = "20000000"
+COMPARE_PAID_CAP_MICRO = "15000000"
+COMPARE_ORDER_CAP_MICRO = "800000"
+COMPARE_DAY_ORDERS = "10"
+COMPARE_MAIL_HTTP = "1"
+COMPARE_MAIL_HTTP_VERIFIED = "0"
+COMPARE_MAIL_FROM = "Granska min offert <hej@stahledigital.se>"
+COMPARE_MAIL_DAY_CAP = "20"
+COMPARE_REVIEWS = "0"
+COMPARE_REVIEWS_VERIFIED = "0"
+COMPARE_PREID = "0"
+COMPARE_AUTO_REFUND = "1"
+
 [[durable_objects.bindings]]
 name = "QUOTA"
 class_name = "QuotaCounter"
@@ -133,3 +169,16 @@ new_sqlite_classes = ["FreeBudget"]
 # D08b: avtalsbekräftelsen kräver transport: COMPARE_MAILER-bindning (AV tills människa kopplar) – eller, ENDAST i test, COMPARE_MAILER_MODE=mock (nekas i live).
 # D06-rättning (inga värden satta här): säljare COMPARE_SELLER_FORM(AB|ENSKILD)/NAME/OWNER_NAME(ENSKILD)/ORGNR(endast AB)/EMAIL/ADDRESS/PHONE/VAT(valfri), COMPARE_COMPANY_INFO_URL (https), COMPARE_CONFIRM_SHOW_VAT (standard 0) – alla krävs för live utom VAT, COMPARE_ADMIN_TOKEN (secret),
 #   retention COMPARE_LEDGER_RETENTION_DAYS + COMPARE_BOOKKEEPING_RETENTION_DAYS (människa; saknas ⇒ svepet gör ingenting och live är stängt).
+
+# D04: samma Worker, två SQLite-klasser efter redan befintlig FreeBudget v3.
+[[durable_objects.bindings]]
+name = "COMPARE_ORDERS"
+class_name = "CompareOrders"
+
+[[durable_objects.bindings]]
+name = "COMPARE_BUDGET"
+class_name = "CompareBudget"
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["CompareOrders", "CompareBudget"]
