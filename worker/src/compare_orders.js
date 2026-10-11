@@ -723,13 +723,13 @@ export class CompareOrders {
       const prev = await this.state.storage.get("cleanup");
       const refs = [...new Set([...keys.filter((k) => k.startsWith("mailref:")).map((k) => k.slice(8)), ...((prev && prev.mailrefs) || [])])];
       const failed = await this._unindexRefs(refs); // global provider-ID-post (bara ID:n); misslyckat ⇒ beständigt städunderlag som överlever purge
-      for (const k of keys) await this.state.storage.delete(k);
-      if (failed.length) {
-        await this.state.storage.put("cleanup", { orderId: o.id, paidAt, mailrefs: failed }); // behålls: nästa /retention-sweep försöker igen; ledgerindexet ligger kvar så att svepet når hit
-        return { ran: true, action: "raderad", purged: true, cleanupPending: failed.length };
-      }
-      try { const { ledgerUnindex } = await import("./compare_budget.js"); await ledgerUnindex(this.env, { orderId: o.id, at: paidAt }); } catch { /* indexposten innehåller bara order-ID; nästa svep försöker igen via adminrutten */ }
-      return { ran: true, action: "raderad", purged: true };
+      // ORDNING: städunderlaget skrivs BESTÄNDIGT FÖRE all destruktiv radering, och det befintliga underlaget raderas aldrig förrän ett säkert ersättande finns (eller inget behövs).
+      // Skrivningen kastar ⇒ ingenting är raderat (order, ledger och gammalt underlag kvar) och nästa svep försöker om. Själva raderingen är EN atomär transaktion som aldrig rör "cleanup" när städning återstår.
+      // Underlaget skrivs ALLTID (även utan misslyckade mr-ID:n: det bär då bara det kvarvarande ledgerindexet) och tas bort först när allt är städat.
+      try { await this.state.storage.put("cleanup", { orderId: o.id, paidAt, mailrefs: failed }); } catch { return { ran: true, action: "hallen", reason: "stadunderlag_ej_sparat" }; } // inget raderat; nästa svep försöker om
+      try { await this._commit({ del: keys.filter((k) => k !== "cleanup") }); } catch { return { ran: true, action: "hallen", reason: "radering_avbruten" }; } // transaktionen rullas tillbaka; underlaget finns kvar
+      const cl = await this._retryCleanup(now); // tar bort kvarvarande mr-ID:n + ledgerindex och först därefter underlaget; fel ⇒ underlaget kvar för nästa svep
+      return { ran: true, action: "raderad", purged: true, ...(cl.action === "stadning_klar" ? {} : { cleanupPending: Math.max(cl.pending || 0, 1) }) };
     }
     // Avtalsklassen utgången men bokföringsklassen kvar: ta bort personuppgifts-/avtalsdelen, behåll belopp/moms/datum/Stripe-referenser.
     o.accept = o.accept ? { ...o.accept, contactEmail: null, snapshot: null } : o.accept;
@@ -1009,10 +1009,10 @@ export class CompareOrders {
     const c = await this.state.storage.get("cleanup");
     if (!c) return { action: "inget_stadunderlag", pending: 0 };
     const failed = await this._unindexRefs(c.mailrefs || []);
-    if (failed.length) { await this.state.storage.put("cleanup", { ...c, mailrefs: failed }); return { action: "stadning_kvar", pending: failed.length }; }
+    if (failed.length) { try { await this.state.storage.put("cleanup", { ...c, mailrefs: failed }); } catch { /* gamla underlaget ligger kvar oförändrat */ } return { action: "stadning_kvar", pending: failed.length }; }
     const hasOrder = !!(await this.state.storage.get("order"));
     if (!hasOrder) { try { const { ledgerUnindex } = await import("./compare_budget.js"); await ledgerUnindex(this.env, { orderId: c.orderId, at: c.paidAt }); } catch { return { action: "stadning_kvar", pending: 0, ledgerIndex: true }; } }
-    await this.state.storage.delete("cleanup");
+    try { await this.state.storage.delete("cleanup"); } catch { return { action: "stadning_kvar", pending: 0 }; } // allt städat men underlaget kunde inte tas bort ⇒ idempotent omförsök
     return { action: "stadning_klar", pending: 0 };
   }
 

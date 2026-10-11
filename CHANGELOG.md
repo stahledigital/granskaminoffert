@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v2h – D14-fix2: avbruten fullpurge förlorar aldrig städunderlaget (ovanpå 4d633e46)
+- Fullpurge skriver `cleanup` BESTÄNDIGT före all radering (kastar skrivningen ⇒ inget raderas, nästa svep försöker om); själva raderingen är EN atomär transaktion som aldrig rör `cleanup`; ett befintligt underlag raderas först när allt (global mr + ledgerindex) är städat via `_retryCleanup`. Avbruten radering rullas tillbaka. `_retryCleanup` sväljer skriv-/raderingsfel och behåller underlaget. Ingen policy-, UI-, provider- eller liveändring.
+- Tester: 3 nya regressioner (skrivavbrott, raderingsavbrott/rollback, återhämtning utan orderobjekt); de två första faller på 4d633e46.
+
 ## jamfor-v2g – D14-fix: monotont tidigt bevis + beständigt städunderlag (ovanpå f0b64d93)
 
 - **Rootens repro (förlorad ack, bounced först, 9× email.sent, delivered, allt före ack):** `early` var en rullande lista (`slice(-8)`) som tappade bounce. Nu en MONOTON mängd per provider-ID och klass (`early.ids[id].seen[klass]`); negativa klasser kan inte trängas ut. Fler än 8 olika ID:n före ack ⇒ `overflow` ⇒ `earlyUnbound` ⇒ FAIL CLOSED (`deliveryOk` falskt, aldrig leveransbevis för mejlet). Resultat: 0 modellgenerationer, order `failed`, leveransläge `bounced`.

@@ -168,3 +168,5 @@ Root/Anders D11: offert först, firmauppgifter läses i bakgrunden, normalt inge
 - **Ej bevisat:** riktig Resend (payloadformen är läst i dokumentationen, inte observerad), Svix-retryschema (INFERRED), Cloudflare-drift, inkorg, juridisk tillräcklighet för "varaktigt medium".
 
 **D14-fix (ovanpå f0b64d93):** tidiga händelser (före ack) lagras som MONOTON mängd `early.ids[providerId].seen[klass]` (inte en rullande lista); >8 olika ID:n ⇒ `overflow` ⇒ `earlyUnbound` ⇒ `deliveryOk` falskt (fail closed). Retention: strip/purge tar bort globalt `mr:` före lokala spår; misslyckade ID:n ligger kvar i beständigt `cleanup`-underlag (överlever fullpurge; ledgerindex kvar tills klart) och `/retention-sweep` försöker igen.
+
+**D14-fix2 (ovanpå 4d633e46):** fullpurge skriver städunderlaget `cleanup` beständigt FÖRE all destruktiv radering (skrivfel ⇒ ingenting raderas, omförsök nästa svep), raderar sedan atomärt utan att röra `cleanup`, och tar bort underlaget först när global mr och ledgerindex är städade (`_retryCleanup`; fungerar även när orderobjektet saknas).

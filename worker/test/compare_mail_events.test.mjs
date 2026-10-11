@@ -430,3 +430,56 @@ test("städ: fungerande index ⇒ strip tar bort mr direkt och lämnar inget und
     assert.equal(st.size, 0, "fullpurge tömmer allt"); assert.ok(![...bud(env).keys()].some((k) => k.startsWith("x:") && k.endsWith(o.orderId)));
   } finally { f.restore(); }
 });
+
+// ---- D14-fix2: avbruten fullpurge (rootens repro): städunderlaget skrivs BESTÄNDIGT före all destruktiv radering ----
+const hasIdx = (env, orderId) => [...bud(env).keys()].some((k) => k.startsWith("x:") && k.endsWith(orderId));
+async function stripWithBrokenIndex(env, flag, f) {
+  flag.fail = false; const o = await deliveredHttp(env, f); const pid = o.sent.id; flag.fail = true;
+  const paidAt = store(env, o.orderId).get("ledger").agreement.payment.paidAt; const month = new Date(paidAt).toISOString().slice(0, 7);
+  await withClock(31 * DAY, async () => { await api(env, "GET", `/compare/orders/${o.orderId}`, { token: o.token }); });
+  const st = store(env, o.orderId); assert.deepEqual(st.get("cleanup").mailrefs, [pid], "avtalsstrip sparade underlag (unindex kastar)");
+  return { o, pid, st, key: `mr:${pid}`, month };
+}
+test("fullpurge: skrivningen av städunderlaget kastar ⇒ INGET raderas (order, ledger, gammalt underlag, global mr, ledgerindex kvar); nästa svep återhämtar", async () => {
+  const f = installFetch();
+  try {
+    const env = mk(POL); const flag = breakUnindex(env);
+    const { o, pid, st, key, month } = await stripWithBrokenIndex(env, flag, f);
+    const od = env.COMPARE_ORDERS.peek(o.orderId).obj.state.storage, realPut = od.put; let boom = true, tries = 0;
+    od.put = async (k, v) => { if (k === "cleanup" && boom) { tries++; throw new Error("skrivfel cleanup"); } return realPut.call(od, k, v); };
+    const r = { status: 0 }; await withClock(91 * DAY, async () => { await api(env, "GET", `/compare/orders/${o.orderId}`, { token: o.token }); }); assert.ok(tries >= 1, "skrivning av underlaget försöktes");
+    assert.ok(st.get("order") && st.get("ledger"), "order och ledger kvar"); assert.deepEqual(st.get("cleanup").mailrefs, [pid], "gammalt underlag orört");
+    assert.ok(bud(env).get(key), "global mr kvar"); assert.ok(hasIdx(env, o.orderId), "ledgerindex kvar"); assert.notEqual(r.status, 500);
+    boom = false; // återhämtning: fortfarande trasigt index ⇒ purge sker men underlaget BEHÅLLS
+    await sweepAt(env, Date.now() + 91 * DAY, month);
+    assert.ok(!st.get("order") && !st.get("ledger")); assert.deepEqual(st.get("cleanup").mailrefs, [pid]); assert.ok(hasIdx(env, o.orderId));
+    flag.fail = false; await sweepAt(env, Date.now() + 91 * DAY, month);
+    assert.ok(!bud(env).get(key)); assert.equal(st.size, 0, "allt städat"); assert.ok(!hasIdx(env, o.orderId));
+  } finally { f.restore(); }
+});
+test("fullpurge: radering/transaktion avbryts mitt i ⇒ allt rullas tillbaka, underlaget finns kvar, omförsök lyckas", async () => {
+  const f = installFetch();
+  try {
+    const env = mk(POL); const flag = breakUnindex(env);
+    const { o, pid, st, key, month } = await stripWithBrokenIndex(env, flag, f);
+    const od = env.COMPARE_ORDERS.peek(o.orderId).obj.state.storage, realDel = od.delete; let boom = true;
+    od.delete = async (k) => { if (boom && k === "ledger") throw new Error("raderingsfel"); return realDel.call(od, k); };
+    await withClock(91 * DAY, async () => { await api(env, "GET", `/compare/orders/${o.orderId}`, { token: o.token }); });
+    assert.ok(st.get("order") && st.get("ledger") && st.get("ledger").agreement, "rullat tillbaka: inget halvraderat"); assert.deepEqual(st.get("cleanup").mailrefs, [pid]);
+    assert.ok(bud(env).get(key)); assert.ok(hasIdx(env, o.orderId));
+    boom = false; flag.fail = false; await sweepAt(env, Date.now() + 91 * DAY, month);
+    assert.equal(st.size, 0); assert.ok(!bud(env).get(key)); assert.ok(!hasIdx(env, o.orderId));
+  } finally { f.restore(); }
+});
+test("fullpurge utan tidigare underlag: kastande unindex + avbruten radering ⇒ underlag skrivs först, ingen förlorad koppling; utan orderobjekt försöker svepet igen", async () => {
+  const f = installFetch();
+  try {
+    const env = mk(POL); const flag = breakUnindex(env); flag.fail = false;
+    const o = await deliveredHttp(env, f); const pid = o.sent.id; const key = `mr:${pid}`; const st = store(env, o.orderId);
+    const month = new Date(st.get("ledger").agreement.payment.paidAt).toISOString().slice(0, 7);
+    flag.fail = true; await withClock(91 * DAY, async () => { await api(env, "GET", `/compare/orders/${o.orderId}`, { token: o.token }); }); // direkt fullpurge (strip + purge förfallna)
+    assert.ok(!st.get("order")); assert.deepEqual(st.get("cleanup").mailrefs, [pid], "underlag finns trots att inget orderobjekt finns"); assert.ok(bud(env).get(key));
+    flag.fail = false; await sweepAt(env, Date.now() + 91 * DAY, month);
+    assert.equal(st.size, 0); assert.ok(!bud(env).get(key)); assert.ok(!hasIdx(env, o.orderId));
+  } finally { f.restore(); }
+});
