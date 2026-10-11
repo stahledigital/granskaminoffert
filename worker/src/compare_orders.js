@@ -29,6 +29,9 @@ import { PREID_MAX_ATTEMPTS } from "./compare_preid.js";
 
 const MAX_EVENTS = 64;
 
+// Start-/förlustsamtycke fullständigt för ordern: policy P kräver BÅDA rutorna (frusna värden med tid), policy Q den gamla rutan.
+const startAccepted = (a) => !!a && (a.policy === "P" ? a.startNow === true && a.loseRight === true && !!(a.consents && a.consents.startNow && a.consents.startNow.at && a.consents.loseRight && a.consents.loseRight.at && a.consents.terms && a.consents.terms.at) : a.immediateDelivery === true);
+
 function publicView(o, now) {
   const steps = (o.work && o.work.steps) || {};
   const extDone = Object.values(steps.ext || {}).filter((s) => s.state === "done").length;
@@ -47,7 +50,7 @@ function publicView(o, now) {
     error: o.work && o.work.error ? o.work.error : null,
     waiting: (o.work && o.work.waiting) || null, // "avtalsbekraftelse": arbetet startar först när bekräftelsen har fått godkänd transportkvittens
     refund: { mode: o.refund.mode, state: o.refund.state, providerStatus: o.refund.providerStatus || null },
-    consent: o.accept && o.accept.terms ? { accepted: true, version: o.accept.consentVersion || null, hash: o.accept.consentHash || null, draft: !!o.accept.draft } : { accepted: false },
+    consent: o.accept && o.accept.terms ? { accepted: true, version: o.accept.consentVersion || null, hash: o.accept.consentHash || null, draft: !!o.accept.draft, policy: o.accept.policy === "P" ? "P" : "Q" } : { accepted: false },
     price: { ore: OFFER.priceOre, currency: OFFER.currency },
     estimateOk: !!o.estimate,
     estimateMicro: o.estimate ? o.estimate.worstMicro : null,
@@ -167,6 +170,7 @@ export class CompareOrders {
 
     // ---- Publika (kräver åtkomstnyckel) ----
     if (!this._auth(o, b.tokenHash)) return NOT_FOUND;
+    if (path === "/source-delivered") return this._sourceDelivered(o, b, now);
 
     // ---- D07 källor (omdömen): firmaidentitet, kandidat-ID och bekräftelse. Ingen omdömesdata lagras här. ----
     // Källuppgifter (firmanamn/ort/ID) följer ordervärdet: oåtkomliga och raderade efter 24 h (lazy – ingen schemalagd rensning, se COMPARE.md).
@@ -262,29 +266,40 @@ export class CompareOrders {
     if (path === "/accept") {
       if (!["draft", "ready", "awaiting_payment"].includes(o.status)) return { status: 409, body: { ok: false, error: "status" } };
       const a = b.accept;
-      if (!a || a.terms !== true || a.immediateDelivery !== true || typeof a.consentHash !== "string" || a.consentHash.length !== 64 || typeof a.consentVersion !== "string") return { status: 400, body: { ok: false, error: "ogiltig" } };
+      const snapshot = consentSnapshot(this.env); // policyn (P/Q) avgörs av servern ur snapshoten, aldrig av klienten
+      const P = snapshot.policy === "P";
+      if (!a || a.terms !== true || (P ? a.startNow !== true || a.loseRight !== true : a.immediateDelivery !== true) || typeof a.consentHash !== "string" || a.consentHash.length !== 64 || typeof a.consentVersion !== "string") return { status: 400, body: { ok: false, error: "ogiltig" } };
       if (!validEmail(a.contactEmail)) return { status: 400, body: { ok: false, error: "epost" } };
       // De FAKTISKT visade texterna fryses här: hashen måste stämma mot texten som sparas (inte bara en hash som senare saknar text).
-      const snapshot = consentSnapshot(this.env);
       if ((await sha256Hex(JSON.stringify(snapshot))) !== a.consentHash) return { status: 409, body: { ok: false, error: "samtycke_andrat" } };
       // Vad kunden accepterade: version + hash av exakt de texter/priser som visades, när, och för hur många offerter.
       const srcState = (await this.state.storage.get("sources")) || emptySources();
-      const cv = sourcesView(sourcesConfig(this.env), srcState).coverage;
+      const sv = sourcesView(sourcesConfig(this.env), srcState);
+      const cv = sv.coverage;
       const coverage = { active: cv.active, firms: cv.firms, google: cv.google, trustpilot: cv.trustpilot }; // bara antal per läge – inga firmanamn, ingen omdömesdata
-      o.accept = { ...(o.accept || {}), coverage, terms: true, immediateDelivery: true, contactEmail: a.contactEmail, snapshot, acceptedAt: now, consentVersion: a.consentVersion, consentHash: a.consentHash, draft: a.draft === true, offerVersion: a.offerVersion, priceOre: a.priceOre, currency: a.currency, docCount: o.docCount };
+      const base = { ...(o.accept || {}), coverage, terms: true, contactEmail: a.contactEmail, snapshot, acceptedAt: now, consentVersion: a.consentVersion, consentHash: a.consentHash, draft: a.draft === true, offerVersion: a.offerVersion, priceOre: a.priceOre, currency: a.currency, docCount: o.docCount };
+      if (!P) o.accept = { ...base, immediateDelivery: true };
+      else {
+        // Policy P: varje val fryses som eget värde med tid, text-ID och text-hash; avtalad prestation (rapport + täckta källfirmor) fryses i samma steg.
+        const ev = async (key) => ({ value: true, at: now, textId: `${key}@${snapshot.consentVersion}`, textHash: await sha256Hex(snapshot.texts[key]), orderId: o.id });
+        const coveredIds = sv.active ? sv.firms.filter((f) => f.google.state === "tillganglig" || f.trustpilot.state === "tillganglig").map((f) => f.id) : [];
+        o.accept = { ...base, policy: "P", startNow: true, loseRight: true, fulfilmentPoint: snapshot.fulfilmentPoint,
+          consents: { terms: await ev("terms"), startNow: await ev("startNow"), loseRight: await ev("loseRight") },
+          agreed: { report: true, sources: { required: coveredIds.length > 0, coveredIds, coverageHash: await sha256Hex(JSON.stringify(cv.lines || [])) } } };
+      }
       await this._save(o);
       return { body: { ok: true } };
     }
     if (path === "/consent-status") {
       // Finns ett samtycke som matchar den aktuella texten (hash)? Används av "betala igen" utan ny presentation.
-      const same = !!(o.accept && o.accept.terms && o.accept.immediateDelivery && o.accept.snapshot && validEmail(o.accept.contactEmail) && o.accept.consentHash === b.consentHash && o.accept.docCount === o.docCount);
+      const same = !!(o.accept && o.accept.terms && startAccepted(o.accept) && o.accept.snapshot && validEmail(o.accept.contactEmail) && o.accept.consentHash === b.consentHash && o.accept.docCount === o.docCount);
       return { body: { ok: true, same } };
     }
     if (path === "/checkout-begin") {
       if (o.status === "awaiting_payment" && o.stripe && o.stripe.url && o.stripe.expiresAt > now + 60_000) return { body: { ok: true, reuse: { url: o.stripe.url }, order: publicView(o, now) } };
       if (!["ready", "awaiting_payment"].includes(o.status)) return { status: 409, body: { ok: false, error: "status", status_: o.status } };
       const a = o.accept;
-      if (!a || !a.sameJob || !a.terms || !a.immediateDelivery || !a.consentHash || !o.estimate) return { status: 409, body: { ok: false, error: "ej_klar" } };
+      if (!a || !a.sameJob || !a.terms || !startAccepted(a) || !a.consentHash || !o.estimate) return { status: 409, body: { ok: false, error: "ej_klar" } };
       // Samtycket måste vara givet till exakt den text/pris som gäller nu (hash) och för just detta antal offerter.
       if (a.consentHash !== b.consentHash || a.docCount !== o.docCount) return { status: 409, body: { ok: false, error: "samtycke_andrat" } };
       // Försök: parametrarna (utgångstid) fryses per försök. Samma försök → exakt samma Stripe-anrop (idempotent).
@@ -346,7 +361,7 @@ export class CompareOrders {
     const ledger = newLedger({ agreement, agreementHash, withdrawTokenHash: wt.secretHash, env: this.env, now });
     const origin = (() => { try { return new URL(this.env.COMPARE_RETURN_URL).origin; } catch { return ""; } })();
     const mail = confirmationMail(ledger);
-    const entry = await outboxEntry(mail, { to: o.accept.contactEmail, now, secrets: { ANGERLANK: `${origin}/jamfor/angra/#t=${wt.token}` } });
+    const entry = await outboxEntry(mail, { to: o.accept.contactEmail, now, secrets: { ANGERLANK: `${origin}/jamfor/angra/#t=${wt.token}`, KOPLANK: `${origin}/jamfor/kop/` } });
     await this._commit({ put: { ledger, [`outbox:${mail.id}`]: entry, order: o } }); // betald + avtalspost + bekräftelse: allt eller inget
     return { body: { ok: true, status: "paid" }, after: async () => { await this._ensureAlarm(o, now, true); await this._indexLedger(o.id, now); } };
   }
@@ -370,13 +385,21 @@ export class CompareOrders {
       const o = await this._load();
       if (!o || !["paid", "running"].includes(o.status)) return { open: true };
       if (o.work.lease && o.work.lease.until > now) return { open: true };
+      // Policy P: ingen start utan båda frusna samtycken (stark kontroll mot manipulerad/ofullständig orderpost) – annars avbryts ordern och återbetalas, ingen generation.
+      if (o.accept && o.accept.policy === "P" && !startAccepted(o.accept)) return { fail: true, reason: "samtycke_saknas" };
       const m = await this.state.storage.get(`outbox:mail_avtal_${o.id}`);
-      if (m && m.state === "sent") { if (o.work.waiting) { o.work.waiting = null; await this._save(o); } return { open: true }; }
+      if (m && m.state === "sent") {
+        let dirty = false;
+        if (o.work.waiting) { o.work.waiting = null; dirty = true; }
+        if (o.accept && o.accept.policy === "P" && !o.accept.confirmation) { o.accept.confirmation = { mailId: m.id, sentAt: m.sentAt || now, at: now }; dirty = true; } // bekräftelse skickad FÖRE start
+        if (dirty) await this._save(o);
+        return { open: true };
+      }
       if (!m || m.state === "failed" || now >= (o.paidAt || now) + LIMITS.confirmWaitMs) return { fail: true };
       if (o.work.waiting !== "avtalsbekraftelse") { o.work.waiting = "avtalsbekraftelse"; await this._save(o); }
       return { wait: m.nextAt && m.nextAt > now ? m.nextAt : now + 5_000 };
     });
-    if (gate.fail) { await this._finish(null, { state: "failed", reason: "bekraftelse_ej_levererad" }); return; }
+    if (gate.fail) { await this._finish(null, { state: "failed", reason: gate.reason || "bekraftelse_ej_levererad" }); return; }
     if (gate.wait) { if (this.state.storage.setAlarm) await this.state.storage.setAlarm(gate.wait + 10); return; }
     // Atomär arbetsclaim: bara om betald, ej levererad och ingen annan har en giltig lease.
     const claim = await this._tx(async () => {
@@ -483,6 +506,7 @@ export class CompareOrders {
         o.status = "delivered";
         o.work.deliveredAt = Date.now();
         o.reportKey = r.reportKey;
+        if (o.accept && o.accept.policy === "P") o.delivery = { report: { at: o.work.deliveredAt, hash: r.reportHash || null, orderId: o.id }, sources: {} }; // leveranshändelse (tid + innehållshash) för fullgörandet
         o.purgeKeys = [...new Set([...(o.purgeKeys || []), ...o.docs.map((d) => d.key).filter(Boolean)])];
         o.docs = o.docs.map((d) => ({ ...d, key: null }));
         await this._save(o);
@@ -566,7 +590,14 @@ export class CompareOrders {
     const mails = [];
     for (const [k, v] of await this.state.storage.list({ prefix: "outbox:" })) mails.push({ kind: v.kind, state: v.state, attempts: v.attempts, sentAt: v.sentAt });
     const w = ledger.withdrawal;
+    const o = await this._load();
+    let rights = null;
+    if (o && o.accept && o.accept.policy === "P") {
+      const f = await this._fulfilment(o, Date.now());
+      rights = { policy: "P", angerratt: f.fulfilled ? "upphord" : "kvar", upphordAt: f.fulfilled ? f.fulfilledAt : null, state: f.state, point: f.point };
+    }
     return {
+      rights,
       agreement: { id: ledger.agreementId, hash: ledger.agreementHash, paidAt: ledger.agreement.payment.paidAt, contact: maskEmail(ledger.agreement.contact.email), draft: true, mails },
       withdrawal: w ? { requested: true, requestId: w.requestId, at: w.at, outcome: w.outcome, via: w.via } : { requested: false },
     };
@@ -644,7 +675,18 @@ export class CompareOrders {
       refundCall = this._cancelWork(o); del.push("sources");
       wd.outcome = "avbrutet_fore_leverans"; purge = true;
     } else if (o.status === "failed") wd.outcome = "redan_avslutad";
-    else wd.outcome = "manuell_provning"; // levererad/raderad/utgången: ingen automatisk bedömning
+    else if (o.accept && o.accept.policy === "P") {
+      // Policy P (frusen per order): ångerrätten upphör först vid VERIFIERAT fullgörande enligt serverbevis. Allt annat (saknat/partiellt/motstridigt bevis, fönstret ej slut) ⇒ rätten kvar ⇒ stopp + full återbetalning.
+      // Ingen nekan för att rapporten visats; ingen proportionell avgift. Efter giltigt fullgörande sparas begäran med utfall angerratt_upphord (ingen ångerrefund; reklamation oförändrad).
+      const f = await this._fulfilment(o, now);
+      wd.fulfilment = { state: f.state, missing: f.missing, fulfilledAt: f.fulfilledAt || null, point: f.point };
+      if (f.fulfilled) wd.outcome = "angerratt_upphord";
+      else {
+        refundCall = this._cancelWork(o); del.push("sources");
+        if (o.reportKey) { this._reportToDelete = o.reportKey; o.reportKey = null; }
+        wd.outcome = "angrat_fore_fullgoring"; purge = true;
+      }
+    } else wd.outcome = "manuell_provning"; // Q: levererad/raderad/utgången: ingen automatisk bedömning
     ledger.withdrawal = wd;
     addEvent(ledger, "angerbegaran", now, { via: b.via, outcome: wd.outcome, stateAtRequest: wd.stateAtRequest });
     const rm = receiptMail(ledger, ledger.withdrawal);
@@ -653,8 +695,42 @@ export class CompareOrders {
     await this._commit({ put, del }); // ånger + orderstatus + kvittomejl i ETT atomiskt skrivsteg
     return {
       body: { ok: true, duplicate: false, withdrawal: view(), order: publicView(o, now) },
-      after: async () => { await this._runRefund(refundCall); if (purge) await this._purgeDocs(await this._load()); await this._ensureAlarm(o, now, true); },
+      after: async () => { await this._runRefund(refundCall); if (purge) await this._purgeDocs(await this._load()); if (this._reportToDelete) { const k = this._reportToDelete; this._reportToDelete = null; try { await this.env.REVIEWS_KV.delete(k); } catch { /* TTL 24 h */ } } await this._ensureAlarm(o, now, true); },
     };
+  }
+
+  // Fullgörande enligt policy P (servern bedömer, aldrig UI). Fullgjord = alla fyra: (1) båda samtycken frusna med tid/text-hash, (2) avtalsbekräftelsen "sent" FÖRE start, (3) leveranshändelse för rapporten
+  // (tid + innehållshash) och (4) för varje i köpet täckt källfirma en registrerad visning/"ingen källa"; vid fonster_slut dessutom att 24 h-fönstret för att spara rapporten gått ut.
+  // Saknas något ⇒ ej fullgjord ⇒ ångerrätt kvar (fail closed). Q-ordrar utvärderas aldrig här.
+  async _fulfilment(o, now) {
+    const a = o.accept || {};
+    if (a.policy !== "P") return { fulfilled: false, state: "q", missing: [], point: null };
+    const missing = [];
+    if (!startAccepted(a) || !a.consentHash || !(a.consents.startNow.textHash && a.consents.loseRight.textHash)) missing.push("samtycke");
+    const m = await this.state.storage.get(`outbox:mail_avtal_${o.id}`);
+    if (!(m && m.state === "sent") || !a.confirmation) missing.push("bekraftelse");
+    const d = o.delivery;
+    if (!d || !d.report || !d.report.at || !d.report.hash) missing.push("rapport");
+    const ids = (a.agreed && a.agreed.sources && a.agreed.sources.required && Array.isArray(a.agreed.sources.coveredIds)) ? a.agreed.sources.coveredIds : [];
+    for (const id of ids) if (!(d && d.sources && d.sources[id] && d.sources[id].at)) missing.push(`kalla:${id}`);
+    const point = a.fulfilmentPoint === "fonster_slut" ? "fonster_slut" : a.fulfilmentPoint === "leverans" ? "leverans" : null;
+    if (!point) missing.push("fullgorandepunkt");
+    if (missing.length) return { fulfilled: false, state: "ej_fullgjord", missing, point };
+    const last = Math.max(d.report.at, ...ids.map((id) => d.sources[id].at));
+    const fulfilledAt = point === "fonster_slut" ? Math.max(last, d.report.at + OFFER.retentionHours * 3600_000) : last;
+    if (now < fulfilledAt) return { fulfilled: false, state: "vantar_fonster", missing: [], point, fulfilledAt };
+    return { fulfilled: true, state: "fullgjord", missing: [], point, fulfilledAt };
+  }
+
+  // Kvittens att avtalad källvisning gjorts tillgänglig (bara täckta firmor i den frusna täckningen, bara efter levererad rapport, en gång per firma).
+  async _sourceDelivered(o, b, now) {
+    const a = o.accept || {};
+    if (a.policy !== "P" || o.status !== "delivered" || !o.delivery || !o.delivery.report) return { status: 409, body: { ok: false, error: "status" } };
+    const ids = a.agreed && a.agreed.sources && a.agreed.sources.required ? a.agreed.sources.coveredIds : [];
+    if (!ids.includes(b.firmId) || !["visad", "ingen_kalla"].includes(b.state)) return { status: 409, body: { ok: false, error: "ogiltig" } };
+    o.delivery.sources = o.delivery.sources || {};
+    if (!o.delivery.sources[b.firmId]) { o.delivery.sources[b.firmId] = { state: b.state, at: now }; await this._save(o); }
+    return { body: { ok: true } };
   }
 
   async _queueReceipt(ledger, now) {

@@ -732,6 +732,72 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
   });
 }
 
+async function payFlowP(page, h, offers, { reqs, here = false } = {}) {
+  if (!here) { await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, offers); }
+  await page.fill("#email", "kund@example.test");
+  if (reqs) page.on("request", (r) => { if (/\/checkout$/.test(r.url()) && r.method() === "POST") reqs.push(JSON.parse(r.postData() || "{}")); });
+  await page.check("#terms"); await page.check("#startnow"); await page.check("#loseright"); await page.click("#pay");
+  await page.waitForURL("https://checkout.stripe.test/**"); await page.click("#pay");
+  await page.waitForURL(h.base + "/jamfor/**");
+}
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`policy P (${name}): två ej förkryssade rutor, knappen inaktiv tills alla val gjorts, rätt knapptext; leverans → inget stort ångerblock, köpsidan visar att ångerrätten upphört + reklamation; ingen sidoscroll`, async () => {
+    const h = await startHarness({ vars: { COMPARE_CONSENT_POLICY: "P" } });
+    const { ctx, page, errors } = await newPage(h, w, hgt);
+    try {
+      await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, OFFERS);
+      assert.equal(await page.locator("#startnow").isChecked(), false); assert.equal(await page.locator("#loseright").isChecked(), false); assert.equal(await page.locator("#terms").isChecked(), false);
+      assert.ok(await page.isVisible("#lbl-startnow")); assert.ok(await page.isVisible("#lbl-loseright")); assert.equal(await page.isVisible("#lbl-immediate"), false);
+      assert.match(await page.textContent("#t-startnow"), /startar direkt efter att jag betalat/); assert.match(await page.textContent("#t-loseright"), /förlorar min ångerrätt när tjänsten är fullt utförd/);
+      assert.match(await page.textContent("#pay"), /Beställ med betalningsskyldighet: 49 kr/);
+      assert.ok(await page.isVisible("#angerinfo")); assert.match(await page.textContent("#angertext"), /14 dagars ångerrätt.*hela beloppet tillbaka/s);
+      assert.equal(await page.locator("#pay").isDisabled(), true);
+      await page.fill("#email", "kund@example.test");
+      await page.check("#terms"); assert.equal(await page.locator("#pay").isDisabled(), true, "villkor ensamt räcker inte");
+      await page.check("#startnow"); assert.equal(await page.locator("#pay").isDisabled(), true, "en ruta räcker inte");
+      await page.check("#loseright"); assert.equal(await page.locator("#pay").isDisabled(), false);
+      await page.uncheck("#startnow"); assert.equal(await page.locator("#pay").isDisabled(), true);
+      assert.equal(h.stats.stripeCreate, 0, "ingen betalsession utan val");
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_P1_samtycken.png`), fullPage: true });
+      // helt flöde
+      await page.check("#startnow"); await page.uncheck("#terms"); await page.uncheck("#startnow"); await page.uncheck("#loseright");
+      const reqs = [];
+      await payFlowP(page, h, OFFERS, { reqs, here: true });
+      await page.waitForSelector("#rep:not(.hidden)", { timeout: 30000 });
+      assert.equal(reqs.length >= 1, true); assert.equal(reqs[0].accept.startNow, true); assert.equal(reqs[0].accept.loseRight, true); assert.equal(reqs[0].accept.immediateDelivery, undefined);
+      assert.equal(await page.locator("#rep #withdraw").count(), 0); assert.equal(await page.locator("#rep #agreement").count(), 0);
+      const link = page.locator("#rep a#buylink"); assert.equal((await link.textContent()).trim(), "Ditt köp och villkor");
+      await link.click(); await page.waitForURL("**/jamfor/kop/**");
+      await page.waitForSelector("#rightsend", { timeout: 15000 });
+      assert.match(await page.textContent("#rightsend"), /ångerrätt upphörde .* när tjänsten var fullt utförd/);
+      assert.equal(await page.locator("#withdraw").count(), 0, "ingen ångerknapp efter giltigt fullgörande (ingen dold/nekande knapp)");
+      assert.match(await page.textContent("#helpcard"), /reklamation/i); assert.ok(await page.isVisible('a[href="/jamfor/villkor/"]'));
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_P2_kopsida_upphord.png`), fullPage: true });
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
+test("policy P, fonster_slut (mobil390): levererad men fönstret ej slut ⇒ köpsidan visar att ångerrätten finns och ångern ger full återbetalning", async () => {
+  const h = await startHarness({ vars: { COMPARE_CONSENT_POLICY: "P", COMPARE_FULFILMENT_POINT: "fonster_slut" } });
+  const { ctx, page, errors } = await newPage(h, 390, 844);
+  try {
+    await payFlowP(page, h, OFFERS);
+    await page.waitForSelector("#rep:not(.hidden)", { timeout: 30000 });
+    await page.click("#rep a#buylink"); await page.waitForURL("**/jamfor/kop/**");
+    await page.waitForSelector("#rightskept", { timeout: 15000 });
+    assert.match(await page.textContent("#rightskept"), /inte fullt utförd.*hela beloppet tillbaka/s);
+    assert.ok(await page.isVisible("#withdraw")); assert.ok(await noSideScroll(page));
+    await page.screenshot({ path: join(EVIDENCE, "jamfor_mobil390_P3_kopsida_anger_kvar.png"), fullPage: true });
+    await page.click("#withdraw"); await page.waitForSelector("#wdtext", { timeout: 15000 });
+    assert.match(await page.textContent("#wdtext"), /Tjänsten var inte fullt utförd.*hela beloppet ska betalas tillbaka/s);
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});
+
 for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
   test(`Googlereservation (${name}): varje billbar instans (sök, preview, valbyte, återöppning, retry) kräver ny serverreservation; nekad reservation skapar ingen instans`, async () => {
     const h = await startHarness({ vars: { ...SRC_VARS, COMPARE_SOURCES_MOUNT_DAY_CAP: "5", COMPARE_SOURCES_DETAILS_DAY_CAP: "3", COMPARE_SOURCES_SEARCH_DAY_CAP: "5" } }); seedSources(h);

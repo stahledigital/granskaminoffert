@@ -51,6 +51,32 @@ export const CONSENT = Object.freeze({
     immediate: "Jag vill att jämförelsen startar direkt efter betalning och förstår att ångerrätten därmed kan gå förlorad när tjänsten är levererad.",
   }),
 });
+// ---- Policy P (isolerad KANDIDAT, Modesty §12; default AV = policy Q oförändrad) ----
+// COMPARE_CONSENT_POLICY=P: två SEPARATA, aktivt valda (ej förkryssade) rutor före betalning – (1) start direkt inom ångerfristen, (2) godtar att ångerrätten upphör först när tjänsten är fullt utförd.
+// Policyn fryses per order vid /accept; redan skapade Q-ordrar ändras aldrig (ingen retroaktiv Q→P). Ingen live-aktivering: CONSENT.draft stänger live fortfarande.
+export const consentPolicy = (env) => (env && env.COMPARE_CONSENT_POLICY === "P" ? "P" : "Q");
+export const FULFILMENT_POINTS = Object.freeze(["leverans", "fonster_slut"]);
+// FULFILMENT_POINT: explicit konfigurerbar. leverans = rapport (och avtalad källtäckning) levererad; fonster_slut = dessutom 24 h-fönstret för att spara rapporten slut.
+// Vilken som gäller i live är en rättslig bedömning (U2), inte en kundpreferens. Ogiltigt värde ⇒ P stänger beställning (fail closed).
+export function fulfilmentPoint(env) {
+  const v = env ? env.COMPARE_FULFILMENT_POINT : undefined;
+  if (v === undefined || v === "") return { ok: true, point: "leverans", explicit: false };
+  return FULFILMENT_POINTS.includes(v) ? { ok: true, point: v, explicit: true } : { ok: false, point: null, explicit: true };
+}
+export const CONSENT_P_VERSION = "samtycke-p-utkast-1";
+export function consentTexts(env) {
+  if (consentPolicy(env) !== "P") return CONSENT.texts;
+  const rev = reviewsActive(env), win = fulfilmentPoint(env).point === "fonster_slut";
+  const what = "jag har fått min jämförelserapport" + (rev ? " och de omdömesvisningar som ingår i min order" : "") + (win ? ", och tiden på 24 timmar för att spara rapporten har gått ut" : "");
+  return Object.freeze({
+    sameJob: CONSENT.texts.sameJob,
+    terms: CONSENT.texts.terms,
+    startNow: "Jag vill att analysen startar direkt efter att jag betalat, innan ångerfristen på 14 dagar har gått ut.",
+    loseRight: `Jag förstår och godtar att jag förlorar min ångerrätt när tjänsten är fullt utförd, det vill säga när ${what}.`,
+  });
+}
+export const consentVersion = (env) => (consentPolicy(env) === "P" ? CONSENT_P_VERSION : CONSENT.version);
+
 // Retentionklasser (explicita). Innehåll = offertfiler/rapport (24 h, kod). Avtalspost/ledger och bokföringsunderlag
 // har INGEN förvald tid: längderna sätts av en människa efter slutlig GDPR-/bokföringsbedömning (live fail closed utan dem).
 export const RETENTION_CLASSES = Object.freeze({
@@ -151,7 +177,9 @@ const krText = (ore) => `${(ore / 100).toFixed(2).replace(".", ",")} kr`;
 // Ingen slutlig juridisk text: öppna beslut står som [hakparentes]-platshållare och live är stängt (CONSENT.draft) tills människa fastställt dem.
 export const SWISH_NOTE = "Du kan betala med kort eller Swish. Betalar du med Swish går betalningen via Stripe: i Swish kan Stripe visas som mottagare och Ståhle Digital i meddelandet. Du köper av Ståhle Digital. Beloppet är samma 49 kr inklusive moms.";
 export const TERMS_VERSION = "villkor-utkast-1";
+export const TERMS_P_VERSION = "villkor-p-utkast-1";
 export function termsSnapshot(env) {
+  if (consentPolicy(env) === "P") return termsSnapshotP(env);
   const seller = sellerInfo(env), pol = retentionPolicy(env), copy = offerCopy(env);
   const vatOre = vatPart(OFFER.priceOre, OFFER.vatPct);
   const days = (d, what) => (d === null ? `[lagringstid för ${what} är inte fastställd]` : `${d} dagar`);
@@ -167,6 +195,25 @@ export function termsSnapshot(env) {
   ];
   return { version: TERMS_VERSION, draft: true, seller, sections };
 }
+function termsSnapshotP(env) {
+  const seller = sellerInfo(env), pol = retentionPolicy(env), copy = offerCopy(env), rev = reviewsActive(env), fp = fulfilmentPoint(env).point;
+  const vatOre = vatPart(OFFER.priceOre, OFFER.vatPct);
+  const days = (d, what) => (d === null ? `[lagringstid för ${what} är inte fastställd]` : `${d} dagar`);
+  const done = "när vi har levererat din jämförelserapport" + (rev ? " och de omdömesvisningar som visades före köpet (se Täckning)" : "") + (fp === "fonster_slut" ? " och tiden på 24 timmar för att spara rapporten har gått ut" : "");
+  const sections = [
+    { id: "saljare", title: "Säljare", text: sellerLines(seller).join("\n") },
+    { id: "tjansten", title: "Vad som ingår", text: [`${OFFER.product} jämför innehåll i ${OFFER.minDocs}–${OFFER.maxDocs} offerter som du själv laddar upp.`, "Det här ingår:", ...copy.gets.map((t) => `- ${t}`), ...(rev ? ["- Källans egna omdömen visas separat bara för de företag där täckning visas före köp. Vi lovar inte omdömen för företag som inte står i täckningen."] : []), "Det här ingår inte:", ...copy.getsNot.map((t) => `- ${t}`), "Så går det till:", ...copy.how.map((t) => `- ${t}`)].join("\n") },
+    { id: "pris", title: "Pris och betalning", text: `Pris: ${krText(OFFER.priceOre)} inklusive moms (varav moms ${krText(vatOre)}, ${OFFER.vatPct} %). Engångsköp. Betalningen sker hos betalleverantören Stripe; kvittot därifrån är en separat handling.${paymentMethods(env).swish ? ` ${SWISH_NOTE}` : ""}` },
+    { id: "avtal", title: "Avtalsbekräftelse", text: "När betalningen är genomförd skickas en avtalsbekräftelse med de här villkoren, dina val och en länk för att ångra avtalet till den e-postadress du angav. Analysen startar först när bekräftelsen har skickats." },
+    { id: "angerratt", title: "Ångerrätt", text: `[UTKAST – klassificering och fullgörandepunkt är inte rättsligt fastställda.] Du har som utgångspunkt 14 dagars ångerrätt från den dag du beställer. Om du väljer att analysen ska starta direkt och godtar att ångerrätten upphör när tjänsten är fullt utförd, har du ingen ångerrätt efter det. Tjänsten är fullt utförd ${done}. Ångrar du dig innan dess får du hela beloppet tillbaka och du betalar ingenting för det som hunnit utföras. Ångra avtalet på sidan Ditt köp och villkor (/jamfor/kop/) eller på /jamfor/angra/. Standardformulär för ångerrätt bifogas avtalsbekräftelsen.` },
+    { id: "efterleverans", title: "Efter fullständig leverans", text: "Du har inte längre ångerrätt, men din rätt att reklamera, rätt till rättelse vid fel och övriga rättigheter enligt lag gäller som vanligt, och du kan alltid kontakta oss." },
+    { id: "ofullstandig", title: "Om leveransen är ofullständig eller fel", text: "Om något som ingår i din order inte levereras, eller rapporten har ett fel, behåller du dina rättigheter. Vi åtgärdar felet eller återbetalar enligt lag." },
+    { id: "aterbetalning", title: "Återbetalning", text: "Om du ångrar dig innan tjänsten är fullt utförd, om något som ingår i din order inte levereras, eller om du har rätt till återbetalning enligt lag på grund av fel, återbetalas beloppet via samma betalsätt utan onödigt dröjsmål och senast inom 14 dagar från att vi tog emot din begäran. Efter fullständig leverans enligt ditt samtycke ges ingen återbetalning på grund av ångerrätt; reklamation och övriga lagstadgade rättigheter påverkas inte." },
+    { id: "personuppgifter", title: "Personuppgifter och lagring", text: `Offerterna skickas till Anthropic för avläsning. Filer, avläsning och rapport raderas efter ${OFFER.retentionHours} timmar eller direkt när du raderar. Order-, betal- och samtyckespost sparas utan offerttext: avtalspost ${days(pol.avtalDays, "avtalspost")}, bokföringsunderlag ${days(pol.bokforingDays, "bokföringsunderlag")}. Betaluppgifter hanteras av Stripe och lagras inte av oss.` },
+    { id: "kontakt", title: "Kontakt, reklamation och klagomål", text: `Kontakta ${seller.email} om du har frågor, reklamation, klagomål eller vill ha hjälp med återbetalning. Det gäller även efter att tjänsten är fullt utförd. [Information om tvistlösning fastställs av det kommersiella spåret.]` },
+  ];
+  return { version: TERMS_P_VERSION, draft: true, seller, sections };
+}
 export function termsPlain(t) { return t.sections.map((x) => `${x.title}\n${x.text}`).join("\n\n"); }
 export const DATA_COVERAGE = Object.freeze({ reviews: false, text: "Omdömen om företagen ingår inte i den här versionen." });
 // D07: källvisning av omdömen (Google/Trustpilot) är en SEPARAT, avstängd funktion. Aktiv bara när en människa satt BÅDA flaggorna
@@ -174,9 +221,12 @@ export const DATA_COVERAGE = Object.freeze({ reviews: false, text: "Omdömen om 
 // så kunden aldrig lovas något som inte är påslaget. Aldrig i rapport, export, mejl eller modell.
 export const reviewsActive = (env) => !!env && env.COMPARE_REVIEWS === "1" && env.COMPARE_REVIEWS_VERIFIED === "1";
 const REVIEWS_ON_GETSNOT = "Omdömen om företagen räknas inte in i jämförelsen och står inte i rapporten eller mejlen. Där en källa är tillgänglig för just din firma visas Googles och Trustpilots egna omdömen separat, med källans eget urval och datum. Vi ger inget eget betyg, ingen rangordning och ingen bedömning av företaget, och vi lovar inte att en källa finns eller har omdömen för varje firma (se täckningen innan du betalar).";
+const HOW_P_START = "Analysen startar först när betalningen är genomförd, du har valt båda rutorna och vi har skickat din avtalsbekräftelse. Det tar oftast några minuter. Du kan stänga fliken – du får tillbaka resultatet via en länk som visas här.";
 export function offerCopy(env) {
-  if (!reviewsActive(env)) return OFFER_COPY;
-  return Object.freeze({ ...OFFER_COPY, getsNot: OFFER_COPY.getsNot.map((t) => (/^Inga omdömen om företagen/.test(t) ? REVIEWS_ON_GETSNOT : t)) });
+  let c = OFFER_COPY;
+  if (reviewsActive(env)) c = { ...c, getsNot: c.getsNot.map((t) => (/^Inga omdömen om företagen/.test(t) ? REVIEWS_ON_GETSNOT : t)) };
+  if (consentPolicy(env) === "P") c = { ...c, how: c.how.map((t, i) => (i === 0 ? HOW_P_START : t)) };
+  return c === OFFER_COPY ? c : Object.freeze(c);
 }
 export function dataCoverage(env) {
   if (!reviewsActive(env)) return DATA_COVERAGE;
@@ -185,11 +235,13 @@ export function dataCoverage(env) {
 
 // Det kunden accepterar: pris, produkt, erbjudandetext och samtyckestexter. Hashen bindes till ordern.
 export function consentSnapshot(env) {
-  return {
-    consentVersion: CONSENT.version, draft: CONSENT.draft,
+  const base = {
+    consentVersion: consentVersion(env), draft: CONSENT.draft,
     offerVersion: OFFER.version, priceOre: OFFER.priceOre, currency: OFFER.currency, vatPct: OFFER.vatPct,
-    copy: offerCopy(env), texts: CONSENT.texts, dataCoverage: dataCoverage(env), terms: termsSnapshot(env),
+    copy: offerCopy(env), texts: consentTexts(env), dataCoverage: dataCoverage(env), terms: termsSnapshot(env),
   };
+  // Policy Q: exakt som förut (samma nycklar ⇒ samma hash). Policy P lägger till policy + fullgörandepunkt (ingår i hashen kunden binds till).
+  return consentPolicy(env) === "P" ? { ...base, policy: "P", fulfilmentPoint: fulfilmentPoint(env).point } : base;
 }
 
 // Tekniska gränser (INTE ett budgetbeslut). Före betalning tydliga för kunden.
@@ -290,6 +342,7 @@ export function acceptingOrders(env, allowedOrigins) {
   if (mode === "live" && CONSENT.draft) return false; // utkasttext: ingen skarp betalning
   if (sellerInfo(env).errors.length > 0) return false; // konfigfel i säljaruppgifter (t.ex. förbjudet org.nr för enskild firma) stänger i ALLA lägen
   if (mode === "live" && (!retentionPolicy(env).ok || sellerInfo(env).placeholder)) return false; // retention och säljare måste vara satta
+  if (consentPolicy(env) === "P" && !fulfilmentPoint(env).ok) return false; // ogiltig fullgörandepunkt: fail closed
   if (mailerKind(env) === null) return false; // utan transport kan avtalsbekräftelsen (som måste ges före tjänsten) inte levereras
   return budgetConfig(env).ok && returnUrl(env, allowedOrigins) !== null;
 }

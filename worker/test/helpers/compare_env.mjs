@@ -138,6 +138,7 @@ export function installFetch(opts = {}) {
     if (url === "https://api.anthropic.com/v1/messages") {
       const req = JSON.parse(body);
       log.anthropic.push(req);
+      if (ctl.holdModel && ctl.holdModel.length) { const hh = ctl.holdModel.shift(); if (hh) await hh; } // test: pausa valfritt modellanrop (t.ex. ånger under pågående körning)
       if (ctl.timeoutNext > 0) { ctl.timeoutNext--; throw new Error("timeout"); }
       if (ctl.failNext.length) { const st = ctl.failNext.shift(); return Response.json({ error: { type: "overloaded_error" } }, { status: st }); }
       const tool = req.tools[0].name;
@@ -250,7 +251,7 @@ export async function consentOf(env) { const c = await api(env, "GET", "/compare
 export const TEST_EMAIL = "kund@example.test";
 export async function startCheckout(env, orderId, token, accept) {
   if (accept === null) return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token });
-  if (accept === undefined) { const c = await consentOf(env); accept = { terms: true, immediateDelivery: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL }; }
+  if (accept === undefined) { const c = await consentOf(env); accept = c.policy === "P" ? { terms: true, startNow: true, loseRight: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL } : { terms: true, immediateDelivery: true, consentHash: c.hash, consentVersion: c.version, email: TEST_EMAIL }; }
   return api(env, "POST", `/compare/orders/${orderId}/checkout`, { token, body: { accept } });
 }
 

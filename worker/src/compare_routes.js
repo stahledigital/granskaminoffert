@@ -7,7 +7,7 @@
 // Betalningsbevis kommer bara från signerad webhook eller serveravstämning mot Stripe – returadressen
 // (success_url) bevisar ingenting.
 
-import { OFFER, LIMITS, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
+import { OFFER, LIMITS, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, consentPolicy, consentTexts, consentVersion, fulfilmentPoint, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
@@ -92,7 +92,7 @@ async function publicConfig(env, allowedOrigins) {
     },
     // Det kunden ska se och godkänna kommer från servern; hashen bindes till ordern vid köp.
     offerCopy: offerCopy(env),
-    consent: { version: CONSENT.version, draft: CONSENT.draft, hash: await consentHash(env), texts: CONSENT.texts },
+    consent: { version: consentVersion(env), draft: CONSENT.draft, hash: await consentHash(env), texts: consentTexts(env), policy: consentPolicy(env), ...(consentPolicy(env) === "P" ? { fulfilmentPoint: fulfilmentPoint(env).point } : {}) },
     dataCoverage: dataCoverage(env),
     terms: termsSnapshot(env), // fullständig villkorstext (UTKAST) som ingår i samtyckeshashen och i bekräftelsen
     draft: CONSENT.draft,
@@ -443,7 +443,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   }
 
   // ---- Per order ----
-  const m = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})(?:\/(docs\/([0-3])|checkout|report|withdraw))?$/);
+  const m = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})(?:\/(docs\/([0-3])|checkout|report|withdraw|source-delivered))?$/);
   if (!m) return reply({ error: "Not found" }, 404);
   const id = m[1];
   const sub = m[2] || "";
@@ -503,6 +503,17 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     return reply({ ok: true, duplicate: !!r.json.duplicate, withdrawal: r.json.withdrawal, order: r.json.order });
   }
 
+  // Kvittens på att avtalad källvisning för en täckt firma faktiskt gjorts tillgänglig (policy P). Registreras bara för firmor i den frusna täckningen och bara efter levererad rapport.
+  if (sub === "source-delivered" && request.method === "POST") {
+    const bi = await readJson(request, 500);
+    const v = bi.value || {};
+    if (typeof v.firmId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(v.firmId) || !["visad", "ingen_kalla"].includes(v.state)) return reply({ error: "Ogiltig begäran." }, 400);
+    const r = await orderCall(env, id, "/source-delivered", { tokenHash, firmId: v.firmId, state: v.state, now: Date.now() });
+    if (r.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
+    if (r.status !== 200 || !r.json.ok) return reply({ error: "Kan inte registreras i det här läget." }, 409);
+    return reply({ ok: true });
+  }
+
   if (sub === "report" && request.method === "GET") {
     const g = await orderCall(env, id, "/internal", { now: Date.now() });
     if (g.status !== 200 || !g.json.order) return reply({ error: "Ordern hittades inte." }, 404);
@@ -526,10 +537,12 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     const bodyIn = await readJson(request, 2_000);
     const acc = bodyIn.value && bodyIn.value.accept;
     if (acc) {
-      if (acc.terms !== true || acc.immediateDelivery !== true || typeof acc.consentHash !== "string") return reply({ error: "Du behöver godkänna villkoren och att leveransen startar direkt.", needAccept: true }, 400);
+      // Policy P: TVÅ separata, aktivt valda rutor (startNow + loseRight) utöver villkoren; policy Q: den gamla "start direkt"-rutan. Servern avgör policy (ur snapshoten), aldrig klienten.
+      const P = snap.policy === "P";
+      if (acc.terms !== true || (P ? acc.startNow !== true || acc.loseRight !== true : acc.immediateDelivery !== true) || typeof acc.consentHash !== "string") return reply({ error: P ? "Du behöver godkänna villkoren och själv välja båda rutorna (start direkt och att ångerrätten upphör när tjänsten är fullt utförd)." : "Du behöver godkänna villkoren och att leveransen startar direkt.", needAccept: true }, 400);
       if (acc.consentHash !== hash || acc.consentVersion !== snap.consentVersion) return reply({ error: "Villkoren eller erbjudandet har ändrats sedan du läste dem. Läs och godkänn igen.", needAccept: true, consentChanged: true }, 409);
       if (!validEmail(acc.email)) return reply({ error: "Ange en giltig e-postadress för avtalsbekräftelsen.", needAccept: true, needEmail: true }, 400);
-      const ac = await orderCall(env, id, "/accept", { tokenHash, accept: { terms: true, immediateDelivery: true, consentHash: hash, consentVersion: snap.consentVersion, contactEmail: acc.email, draft: snap.draft, offerVersion: snap.offerVersion, priceOre: snap.priceOre, currency: snap.currency }, now: Date.now() });
+      const ac = await orderCall(env, id, "/accept", { tokenHash, accept: { terms: true, ...(snap.policy === "P" ? { startNow: true, loseRight: true } : { immediateDelivery: true }), consentHash: hash, consentVersion: snap.consentVersion, contactEmail: acc.email, draft: snap.draft, offerVersion: snap.offerVersion, priceOre: snap.priceOre, currency: snap.currency }, now: Date.now() });
       if (ac.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
       if (ac.status !== 200) return reply({ error: "Ordern kan inte betalas i det här läget." }, 409);
     } else {

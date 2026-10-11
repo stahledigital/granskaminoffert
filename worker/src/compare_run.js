@@ -172,12 +172,13 @@ async function run({ env, io, store, model: modelOverride }) {
   if (!fresh) return { state: "lost" };
   const report = assembleReport({ order: fresh, labels, compared, priority: Array.isArray(priority) ? priority : null, now });
   const reportKey = `cmprep:${order.id}`;
+  const reportJson = JSON.stringify(report);
   try {
-    await io.kv.put(reportKey, JSON.stringify(report), { expirationTtl: OFFER.retentionHours * 3600 });
+    await io.kv.put(reportKey, reportJson, { expirationTtl: OFFER.retentionHours * 3600 });
   } catch {
     return { state: "retry", reason: "lagring" };
   }
-  return { state: "delivered", reportKey };
+  return { state: "delivered", reportKey, reportHash: await sha256Hex(reportJson) }; // innehållshash = leveranshändelsens bevis (policy P)
 }
 
 export { ratesFor }; // återexport för tester som vill räkna värsta fallet

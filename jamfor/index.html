@@ -155,8 +155,12 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
     <label for="email" style="display:block;font-weight:600;margin:12px 0 4px">E-postadress för avtalsbekräftelsen</label>
     <input type="email" id="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="namn@exempel.se" aria-describedby="emailhint">
     <p class="hint" id="emailhint">Bekräftelsen med din ångerlänk skickas hit. Adressen används bara för det.</p>
+    <div id="angerinfo" class="card hidden" role="note"><h3 style="margin-top:0">Ångerrätt och start direkt</h3><p id="angertext" style="margin:0"></p></div>
     <label class="chk"><input type="checkbox" id="terms"><span id="t-terms"></span> <a href="/jamfor/villkor/" target="_blank" rel="noopener">Läs villkoren</a></label>
-    <label class="chk"><input type="checkbox" id="immediate"><span id="t-immediate"></span></label>
+    <label class="chk" id="lbl-immediate"><input type="checkbox" id="immediate"><span id="t-immediate"></span></label>
+    <label class="chk hidden" id="lbl-startnow"><input type="checkbox" id="startnow"><span id="t-startnow"></span></label>
+    <label class="chk hidden" id="lbl-loseright"><input type="checkbox" id="loseright"><span id="t-loseright"></span></label>
+    <p class="hint hidden" id="pnote">Du väljer själv båda rutorna; ingen är förkryssad. Utan båda startar inget och du kan ångra avtalet.</p>
     <button type="button" class="btn acc block" id="pay">Betala 49 kr</button>
     <p class="hint">Betalningen sker hos Stripe. Du lämnar sidan och kommer tillbaka hit.</p>
   </div>
@@ -230,6 +234,11 @@ function fillCopy(cfg){
   var c=cfg.offerCopy||{},t=(cfg.consent&&cfg.consent.texts)||{};
   fillList('copy-gets',c.gets);fillList('copy-getsnot',c.getsNot);fillList('copy-how',c.how);
   $('t-terms').textContent=t.terms||'';$('t-immediate').textContent=t.immediate||'';if(t.sameJob)$('t-samejob').textContent=t.sameJob;
+  state.cfg=cfg;var P=isP(cfg);$('t-startnow').textContent=t.startNow||'';$('t-loseright').textContent=t.loseRight||'';
+  var secs=(cfg.terms&&Array.isArray(cfg.terms.sections))?cfg.terms.sections:[],ag=secs.filter(function(x){return x.id==='angerratt'})[0];$('angertext').textContent=(P&&ag&&ag.text)||'';show('angerinfo',!!(P&&ag&&ag.text));
+  show('lbl-immediate',!P);show('lbl-startnow',P);show('lbl-loseright',P);show('pnote',P);
+  ['immediate','startnow','loseright'].forEach(function(id){$(id).checked=false}); // aldrig förkryssade
+  $('pay').textContent=payLabel();syncPay();
   $('coverage').textContent=$('coverage1').textContent=(cfg.dataCoverage&&cfg.dataCoverage.text)||'';
   show('draftnote',!!(cfg.consent&&cfg.consent.draft));
   fillSeller(cfg);
@@ -314,18 +323,23 @@ $('pay').addEventListener('click',async function(){
   err('');
   if(!EMAIL_OK.test(($('email').value||'').trim())){err('Ange en giltig e-postadress för avtalsbekräftelsen.');$('email').focus();return}
   state.email=$('email').value.trim();
-  if(!$('terms').checked||!$('immediate').checked){err('Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
+  if(isP(state.cfg)){if(!$('terms').checked||!$('startnow').checked||!$('loseright').checked){err('Godkänn villkoren och välj själv båda rutorna (start direkt och att ångerrätten upphör när tjänsten är fullt utförd) för att gå vidare.');return}}
+  else if(!$('terms').checked||!$('immediate').checked){err('Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
   var b=$('pay');b.disabled=true;b.textContent='Öppnar betalning…';
   try{
     var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:acceptBody()}});
     if(r.status===200&&r.json.url){location.href=r.json.url;return}
-    if(r.json&&r.json.consentChanged){try{state.cfg=(await api('GET','/compare/config')).json;fillCopy(state.cfg);$('terms').checked=false;$('immediate').checked=false}catch(e){}}
+    if(r.json&&r.json.consentChanged){try{state.cfg=(await api('GET','/compare/config')).json;fillCopy(state.cfg);$('terms').checked=false}catch(e){}}
     err((r.json&&r.json.error)||'Betalningen kunde inte startas. Du har inte debiterats.');
   }catch(e){err('Betalningen kunde inte startas. Du har inte debiterats.')}
-  b.disabled=false;b.textContent='Betala 49 kr';
+  b.textContent=payLabel();syncPay();
 });
 
-function acceptBody(){var c=(state.cfg&&state.cfg.consent)||{};var em=$('email');return {terms:true,immediateDelivery:true,consentHash:c.hash,consentVersion:c.version,email:((em&&em.value)||state.email||'').trim()}}
+function isP(cfg){return !!(cfg&&cfg.consent&&cfg.consent.policy==='P')}
+function payLabel(){return isP(state.cfg)?'Beställ med betalningsskyldighet: 49 kr':'Betala 49 kr'}
+function syncPay(){if(!isP(state.cfg)){$('pay').disabled=false;return}$('pay').disabled=!($('terms').checked&&$('startnow').checked&&$('loseright').checked)} // P: knappen är inaktiv tills alla val gjorts aktivt
+function acceptBody(){var c=(state.cfg&&state.cfg.consent)||{};var em=$('email');var base={terms:true,consentHash:c.hash,consentVersion:c.version,email:((em&&em.value)||state.email||'').trim()};if(isP(state.cfg)){base.startNow=true;base.loseRight=true}else base.immediateDelivery=true;return base}
+['terms','startnow','loseright'].forEach(function(id){$(id).addEventListener('change',syncPay)});
 var EMAIL_OK=/^[^\s@,;<>()"]{1,64}@[^\s@,;<>()"]{1,190}\.[A-Za-z]{2,}$/;
 
 // ---------- återupptagning och väntan ----------
@@ -383,7 +397,7 @@ function withdrawBlock(o){
   box.appendChild(el('p',{class:'hint',text:'Avtals-ID '+o.agreement.id+'. Avtalsbekräftelse till '+o.agreement.contact+': '+(conf?mailText(conf.state):'köad')+'. Utkast: villkoren är inte slutgiltiga.'}));
   var w=o.withdrawal;
   if(w&&w.requested){
-    var txt=w.outcome==='avbrutet_fore_leverans'?'Köpet är ångrat och jämförelsen stoppad. Hela beloppet ska betalas tillbaka.':w.outcome==='redan_avslutad'?'Din ånger är mottagen. Jämförelsen kunde redan inte slutföras; återbetalningen hanteras separat.':'Din ånger är mottagen och sparad med tidpunkten nedan. Den prövas manuellt – det här är ingen bekräftelse på att ångerrätten gäller eller inte gäller.';
+    var txt=w.outcome==='angrat_fore_fullgoring'?'Köpet är ångrat. Tjänsten var inte fullt utförd, så din ångerrätt gällde; hela beloppet ska betalas tillbaka.':w.outcome==='angerratt_upphord'?'Din begäran är mottagen. Enligt de val du gjorde vid köpet upphörde ångerrätten när tjänsten var fullt utförd; någon återbetalning på grund av ångerrätt görs därför inte. Reklamation och dina övriga rättigheter påverkas inte.':w.outcome==='avbrutet_fore_leverans'?'Köpet är ångrat och jämförelsen stoppad. Hela beloppet ska betalas tillbaka.':w.outcome==='redan_avslutad'?'Din ånger är mottagen. Jämförelsen kunde redan inte slutföras; återbetalningen hanteras separat.':'Din ånger är mottagen och sparad med tidpunkten nedan. Den prövas manuellt – det här är ingen bekräftelse på att ångerrätten gäller eller inte gäller.';
     box.appendChild(el('p',{id:'wdtext',text:txt}));
     box.appendChild(el('p',{class:'hint',text:'Begäran '+w.requestId+', mottagen '+new Date(w.at).toLocaleString('sv-SE')+'. Mottagningsbevis skickas till din e-post.'}));
   }else{
@@ -415,13 +429,13 @@ async function consentAgain(msg){
   function chk(id,text){var l=el('label',{class:'chk'});l.appendChild(el('input',{type:'checkbox',id:id}));l.appendChild(el('span',{text:text}));return l}
   var le=el('label',{for:'email2',style:'display:block;font-weight:600;margin:10px 0 4px',text:'E-postadress för avtalsbekräftelsen'});box.appendChild(le);
   box.appendChild(el('input',{type:'email',id:'email2',autocomplete:'email',maxlength:'254'}));
-  box.appendChild(chk('terms2',t.terms||''));box.appendChild(chk('immediate2',t.immediate||''));
+  var PP=isP(cfg);box.appendChild(chk('terms2',t.terms||''));if(PP){box.appendChild(chk('startnow2',t.startNow||''));box.appendChild(chk('loseright2',t.loseRight||''))}else box.appendChild(chk('immediate2',t.immediate||''));
   var b=el('button',{type:'button',class:'btn acc',id:'pay2',text:'Godkänn och gå till betalning'});
   b.addEventListener('click',async function(){
     err('');
     if(!EMAIL_OK.test(($('email2').value||'').trim())){err('Ange en giltig e-postadress för avtalsbekräftelsen.');return}
     state.email=$('email2').value.trim();
-    if(!$('terms2').checked||!$('immediate2').checked){err('Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
+    if(PP?!($('terms2').checked&&$('startnow2').checked&&$('loseright2').checked):!($('terms2').checked&&$('immediate2').checked)){err(PP?'Godkänn villkoren och välj själv båda rutorna för att gå vidare.':'Godkänn villkoren och att jämförelsen startar direkt för att gå vidare.');return}
     b.disabled=true;
     var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token,body:{accept:acceptBody()}});
     if(r.status===200&&r.json.url){location.href=r.json.url;return}

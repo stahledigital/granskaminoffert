@@ -52,6 +52,8 @@ export async function buildAgreement(order, { env, now, session }) {
     contact: { email: a.contactEmail },
     payment: { sessionId: session.sessionId || null, paymentIntentId: session.paymentIntentId || null, amountTotal: session.amountTotal ?? null, currency: snap.currency, paidAt: now },
   };
+  // Policy P: de frusna valen (tid, text-ID, text-hash), fullgörandepunkten och den avtalade prestationen ingår i den frusna avtalsposten. Q-avtal får inga nya nycklar (samma hash som förut).
+  if (a.policy === "P") agreement.p = { policy: "P", consents: a.consents, fulfilmentPoint: a.fulfilmentPoint, agreed: a.agreed };
   return { agreement, agreementHash: await sha256Hex(JSON.stringify(agreement)) };
 }
 
@@ -70,7 +72,7 @@ export function stripLedger(ledger, now) {
   const ag = ledger.agreement, w = ledger.withdrawal;
   return {
     v: 1, orderId: ledger.orderId, agreementId: ledger.agreementId, createdAt: ledger.createdAt, stripped: true, strippedAt: now,
-    agreement: { orderId: ag.orderId, product: ag.product, price: ag.price, payment: ag.payment },
+    agreement: { orderId: ag.orderId, product: ag.product, price: ag.price, payment: ag.payment, ...(ag.p ? { p: { policy: "P", fulfilmentPoint: ag.p.fulfilmentPoint, consents: Object.fromEntries(Object.entries(ag.p.consents || {}).map(([k, v]) => [k, { at: v.at, textId: v.textId, textHash: v.textHash }])) } } : {}) },
     agreementHash: null, withdrawTokenHash: null,
     withdrawal: w ? { requestId: w.requestId, at: w.at, outcome: w.outcome } : null,
     retention: ledger.retention, events: [{ at: now, type: "avtalsdel_rensad" }],
@@ -119,6 +121,19 @@ export function withdrawalFormText(ledger) {
 }
 
 // ---- Mejl (oföränderliga mallar; hemligheter ersätts först vid sändning) ----
+function pLines(ag) {
+  const c = ag.p.consents, t = ag.accepted.texts, f = (k) => `[${iso(c[k].at)}; text-ID ${c[k].textId}; text-hash ${c[k].textHash}]`;
+  const cov = ag.p.agreed && ag.p.agreed.sources && ag.p.agreed.sources.required;
+  return [
+    ``,
+    `Vad du köpt: jämförelserapport för ${ag.docCount} offerter${cov ? `, samt källans egna omdömesvisning för de ${ag.p.agreed.sources.coveredIds.length} företag där täckning visades före köpet (täckningskontrollsumma ${ag.p.agreed.sources.coverageHash})` : ""}.`,
+    `Dina val (var och en vald av dig, ej förkryssad; texterna ordagrant):`,
+    `1. ${t.startNow} ${f("startNow")}`,
+    `2. ${t.loseRight} ${f("loseRight")}`,
+    `Analysen startar först när den här bekräftelsen har skickats. Fullgörandepunkt: ${ag.p.fulfilmentPoint === "fonster_slut" ? "leveransen plus att 24 h-fönstret för att spara rapporten gått ut" : "när rapporten (och ingående omdömesvisningar) har levererats"}.`,
+    `Innan tjänsten är fullt utförd kan du ångra avtalet och få hela beloppet tillbaka. När den är fullt utförd upphör ångerrätten, men reklamation och övriga rättigheter gäller. Du kan alltid kontakta oss: ${ag.seller.email}.`,
+  ];
+}
 export function confirmationMail(ledger) {
   const ag = ledger.agreement;
   const body = [
@@ -136,7 +151,8 @@ export function confirmationMail(ledger) {
     `Så går det till:`, ...ag.scope.how.map((t) => `- ${t}`),
     ``,
     `Du godkände (version ${ag.accepted.version}, kontrollsumma ${ag.accepted.hash}, ${iso(ag.accepted.at)}):`,
-    `- ${ag.accepted.texts.sameJob}`, `- ${ag.accepted.texts.terms}`, `- ${ag.accepted.texts.immediate}`,
+    `- ${ag.accepted.texts.sameJob}`, `- ${ag.accepted.texts.terms}`, ...(ag.p ? [] : [`- ${ag.accepted.texts.immediate}`]),
+    ...(ag.p ? pLines(ag) : []),
     ``,
     `Villkor (version ${ag.accepted.fullTerms ? ag.accepted.fullTerms.version : "saknas"}${ag.accepted.fullTerms && ag.accepted.fullTerms.draft ? ", UTKAST" : ""}) – exakt den text du godkände:`,
     ag.accepted.fullTerms ? termsPlain(ag.accepted.fullTerms) : "(villkorstexten saknas i snapshoten)",
@@ -148,7 +164,7 @@ export function confirmationMail(ledger) {
     ``,
     withdrawalFormText(ledger),
     ``,
-    `Du kan också ångra från sidan med ditt resultat.`,
+    ag.p ? `Ditt köp och villkor (avtal, reklamation/support och ångra avtalet här när ångerrätt finns): {{KOPLANK}}` : `Du kan också ångra från sidan med ditt resultat.`,
   ].join("\n");
   return { id: `mail_avtal_${ag.orderId}`, kind: "avtalsbekraftelse", subject: `Avtalsbekräftelse ${ledger.agreementId}`, body, attachments: [{ filename: ANGER_FILE, contentType: "text/plain; charset=utf-8", text: withdrawalFormText(ledger) }] };
 }
@@ -167,7 +183,11 @@ export function receiptMail(ledger, wd) {
       ? `Jämförelsen hade inte levererats. Vi har stoppat den och hela beloppet ska betalas tillbaka.`
       : wd.outcome === "redan_avslutad"
         ? `Jämförelsen kunde redan inte slutföras; återbetalningen hanteras separat.`
-        : `Din begäran är sparad med tidpunkten ovan och prövas manuellt. Det här mottagningsbeviset är ingen bekräftelse på att ångerrätten gäller eller inte gäller.`,
+        : wd.outcome === "angrat_fore_fullgoring"
+          ? `Tjänsten var inte fullt utförd enligt ditt avtal, så din ångerrätt gällde. Vi har stoppat tjänsten och hela beloppet ska betalas tillbaka utan onödigt dröjsmål och senast inom 14 dagar. Du betalar inget för det som hunnit utföras.`
+          : wd.outcome === "angerratt_upphord"
+            ? `Vi har tagit emot din begäran. Enligt de val du gjorde vid köpet upphörde din ångerrätt ${iso(wd.fulfilment && wd.fulfilment.fulfilledAt)} när tjänsten var fullt utförd. Någon återbetalning på grund av ångerrätt görs därför inte. Din rätt att reklamera och dina övriga rättigheter påverkas inte: kontakta oss på ${ag.seller.email} om något inte levererats eller är fel.`
+            : `Din begäran är sparad med tidpunkten ovan och prövas manuellt. Det här mottagningsbeviset är ingen bekräftelse på att ångerrätten gäller eller inte gäller.`,
   ].join("\n");
   return { id: `mail_angrakvitto_${ag.orderId}`, kind: "angermottagning", subject: `Mottagningsbevis ${wd.requestId}`, body };
 }

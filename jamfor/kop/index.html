@@ -124,11 +124,16 @@ function render(o){
   wc.appendChild(el('h2',{text:'Ångra köpet'}));
   var w=o.withdrawal;
   if(w&&w.requested){
-    var txt=w.outcome==='avbrutet_fore_leverans'?'Köpet är ångrat och jämförelsen stoppad. Hela beloppet ska betalas tillbaka.':w.outcome==='redan_avslutad'?'Din ånger är mottagen. Jämförelsen kunde redan inte slutföras; återbetalningen hanteras separat.':'Din ånger är mottagen och sparad med tidpunkten nedan. Den prövas manuellt – det här är ingen bekräftelse på att ångerrätten gäller eller inte gäller.';
+    var txt=w.outcome==='angrat_fore_fullgoring'?'Köpet är ångrat. Tjänsten var inte fullt utförd, så din ångerrätt gällde; hela beloppet ska betalas tillbaka. Du betalar inget för det som hunnit utföras.':w.outcome==='angerratt_upphord'?'Din begäran är mottagen och sparad med tidpunkten nedan. Enligt de val du gjorde vid köpet upphörde ångerrätten när tjänsten var fullt utförd, så någon återbetalning på grund av ångerrätt görs inte. Reklamation och dina övriga rättigheter påverkas inte – kontakta oss om något inte levererats eller är fel.':w.outcome==='avbrutet_fore_leverans'?'Köpet är ångrat och jämförelsen stoppad. Hela beloppet ska betalas tillbaka.':w.outcome==='redan_avslutad'?'Din ånger är mottagen. Jämförelsen kunde redan inte slutföras; återbetalningen hanteras separat.':'Din ånger är mottagen och sparad med tidpunkten nedan. Den prövas manuellt – det här är ingen bekräftelse på att ångerrätten gäller eller inte gäller.';
     wc.appendChild(el('p',{id:'wdtext',text:txt}));
     wc.appendChild(el('p',{class:'hint',text:'Begäran '+w.requestId+', mottagen '+new Date(w.at).toLocaleString('sv-SE')+'. Mottagningsbevis skickas till din e-post.'}));
+  }else if(o.rights&&o.rights.angerratt==='upphord'){
+    // Policy P: ångerrätten har upphört efter verifierat fullgörande. Ingen dold eller nekande knapp; reklamation/support syns alltid (se rutan nedan).
+    wc.appendChild(el('p',{id:'rightsend',text:'Din ångerrätt upphörde '+new Date(o.rights.upphordAt).toLocaleString('sv-SE')+' när tjänsten var fullt utförd, enligt det du godtog vid köpet. Du kan fortfarande reklamera eller kontakta oss: se Villkor, hjälp och reklamation nedan. Skickar du en ångerbegäran ändå sparas den med tidpunkt och du får ett mottagningsbevis.'}));
+    var lk=el('a',{href:'/jamfor/angra/',text:'Skicka en ångerbegäran ändå'});wc.appendChild(el('p',{},lk));
   }else{
-    wc.appendChild(el('p',{text:'Du kan begära att ångra köpet. Begäran sparas med tidpunkt och prövas utifrån vad som gäller för ditt köp; att du har sett resultatet innebär inte att den nekas automatiskt. [UTKAST – hur ångerrätt och start direkt bedöms är inte slutligt fastställt.]'}));
+    if(o.rights&&o.rights.angerratt==='kvar')wc.appendChild(el('p',{id:'rightskept',text:'Tjänsten är inte fullt utförd enligt ditt avtal, så du kan ångra avtalet här och få hela beloppet tillbaka. Du betalar inget för det som hunnit utföras.'}));
+    else wc.appendChild(el('p',{text:'Du kan begära att ångra köpet. Begäran sparas med tidpunkt och prövas utifrån vad som gäller för ditt köp; att du har sett resultatet innebär inte att den nekas automatiskt. [UTKAST – hur ångerrätt och start direkt bedöms är inte slutligt fastställt.]'}));
     var b=el('button',{type:'button',class:'btn ghost',id:'withdraw',text:'Ångra köpet'});
     b.addEventListener('click',async function(){
       if(!confirm('Vill du ångra köpet?'))return;
