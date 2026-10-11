@@ -1,5 +1,12 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v2f – D14: signerad Resend-eventadapter, leveransbevis skilt från transportaccept (ovanpå 140d317f)
+
+- `worker/src/compare_mailer.js`: Svix-verifiering (råbody + id/timestamp/signatur, ±300 s), sanering av Resend-händelser, ordningsoberoende leveransläge, `gmo_mail`-tagg i begäran, `COMPARE_MAIL_WEBHOOK_SECRET` (saknas ⇒ HTTP-sändning AV, `reasons: events`).
+- `worker/src/compare_orders.js`: HTTP-`sent` öppnar inte startgrinden; krävs signerad `delivered` för samma provider-ID. Negativ leverans ⇒ generation 0 + befintlig refundgrind; delayed/okänd ⇒ väntan till 30 min. Event före ack buffras och binds vid kvittens. Beständig `mailref:`-koppling; ledgerexport visar `confirmationMail` (inboxProof:false). Policy P: `confirmation.deliveredAt`.
+- `worker/src/compare_routes.js`: `POST /compare/mail-events`. `compare_budget.js`: globalt provider-ID→order/mejl-index (bara ID:n).
+- Tester: `compare_mail_events.test.mjs` (19) + befintliga mailertest anpassade (webhook-hemlighet i ON, leveranshändelse efter ack). Ej bevisat: riktig Resend/inkorg/Cloudflare-drift/juridik.
+
 ## jamfor-v2e – gratis→betald: skylta företagens omdömen i erbjudandet (copy, ovanpå 5eadff47)
 
 - `index.html`: en kompakt rad i `#cmpoffer` och i resultat-CTA (`#cmpr-rev`/`#cmpo-rev`): ”**Jämför också företagens omdömen, betyg och antal recensioner sida vid sida när källor finns.** Vilka källor som finns för just dina firmor visas innan du betalar.” Inga löften om senaste/exakt antal/alla firmor, ingen egen syntes/ryktespoäng/kreditvärdighet, inga liveprovider-påståenden (omdömen visas först där faktisk källtäckning verifierats; offline är attrapper/EXEMPEL). 49 kr inkl. moms, 2–4/en offert gratis, CTA, handoff, en-ruta och backend oförändrade. Test: gratis-UI-testen asserterar texten (båda platser, 390/1280), ingen dubblering.

@@ -2,9 +2,9 @@
 // (P2) okänt utfall (förlorad kvittens/timeout/5xx) efter slutade försök ⇒ "avstamning", inte "failed". ENDAST HTTP-dubbel; inget verkligt HTTP/sändning/nyckel.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeEnv, installFetch, readyOrder, startCheckout, paidSession, webhook } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, readyOrder, startCheckout, paidSession, webhook, MAIL_WH_SECRET, mailEvent, flushMailEvents } from "./helpers/compare_env.mjs";
 
-const ON = { COMPARE_MAILER_MODE: undefined, COMPARE_MAIL_HTTP: "1", COMPARE_MAIL_HTTP_VERIFIED: "1", COMPARE_MAIL_FROM: "QA <qa@example.test>", COMPARE_MAIL_DAY_CAP: "1", COMPARE_MAIL_API_KEY: "re_TESTONLY_syntheticKey0123456789" };
+const ON = { COMPARE_MAILER_MODE: undefined, COMPARE_MAIL_HTTP: "1", COMPARE_MAIL_HTTP_VERIFIED: "1", COMPARE_MAIL_FROM: "QA <qa@example.test>", COMPARE_MAIL_DAY_CAP: "1", COMPARE_MAIL_API_KEY: "re_TESTONLY_syntheticKey0123456789", COMPARE_MAIL_WEBHOOK_SECRET: MAIL_WH_SECRET };
 const SELLER = { COMPARE_SELLER_FORM: "AB", COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0001", COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_PHONE: "+46 8 000 00 00", COMPARE_COMPANY_INFO_URL: "https://example.test/foretagsuppgifter" };
 const S = (t) => ({ extracted: { totalBeforeRotSek: t, totalVatBasis: "inkl" }, scope: { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" } });
 const confOf = (o) => [...o.store.values()].find((x) => x && x.kind === "avtalsbekraftelse");

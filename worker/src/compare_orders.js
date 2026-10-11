@@ -18,7 +18,7 @@
 //   delivered|failed|… → deleted (innehållet raderat på kundens begäran)
 
 import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy, mailerKind, FULFILMENT_POINTS } from "./compare_config.js";
-import { mailHttpConfig, mailIdemKey, buildMailRequest, requestHash, sendViaHttp, validMailTo, IDEM_WINDOW_MS, LEASE_MS } from "./compare_mailer.js";
+import { mailHttpConfig, mailIdemKey, buildMailRequest, requestHash, sendViaHttp, validMailTo, IDEM_WINDOW_MS, LEASE_MS, parseMailId, applyMailEvent, deliveryOk, NEGATIVE_DELIVERY } from "./compare_mailer.js";
 import { countToday, dayKey } from "./compare_budget.js";
 import { timingSafeEqual, sha256Hex } from "./compare_util.js";
 import { stripLedger, validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow } from "./compare_ledger.js";
@@ -76,11 +76,20 @@ function confirmationProblems(o, mail) {
   if (!mail || mail.state !== "sent" || mail.id !== c.mailId) bad.push("ej_sent");
   else if (!Number.isFinite(mail.sentAt) || mail.sentAt !== c.sentAt) bad.push("sentAt");
   if (!Number.isFinite(c.sentAt) || !Number.isFinite(c.at) || c.sentAt > c.at) bad.push("tid");
+  // D14: HTTP-transportens "sent" är bara API-accept. Bekräftelsen räknas först när signerad leverans (till mottagarens mailserver) för SAMMA provider-ID är registrerad och ingen negativ händelse motsäger den.
+  let ct = c.sentAt;
+  if (mail && mail.state === "sent" && mail.transport === "http") {
+    if (!deliveryOk(mail)) bad.push(mail.delivery && mail.delivery.contradiction ? "leverans_motsagd" : "ej_levererad");
+    else if (mail.delivery.contradiction) bad.push("leverans_motsagd");
+    else if (c.deliveredAt !== mail.delivery.at) bad.push("deliveredAt");
+    else if (!Number.isFinite(c.deliveredAt) || c.deliveredAt > c.at || c.deliveredAt < c.sentAt) bad.push("tid_levererad");
+    if (Number.isFinite(c.deliveredAt)) ct = c.deliveredAt;
+  }
   const started = o.work && o.work.startedAt;
   const rep = o.delivery && o.delivery.report;
   if (rep && !Number.isFinite(started)) bad.push("start_saknas");
-  if (Number.isFinite(started) && !(c.sentAt <= started)) bad.push("efter_start");
-  if (rep && Number.isFinite(rep.at) && !(c.sentAt <= rep.at)) bad.push("efter_rapport");
+  if (Number.isFinite(started) && !(ct <= started)) bad.push("efter_start");
+  if (rep && Number.isFinite(rep.at) && !(ct <= rep.at)) bad.push("efter_rapport");
   return bad;
 }
 
@@ -217,8 +226,16 @@ export class CompareOrders {
     }
     if (path === "/internal") return { body: { ok: true, order: o } };
     if (path === "/refund-update") return this._refundUpdate(o, b, now);
+    if (path === "/mail-event") return this._mailEvent(o, b, now);
     if (path === "/withdraw") return this._withdraw(o, b, now);
-    if (path === "/ledger-export") { const l = await this.state.storage.get("ledger"); return l ? { body: { ok: true, row: exportRow(o, l, b.mode) } } : NOT_FOUND; }
+    if (path === "/ledger-export") {
+      const l = await this.state.storage.get("ledger");
+      if (!l) return NOT_FOUND;
+      const row = exportRow(o, l, b.mode);
+      const cm = await this.state.storage.get(`outbox:mail_avtal_${o.id}`);
+      row.confirmationMail = cm ? { transport: cm.transport || null, accepted: cm.state === "sent", delivery: cm.delivery ? cm.delivery.state : "none", inboxProof: false } : null; // D14: inboxProof är alltid false – leverans till mailserver ≠ inkorg
+      return { body: { ok: true, row } };
+    }
 
     // ---- Publika (kräver åtkomstnyckel) ----
     if (!this._auth(o, b.tokenHash)) return NOT_FOUND;
@@ -445,11 +462,19 @@ export class CompareOrders {
         if (cp.length) return { fail: true, reason: "samtycke_saknas" };
       }
       const m = await this.state.storage.get(`outbox:mail_avtal_${o.id}`);
+      // D14: HTTP-accept (sent) öppnar INTE grinden. Negativ leverans (bounce/failed/suppressed) ⇒ ingen generation + återbetalning; delayed/saknad leverans ⇒ vänta till tidsgränsen, därefter samma väg.
+      if (m && m.state === "sent" && m.transport === "http" && !deliveryOk(m)) {
+        if (m.delivery && NEGATIVE_DELIVERY.includes(m.delivery.state)) return { fail: true, reason: "bekraftelse_ej_levererad" };
+        const deadline = (o.paidAt || now) + LIMITS.confirmWaitMs;
+        if (now >= deadline) return { fail: true, reason: "bekraftelse_ej_levererad" };
+        if (o.work.waiting !== "avtalsbekraftelse") { o.work.waiting = "avtalsbekraftelse"; await this._save(o); }
+        return { wait: Math.min(deadline, now + 30_000) };
+      }
       if (m && m.state === "sent") {
         let dirty = false;
         if (o.work.waiting) { o.work.waiting = null; dirty = true; }
         if (o.accept && o.accept.policy === "P") {
-          if (!o.accept.confirmation) { o.accept.confirmation = { mailId: m.id, sentAt: m.sentAt, at: Date.now() }; dirty = true; } // bekräftelse skickad FÖRE start
+          if (!o.accept.confirmation) { o.accept.confirmation = { mailId: m.id, sentAt: m.sentAt, ...(m.transport === "http" ? { deliveredAt: m.delivery.at } : {}), at: Date.now() }; dirty = true; } // bekräftelse skickad (HTTP: levererad till mottagarens mailserver) FÖRE start
           if (confirmationProblems(o, m).length) return { fail: true, reason: "bekraftelse_motstrider" }; // motstridig bekräftelse ⇒ ingen generation, återbetalning
         }
         if (dirty) await this._save(o);
@@ -687,13 +712,15 @@ export class CompareOrders {
     if (purgeDue) {
       try { await this._purgeDocs(o); } catch { /* 24 h TTL är reservvägen */ }
       const keys = [...(await this.state.storage.list()).keys()];
+      const refs = keys.filter((k) => k.startsWith("mailref:")).map((k) => k.slice(8));
       for (const k of keys) await this.state.storage.delete(k);
+      try { const { mailrefUnindex } = await import("./compare_budget.js"); for (const r of refs) await mailrefUnindex(this.env, { emailId: r }); } catch { /* endast ID:n; nästa svep/TTL */ }
       try { const { ledgerUnindex } = await import("./compare_budget.js"); await ledgerUnindex(this.env, { orderId: o.id, at: paidAt }); } catch { /* indexposten innehåller bara order-ID; nästa svep försöker igen via adminrutten */ }
       return { ran: true, action: "raderad", purged: true };
     }
     // Avtalsklassen utgången men bokföringsklassen kvar: ta bort personuppgifts-/avtalsdelen, behåll belopp/moms/datum/Stripe-referenser.
     o.accept = o.accept ? { ...o.accept, contactEmail: null, snapshot: null } : o.accept;
-    const mails = [...(await this.state.storage.list({ prefix: "outbox:" })).keys()];
+    const mails = [...(await this.state.storage.list({ prefix: "outbox:" })).keys(), ...(await this.state.storage.list({ prefix: "mailref:" })).keys()];
     await this._commit({ put: { ledger: stripLedger(ledger, now), order: o }, del: [...mails, "sources"] });
     return { ran: true, action: "avtalsdel_rensad", stripped: true };
   }
@@ -889,7 +916,7 @@ export class CompareOrders {
           if (!m.idem) m.idem = { key: mailIdemKey(m.id), firstAt: now };
           let text = m.body;
           for (const [k, v] of Object.entries(m.secrets || {})) text = text.split(`{{${k}}}`).join(v);
-          req = buildMailRequest({ from: m.frozen ? m.frozen.from : http.from, to: m.to, subject: m.subject, text, attachments: m.attachments });
+          req = buildMailRequest({ from: m.frozen ? m.frozen.from : http.from, to: m.to, subject: m.subject, text, attachments: m.attachments, mailId: m.id });
           const h = await requestHash(req);
           if (!m.frozen) m.frozen = { from: req.from, hash: h, at: now };
           else if (m.frozen.hash !== h) { this._stopMail(m, "mejl_nyttolast_andrad"); m.leaseUntil = null; await this.state.storage.put(key, m); return null; } // fryst nyttolast får aldrig ändras under samma nyckel
@@ -914,7 +941,13 @@ export class CompareOrders {
         const m = await this.state.storage.get(key);
         if (!m || m.state === "sent") return;
         m.leaseUntil = null;
-        if (ack && ack.ok === true) { m.state = "sent"; m.transport = kind; m.sentAt = Date.now(); m.providerRef = typeof ack.ref === "string" ? ack.ref.slice(0, 80) : null; m.secrets = null; m.lastError = null; }
+        if (ack && ack.ok === true) {
+          m.state = "sent"; m.transport = kind; m.sentAt = Date.now(); m.providerRef = typeof ack.ref === "string" ? ack.ref.slice(0, 80) : null; m.secrets = null; m.lastError = null;
+          if (kind === "http") {
+            if (m.providerRef) await this.state.storage.put(`mailref:${m.providerRef}`, { mailId: m.id, at: m.sentAt }); // beständig provider-ID → mejl (order = denna DO)
+            this._replayEarly(m, Date.now()); // händelser som kom FÖRE kvittensen binds nu till det kvitterade provider-ID:t (annars anomali)
+          }
+        }
         else if (res && (res.kind === "payload_conflict" || res.kind === "terminal" || res.kind === "config")) { this._stopMail(m, res.code); }
         else {
           m.lastError = res && res.code ? res.code : "transport";
@@ -925,7 +958,57 @@ export class CompareOrders {
         await this.state.storage.put(key, m);
       });
     }
+    await this._indexMailRefs(); // global provider-ID → order/mejl (för händelser utan tagg); best effort, lokala mailref: är sanningen
     if (retryAt && this.state.storage.setAlarm) await this.state.storage.setAlarm(Math.max(retryAt, Date.now() + 10));
+  }
+
+  async _indexMailRefs() {
+    if (mailerKind(this.env) !== "http") return;
+    try {
+      const { mailrefPut } = await import("./compare_budget.js");
+      for (const [key, m] of await this.state.storage.list({ prefix: "outbox:" })) {
+        if (!m || m.state !== "sent" || m.transport !== "http" || !m.providerRef || m.refIndexed) continue;
+        const o = await this._load();
+        const pm = parseMailId(m.id);
+        if (!o || !pm) continue;
+        const r = await mailrefPut(this.env, { emailId: m.providerRef, orderId: o.id, mailId: m.id });
+        if (r && r.ok) await this._tx(async () => { const cur = await this.state.storage.get(key); if (cur) { cur.refIndexed = true; await this.state.storage.put(key, cur); } });
+      }
+    } catch { /* indexet kan återskapas vid nästa pass */ }
+  }
+
+  // ---- D14: leveranshändelser från Resend (redan SIGNATURVERIFIERADE och sanerade i Workern) ----
+  _anom(m, code, now) { m.anoms = [...(Array.isArray(m.anoms) ? m.anoms : []), { code, at: now }].slice(-6); }
+  _replayEarly(m, now) {
+    const early = Array.isArray(m.early) ? m.early : [];
+    m.early = null;
+    for (const e of early) {
+      if (e.emailId !== m.providerRef) { this._anom(m, "fel_provider_id_tidig", now); continue; }
+      applyMailEvent(m, e, now);
+    }
+  }
+  // Utfall: ok/dup/ignored. Ingen händelse räknas som bevis om order, mejl-ID, mottagare eller provider-ID inte stämmer med det vi själva fryst och skickat.
+  async _mailEvent(o, b, now) {
+    const e = b.event, pm = parseMailId(b.mailId);
+    if (!e || !pm || pm.orderId !== o.id || typeof b.eventId !== "string") return { status: 422, body: { ok: false, error: "koppling" } };
+    const key = `outbox:${pm.mailId}`;
+    const m = await this.state.storage.get(key);
+    if (!m) return { status: 404, body: { ok: false, error: "okand_post" } };
+    if (Array.isArray(m.eventIds) && m.eventIds.includes(b.eventId)) return { body: { ok: true, dup: true } };
+    m.eventIds = [...(Array.isArray(m.eventIds) ? m.eventIds : []), b.eventId].slice(-40);
+    const stop = async (code) => { this._anom(m, code, now); await this.state.storage.put(key, m); return { body: { ok: true, ignored: code } }; };
+    if (!(m.attempts > 0)) return stop("inte_skickad");
+    if (e.to.length !== 1 || e.to[0] !== String(m.to).toLowerCase()) return stop("fel_mottagare");
+    if (m.state === "sent" && m.transport !== "http") return stop("inte_http");
+    if (m.providerRef) {
+      if (e.emailId !== m.providerRef) return stop("fel_provider_id");
+      applyMailEvent(m, e, now);
+    } else {
+      m.early = [...(Array.isArray(m.early) ? m.early : []), { emailId: e.emailId, cls: e.cls, providerAt: e.providerAt, bounceType: e.bounceType }].slice(-8); // före kvittens: binds vid kvittens
+    }
+    await this.state.storage.put(key, m);
+    const after = m.kind === "avtalsbekraftelse" && ["paid", "running"].includes(o.status) ? async () => { await this._ensureAlarm(o, now, true); } : undefined;
+    return { body: { ok: true, state: m.delivery ? m.delivery.state : "tidig" }, after };
   }
 
   async _purgeDocs(o) {

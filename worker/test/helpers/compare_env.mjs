@@ -284,3 +284,31 @@ export const GOOGLE_VARS = { GOOGLE_UI_KIT: "1", GOOGLE_MAPS_BROWSER_KEY: MAPS_K
 export const TP_VARS = { TRUSTPILOT_DISPLAY: "1", TRUSTPILOT_API_BASE: "https://tp.example.test", TRUSTPILOT_API_KEY: "synthetic-tp-key", TRUSTPILOT_AUTH_HEADER: "apikey", COMPARE_TP_DAY_CAP: "50" };
 export const placeId = (c) => "ChIJ" + String(c).repeat(24);
 export const synthTpReviews = (n, over = {}) => ({ businessUnit: { trustScore: 4.3, numberOfReviews: { total: over.total ?? n } }, reviews: Array.from({ length: n }, (_, i) => ({ stars: 1 + (i % 5), title: "Syntetiskt omdöme " + (i + 1), text: "SYNTETISK TEXT " + (i + 1) + " – inte ett riktigt omdöme.", createdAt: `2026-09-${String(28 - i).padStart(2, "0")}T10:00:00Z`, link: `https://www.trustpilot.com/reviews/synth${i}` })) });
+
+
+// ---- D14: Resend-leveranshändelser (SYNTETISKA fixturer; hemligheten är påhittad och används aldrig mot någon leverantör) ----
+export const MAIL_WH_SECRET = "whsec_" + btoa("TESTONLY-synthetic-resend-wh-secret-0123456789");
+export async function mailEvent(env, type, { emailId, to, mailId, id = "msg_" + Math.random().toString(36).slice(2, 14), ts, secret = MAIL_WH_SECRET, tamper, tags, createdAt, extra, rawOverride, drop = [], bounce } = {}) {
+  const { signResendForTest } = await import("../../src/compare_mailer.js");
+  const t = ts ?? Math.floor(Date.now() / 1000);
+  const data = { email_id: emailId, from: "EVENT-AVSÄNDARE <ev@example.test>", to: Array.isArray(to) ? to : [to], subject: "SYNTETISKT ÄMNE", created_at: new Date().toISOString(), tags: tags === undefined ? (mailId ? { gmo_mail: mailId } : {}) : tags, ...(bounce ? { bounce } : {}), ...(extra || {}) };
+  const body = rawOverride !== undefined ? rawOverride : JSON.stringify({ type, created_at: createdAt || new Date().toISOString(), data });
+  const hd = await signResendForTest(body, secret, { id, ts: t });
+  for (const k of drop) delete hd[k];
+  const send = tamper ? body.replace('"email_id"', '"email_id" ') : body;
+  const res = await worker.fetch(new Request("https://api.test/compare/mail-events", { method: "POST", headers: { "content-type": "application/json", ...hd }, body: send }), env, { waitUntil() {} });
+  let json = null; try { json = await res.json(); } catch { /* */ }
+  return { status: res.status, json, id };
+}
+// Skickar `type` för varje (ännu ej hanterad per typ) mejl som Resend-dubbeln faktiskt accepterat. Returnerar antal händelser.
+export async function flushMailEvents(env, f, type = "email.delivered") {
+  f.ctl.eventsDone = f.ctl.eventsDone || new Set();
+  let n = 0;
+  for (const m of f.log.mailSent) {
+    const k = type + m.id; if (f.ctl.eventsDone.has(k)) continue;
+    const r = await mailEvent(env, type, { emailId: m.id, to: m.body.to, mailId: (m.body.tags && m.body.tags[0] && m.body.tags[0].value) || undefined });
+    if (r.status !== 200) throw new Error("mailEvent " + r.status + JSON.stringify(r.json));
+    f.ctl.eventsDone.add(k); n++;
+  }
+  return n;
+}

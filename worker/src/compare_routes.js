@@ -20,6 +20,7 @@ import { preidConfig, preidCtx, buildPreidRequest, readPreid, sanitizePreid, pre
 import { guardedCall, Stop } from "./compare_run.js";
 import { identityProposals, sourcesConfig, publicSourcesConfig, googleCandidates, nativeSearchGate, reserveMount, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
 import * as budget from "./compare_budget.js";
+import { mailEventsConfig, verifyResendWebhook, normalizeMailEvent, parseMailId, MAIL_EVENT_MAX_BYTES } from "./compare_mailer.js";
 
 const MAX_BODY_CHARS = 11_600_000; // 8 MB binärt ≈ 10,7 MB base64
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -159,6 +160,35 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
       }
     } catch { return reply({ ok: false }, 500); }
     return reply({ ok: true, ignored: "typ" });
+  }
+
+  // ---- D14: Resend-leveranshändelser (server→server, Svix-signerad, ingen Origin). STÄNGD utan COMPARE_MAIL_WEBHOOK_SECRET. ----
+  // Svaret 2xx betyder bara "mottagen/bearbetad"; leveransbevis ligger i orderns utkorg. Tillfälliga fel ⇒ 5xx så att Resend återför; permanenta ⇒ 4xx/200 utan ändring.
+  if (path === "/compare/mail-events") {
+    if (request.method !== "POST") return reply({ error: "Not found" }, 404);
+    const cfg = mailEventsConfig(env);
+    if (!compareEnabled(env) || !bindingsOk(env) || !cfg.on) return reply({ error: "stängd" }, 503);
+    const raw = await request.text();
+    if (raw.length > MAIL_EVENT_MAX_BYTES) return reply({ error: "för stor" }, 413);
+    const v = await verifyResendWebhook(raw, request.headers, cfg.secret);
+    if (!v.ok) return reply({ error: "ogiltig signatur" }, 400);
+    const e = normalizeMailEvent(v.event);
+    if (!e.ok) return reply({ ok: false, error: "form" }, 400);
+    if (e.ignore) return reply({ ok: true, ignored: e.ignore });
+    const tagInfo = e.tag ? parseMailId(e.tag) : null;
+    let idx;
+    try { idx = await budget.mailrefGet(env, { emailId: e.emailId }); } catch { idx = undefined; } // undefined = tillfälligt fel; null = okänt ID
+    if (tagInfo && idx && (idx.orderId !== tagInfo.orderId || idx.mailId !== tagInfo.mailId)) return reply({ ok: true, ignored: "koppling_motstrider" });
+    const target = tagInfo || (idx ? { orderId: idx.orderId, mailId: idx.mailId } : null);
+    if (!target) return idx === undefined ? reply({ ok: false }, 503) : reply({ ok: true, ignored: "ingen_koppling" });
+    if (!ORDER_ID_RE.test(target.orderId)) return reply({ ok: true, ignored: "koppling_motstrider" });
+    try {
+      const r = await orderCall(env, target.orderId, "/mail-event", { event: e, eventId: v.eventId, mailId: target.mailId, now: Date.now() });
+      if (r.status === 404) return reply({ ok: true, ignored: "okand_order" });
+      if (r.status === 422) return reply({ ok: true, ignored: "koppling" });
+      if (r.status >= 500) return reply({ ok: false }, 500);
+      return reply({ ok: true, ...(r.json && r.json.dup ? { dup: true } : {}), ...(r.json && r.json.ignored ? { ignored: r.json.ignored } : {}), ...(r.json && r.json.state ? { state: r.json.state } : {}) });
+    } catch { return reply({ ok: false }, 500); }
   }
 
   // ---- Bokförings-/refundexport (skyddad; aldrig offertinnehåll eller e-post) ----

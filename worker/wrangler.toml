@@ -129,7 +129,7 @@ new_sqlite_classes = ["FreeBudget"]
 
 # D10: betalmetoder: COMPARE_PAYMENT_METHODS=card (standard) | card,swish | dynamic; Swish/dynamic kräver även COMPARE_SWISH_VERIFIED=1 (människa, kontoåtkomst verifierad). Ändrar inte Stripe-kontots metoder.
 # D09: Google-instanser kräver reservation: COMPARE_SOURCES_MOUNT_DAY_CAP (gemensamt) + COMPARE_SOURCES_SEARCH_DAY_CAP / COMPARE_SOURCES_DETAILS_DAY_CAP (per SKU), människosatta; saknas ⇒ stängt.
-# Verklig mejltransport (HTTP-adapter, DEFAULT AV, inga värden satta här): COMPARE_MAIL_HTTP=1, COMPARE_MAIL_HTTP_VERIFIED=1, COMPARE_MAIL_FROM, COMPARE_MAIL_DAY_CAP (>0) och secret COMPARE_MAIL_API_KEY krävs ALLA – en nyckel ensam aktiverar inget.
+# Verklig mejltransport (HTTP-adapter, DEFAULT AV, inga värden satta här): COMPARE_MAIL_HTTP=1, COMPARE_MAIL_HTTP_VERIFIED=1, COMPARE_MAIL_FROM, COMPARE_MAIL_DAY_CAP (>0) och secrets COMPARE_MAIL_API_KEY + COMPARE_MAIL_WEBHOOK_SECRET (Resend-webhookens whsec_…, D14) krävs ALLA – en nyckel ensam aktiverar inget; HTTP "sent" ensamt öppnar aldrig startgrinden (signerad delivered krävs). Route: POST /compare/mail-events.
 # D08b: avtalsbekräftelsen kräver transport: COMPARE_MAILER-bindning (AV tills människa kopplar) – eller, ENDAST i test, COMPARE_MAILER_MODE=mock (nekas i live).
 # D06-rättning (inga värden satta här): säljare COMPARE_SELLER_FORM(AB|ENSKILD)/NAME/OWNER_NAME(ENSKILD)/ORGNR(endast AB)/EMAIL/ADDRESS/PHONE/VAT(valfri), COMPARE_COMPANY_INFO_URL (https), COMPARE_CONFIRM_SHOW_VAT (standard 0) – alla krävs för live utom VAT, COMPARE_ADMIN_TOKEN (secret),
 #   retention COMPARE_LEDGER_RETENTION_DAYS + COMPARE_BOOKKEEPING_RETENTION_DAYS (människa; saknas ⇒ svepet gör ingenting och live är stängt).

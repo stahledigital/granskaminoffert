@@ -5,10 +5,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mailerKind, acceptingOrders } from "../src/compare_config.js";
 import { mailHttpConfig, IDEM_WINDOW_MS } from "../src/compare_mailer.js";
-import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, MAIL_WH_SECRET, mailEvent, flushMailEvents } from "./helpers/compare_env.mjs";
 
 const KEY = "re_TESTONLY_syntheticKey0123456789";
-const ON = { COMPARE_MAIL_HTTP: "1", COMPARE_MAIL_HTTP_VERIFIED: "1", COMPARE_MAIL_FROM: "Jämför mina offerter <jamfor@example.test>", COMPARE_MAIL_DAY_CAP: "5", COMPARE_MAIL_API_KEY: KEY };
+const ON = { COMPARE_MAIL_HTTP: "1", COMPARE_MAIL_HTTP_VERIFIED: "1", COMPARE_MAIL_FROM: "Jämför mina offerter <jamfor@example.test>", COMPARE_MAIL_DAY_CAP: "5", COMPARE_MAIL_API_KEY: KEY, COMPARE_MAIL_WEBHOOK_SECRET: MAIL_WH_SECRET };
 const SELLER = { COMPARE_SELLER_FORM: "AB", COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0001", COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_PHONE: "+46 8 000 00 00", COMPARE_COMPANY_INFO_URL: "https://example.test/foretagsuppgifter" };
 const S = (t) => ({ extracted: { totalBeforeRotSek: t, totalVatBasis: "inkl" }, scope: { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" } });
 const store = (env, id) => env.COMPARE_ORDERS.peek(id).store;
@@ -16,11 +16,12 @@ const conf = (env, id) => [...store(env, id)].filter(([k, v]) => k.startsWith("o
 const confKey = (env, id) => [...store(env, id)].find(([k, v]) => k.startsWith("outbox:") && v.kind === "avtalsbekraftelse")[0];
 const reset = (env, id) => { const st = store(env, id); for (const [k, v] of [...st]) if (k.startsWith("outbox:") && (v.nextAt || v.leaseUntil)) st.set(k, { ...v, nextAt: 0, leaseUntil: null }); };
 const status = async (env, id, token) => (await api(env, "GET", `/compare/orders/${id}`, { token })).json.order;
-async function paid(env, f, docs = [S(100000), S(110000)]) {
+async function paid(env, f, docs = [S(100000), S(110000)], deliver = false) {
   const { orderId, token } = await readyOrder(env, docs);
   assert.equal((await startCheckout(env, orderId, token)).status, 200);
   assert.equal((await webhook(env, "checkout.session.completed", paidSession([...f.sessions.values()].pop()))).status, 200);
   await env.COMPARE_ORDERS.runAlarms(1); // ETT alarmvarv: en dränering av utkorgen (som Cloudflares alarm)
+  if (deliver) { await flushMailEvents(env, f); await env.COMPARE_ORDERS.runAlarms(1); } // D14: signerad leverans (syntetisk) – HTTP-accept ensam öppnar inte grinden
   return { orderId, token };
 }
 const withClock = async (offsetMs, fn) => { const real = Date.now; Date.now = () => real() + offsetMs; try { return await fn(); } finally { Date.now = real; } };
@@ -28,7 +29,7 @@ const decode = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64), (c) 
 const mockless = (extra) => makeEnv({ COMPARE_MAILER_MODE: undefined, ...SELLER, ...extra });
 
 test("default AV: varje saknad del ger 'inte på'; en nyckel ensam aktiverar ingen adapter och orderflödet förblir stängt", async () => {
-  assert.deepEqual(mailHttpConfig({}).reasons.sort(), ["cap", "flag", "from", "key", "verified"]);
+  assert.deepEqual(mailHttpConfig({}).reasons.sort(), ["cap", "events", "flag", "from", "key", "verified"]);
   assert.equal(mailHttpConfig({ ...ON }).on, true);
   for (const [k, v, reason] of [["COMPARE_MAIL_HTTP", "0", "flag"], ["COMPARE_MAIL_HTTP_VERIFIED", undefined, "verified"], ["COMPARE_MAIL_FROM", "inte en adress", "from"], ["COMPARE_MAIL_FROM", "a@b.se\r\nBcc: x@y.se", "from"], ["COMPARE_MAIL_DAY_CAP", "0", "cap"], ["COMPARE_MAIL_DAY_CAP", "-1", "cap"], ["COMPARE_MAIL_DAY_CAP", "abc", "cap"], ["COMPARE_MAIL_API_KEY", "sk_nej", "key"], ["COMPARE_MAIL_API_KEY", undefined, "key"]]) {
     const c = mailHttpConfig({ ...ON, [k]: v }); assert.equal(c.on, false, k + "=" + v); assert.deepEqual(c.reasons, [reason], k);
@@ -55,7 +56,7 @@ test("lyckad sändning: typad begäran, stabil nyckel, förifylld ångerblankett
     const c = conf(env, orderId), r = f.log.mail[0];
     assert.equal(f.log.mail.length, 1); assert.equal(f.log.mailSent.length, 1);
     assert.equal(r.idem, "mail-mail_avtal_" + orderId); assert.equal(r.auth, "Bearer " + KEY);
-    const b = r.body; assert.deepEqual(Object.keys(b).sort(), ["attachments", "from", "subject", "text", "to"]);
+    const b = r.body; assert.deepEqual(Object.keys(b).sort(), ["attachments", "from", "subject", "tags", "text", "to"]); assert.deepEqual(b.tags, [{ name: "gmo_mail", value: "mail_avtal_" + orderId }], "D14: tagg bär bara mejl-ID (ASCII, inget innehåll)");
     assert.equal(b.from, ON.COMPARE_MAIL_FROM); assert.equal(b.to.length, 1); assert.match(b.subject, /^Avtalsbekräftelse avt_/);
     assert.match(b.text, /Ångra köpet|Vill du ångra köpet\? Använd den här länken: https:\/\/granskaminoffert\.se\/jamfor\/angra\/#t=/);
     assert.ok(!b.text.includes("{{"), "alla platshållare ersatta");
@@ -85,7 +86,9 @@ test("generation 0 före bekräftelseaccept: leverantörsfel/svar utan ID/ogilti
     for (const want of ["svar_utan_giltigt_id"]) { reset(env, orderId); await env.COMPARE_ORDERS.runAlarms(1); assert.equal(conf(env, orderId).lastError, want); assert.equal(conf(env, orderId).state, "queued"); assert.equal(f.log.anthropic.length, 0, "2xx utan ID är ingen ack"); }
     assert.equal((await status(env, orderId, token)).status, "paid");
     reset(env, orderId); await env.COMPARE_ORDERS.runAlarms(5);
-    assert.equal(conf(env, orderId).state, "sent"); assert.ok(f.log.anthropic.length > 0, "jobbet startade först efter ack"); assert.equal(conf(env, orderId).providerRef, f.log.mailSent[0].id, "omförsöket med samma nyckel gav ursprungssvaret med ID");
+    assert.equal(conf(env, orderId).state, "sent"); assert.equal(f.log.anthropic.length, 0, "D14: HTTP-ack ensam startar inte jobbet");
+    await flushMailEvents(env, f); await env.COMPARE_ORDERS.runAlarms(5);
+    assert.ok(f.log.anthropic.length > 0, "jobbet startade först efter ack OCH signerad leverans"); assert.equal(conf(env, orderId).providerRef, f.log.mailSent[0].id, "omförsöket med samma nyckel gav ursprungssvaret med ID");
     assert.equal(new Set(f.log.mail.map((m) => m.idem)).size, 1, "samma nyckel hela tiden"); assert.equal(f.log.mailSent.length, 1, "exakt en riktig sändning");
   } finally { f.restore(); }
 });
@@ -175,7 +178,7 @@ test("spårat dygnstak: bara NYA meddelanden räknas (inte omförsök); taket n�
   const f = installFetch();
   try {
     const env = mockless({ ...ON, COMPARE_MAIL_DAY_CAP: "1" });
-    const a = await paid(env, f); assert.equal(f.log.mailSent.length, 1);
+    const a = await paid(env, f, undefined, true); assert.equal(f.log.mailSent.length, 1);
     const b = await paid(env, f);
     assert.equal(f.log.mailSent.length, 1, "andra meddelandet stoppas av taket"); assert.equal(conf(env, b.orderId).lastError, "mejl_dygnstak"); assert.equal(conf(env, b.orderId).state, "queued");
     assert.equal(conf(env, a.orderId).state, "sent");

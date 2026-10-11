@@ -128,6 +128,27 @@ export class CompareBudget {
         await s.delete(`x:${month}:${orderId}`);
         return { body: { ok: true } };
       }
+      if (path === "/mailref-put") {
+        // D14: provider-ID → order/mejl (bara ID:n, aldrig adress/innehåll). Oföränderlig: samma ID får inte bindas om till annan order/mejl.
+        const { emailId, orderId, mailId } = b;
+        if (!/^[A-Za-z0-9_-]{8,100}$/.test(String(emailId)) || !okKey(orderId) || !/^mail_[a-z]+_o_[0-9a-f]{32}$/.test(String(mailId))) return { status: 400 };
+        const cur = await s.get(`mr:${emailId}`);
+        if (cur && (cur.orderId !== orderId || cur.mailId !== mailId)) return { body: { ok: false, conflict: true } };
+        if (!cur) await s.put(`mr:${emailId}`, { orderId, mailId });
+        return { body: { ok: true } };
+      }
+      if (path === "/mailref-get") {
+        const { emailId } = b;
+        if (!/^[A-Za-z0-9_-]{8,100}$/.test(String(emailId))) return { status: 400 };
+        const cur = await s.get(`mr:${emailId}`);
+        return { body: { ok: true, ref: cur || null } };
+      }
+      if (path === "/mailref-unindex") {
+        const { emailId } = b;
+        if (!/^[A-Za-z0-9_-]{8,100}$/.test(String(emailId))) return { status: 400 };
+        await s.delete(`mr:${emailId}`);
+        return { body: { ok: true } };
+      }
       if (path === "/ledger-list") {
         const { month } = b;
         if (!okMonth(month)) return { status: 400 };
@@ -162,6 +183,9 @@ async function call(env, path, payload) {
 export async function ledgerIndex(env, { orderId, now = Date.now() }) {
   return call(env, "/ledger-index", { orderId, month: monthKey(new Date(now)) });
 }
+export async function mailrefPut(env, { emailId, orderId, mailId }) { return call(env, "/mailref-put", { emailId, orderId, mailId }); }
+export async function mailrefGet(env, { emailId }) { const j = await call(env, "/mailref-get", { emailId }); return j && j.ok ? j.ref : undefined; } // undefined = tillfälligt fel; null = okänd
+export async function mailrefUnindex(env, { emailId }) { return call(env, "/mailref-unindex", { emailId }); }
 export async function ledgerUnindex(env, { orderId, at }) {
   return call(env, "/ledger-unindex", { orderId, month: monthKey(new Date(at)) });
 }
