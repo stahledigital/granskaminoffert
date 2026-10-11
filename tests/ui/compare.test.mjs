@@ -748,6 +748,8 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
     try {
       await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, OFFERS);
       assert.equal(await page.locator("#startnow").isChecked(), false); assert.equal(await page.locator("#loseright").isChecked(), false); assert.equal(await page.locator("#terms").isChecked(), false);
+      assert.match(await page.textContent("#emailhint"), /länken till Ditt köp och villkor/); assert.doesNotMatch(await page.textContent("#emailhint"), /ångerlänk/);
+      assert.match(await page.textContent("#copy-how"), /länk till Ditt köp och villkor/);
       assert.ok(await page.isVisible("#lbl-startnow")); assert.ok(await page.isVisible("#lbl-loseright")); assert.equal(await page.isVisible("#lbl-immediate"), false);
       assert.match(await page.textContent("#t-startnow"), /startar direkt efter att jag betalat/); assert.match(await page.textContent("#t-loseright"), /förlorar min ångerrätt när tjänsten är fullt utförd/);
       assert.match(await page.textContent("#pay"), /Beställ med betalningsskyldighet: 49 kr/);

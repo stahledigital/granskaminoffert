@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1y – copyrättning policy P: köplänken beskrivs konsekvent (ovanpå 502adcfb; ingen logik)
+
+- Policy P: förköpets "Så går det till" och e-postfältets hjälptext säger nu att bekräftelsen innehåller en länk till **Ditt köp och villkor** (avtal, hjälp och reklamation samt ånger när ångerrätt finns) i stället för "länk för att ångra köpet"/"din ångerlänk"; samma formulering i P-villkorens avsnitt Avtalsbekräftelse (frusen text, ändrar P-hashen). Policy Q oförändrad. `worker/COMPARE.md` v1w-raden aktualiserad: UI-kvittensen är inkopplad från v1x. Tester: ett copytest (worker) + P-UI-testet kontrollerar `#emailhint`/`#copy-how`.
+
 ## jamfor-v1x – policy P: stark bevisprövning + serververifierad källkvittens (bounded rättning ovanpå P 4a42c09d; offline; ROOT_P_4A42_QA_AND_BOUNDED_RETURN 07:59)
 
 - **Orsak (rotens sex prov, REPRODUCED_OFFLINE via lagringsinjektion i minnesadaptern, inget offentligt exploit):** start-grind och `_fulfilment` kontrollerade bara att samtyckesfälten fanns (`.at`/`textHash` sanna), inte deras värde, text/version/hash, orderbindning eller mot ledgern; bekräftelse och rapporthash prövades inte mot varandra; `source-delivered` litade på klientens `state` (även `ingen_kalla` för en täckt firma).

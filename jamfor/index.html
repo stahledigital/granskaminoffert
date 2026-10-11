@@ -234,7 +234,7 @@ function fillCopy(cfg){
   var c=cfg.offerCopy||{},t=(cfg.consent&&cfg.consent.texts)||{};
   fillList('copy-gets',c.gets);fillList('copy-getsnot',c.getsNot);fillList('copy-how',c.how);
   $('t-terms').textContent=t.terms||'';$('t-immediate').textContent=t.immediate||'';if(t.sameJob)$('t-samejob').textContent=t.sameJob;
-  state.cfg=cfg;var P=isP(cfg);$('t-startnow').textContent=t.startNow||'';$('t-loseright').textContent=t.loseRight||'';
+  state.cfg=cfg;var P=isP(cfg);if($('emailhint'))$('emailhint').textContent=P?'Bekräftelsen med länken till Ditt köp och villkor (avtal, hjälp och ånger när rätt finns) skickas hit. Adressen används bara för det.':'Bekräftelsen med din ångerlänk skickas hit. Adressen används bara för det.';$('t-startnow').textContent=t.startNow||'';$('t-loseright').textContent=t.loseRight||'';
   var secs=(cfg.terms&&Array.isArray(cfg.terms.sections))?cfg.terms.sections:[],ag=secs.filter(function(x){return x.id==='angerratt'})[0];$('angertext').textContent=(P&&ag&&ag.text)||'';show('angerinfo',!!(P&&ag&&ag.text));
   show('lbl-immediate',!P);show('lbl-startnow',P);show('lbl-loseright',P);show('pnote',P);
   ['immediate','startnow','loseright'].forEach(function(id){$(id).checked=false}); // aldrig förkryssade

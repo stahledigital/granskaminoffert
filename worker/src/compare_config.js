@@ -204,7 +204,7 @@ function termsSnapshotP(env) {
     { id: "saljare", title: "Säljare", text: sellerLines(seller).join("\n") },
     { id: "tjansten", title: "Vad som ingår", text: [`${OFFER.product} jämför innehåll i ${OFFER.minDocs}–${OFFER.maxDocs} offerter som du själv laddar upp.`, "Det här ingår:", ...copy.gets.map((t) => `- ${t}`), ...(rev ? ["- Källans egna omdömen visas separat bara för de företag där täckning visas före köp. Vi lovar inte omdömen för företag som inte står i täckningen."] : []), "Det här ingår inte:", ...copy.getsNot.map((t) => `- ${t}`), "Så går det till:", ...copy.how.map((t) => `- ${t}`)].join("\n") },
     { id: "pris", title: "Pris och betalning", text: `Pris: ${krText(OFFER.priceOre)} inklusive moms (varav moms ${krText(vatOre)}, ${OFFER.vatPct} %). Engångsköp. Betalningen sker hos betalleverantören Stripe; kvittot därifrån är en separat handling.${paymentMethods(env).swish ? ` ${SWISH_NOTE}` : ""}` },
-    { id: "avtal", title: "Avtalsbekräftelse", text: "När betalningen är genomförd skickas en avtalsbekräftelse med de här villkoren, dina val och en länk för att ångra avtalet till den e-postadress du angav. Analysen startar först när bekräftelsen har skickats." },
+    { id: "avtal", title: "Avtalsbekräftelse", text: "När betalningen är genomförd skickas en avtalsbekräftelse med de här villkoren, dina val och en länk till Ditt köp och villkor (avtal, hjälp och reklamation samt ånger när ångerrätt finns) till den e-postadress du angav. Analysen startar först när bekräftelsen har skickats." },
     { id: "angerratt", title: "Ångerrätt", text: `[UTKAST – klassificering och fullgörandepunkt är inte rättsligt fastställda.] Du har som utgångspunkt 14 dagars ångerrätt från den dag du beställer. Om du väljer att analysen ska starta direkt och godtar att ångerrätten upphör när tjänsten är fullt utförd, har du ingen ångerrätt efter det. Tjänsten är fullt utförd ${done}. Ångrar du dig innan dess får du hela beloppet tillbaka och du betalar ingenting för det som hunnit utföras. Ångra avtalet på sidan Ditt köp och villkor (/jamfor/kop/) eller på /jamfor/angra/. Standardformulär för ångerrätt bifogas avtalsbekräftelsen.` },
     { id: "efterleverans", title: "Efter fullständig leverans", text: "Du har inte längre ångerrätt, men din rätt att reklamera, rätt till rättelse vid fel och övriga rättigheter enligt lag gäller som vanligt, och du kan alltid kontakta oss." },
     { id: "ofullstandig", title: "Om leveransen är ofullständig eller fel", text: "Om något som ingår i din order inte levereras, eller rapporten har ett fel, behåller du dina rättigheter. Vi åtgärdar felet eller återbetalar enligt lag." },
@@ -222,10 +222,11 @@ export const DATA_COVERAGE = Object.freeze({ reviews: false, text: "Omdömen om 
 export const reviewsActive = (env) => !!env && env.COMPARE_REVIEWS === "1" && env.COMPARE_REVIEWS_VERIFIED === "1";
 const REVIEWS_ON_GETSNOT = "Omdömen om företagen räknas inte in i jämförelsen och står inte i rapporten eller mejlen. Där en källa är tillgänglig för just din firma visas Googles och Trustpilots egna omdömen separat, med källans eget urval och datum. Vi ger inget eget betyg, ingen rangordning och ingen bedömning av företaget, och vi lovar inte att en källa finns eller har omdömen för varje firma (se täckningen innan du betalar).";
 const HOW_P_START = "Analysen startar först när betalningen är genomförd, du har valt båda rutorna och vi har skickat din avtalsbekräftelse. Det tar oftast några minuter. Du kan stänga fliken – du får tillbaka resultatet via en länk som visas här.";
+const HOW_P_EMAIL = "Du anger en e-postadress. Vi skickar en avtalsbekräftelse dit, med en länk till Ditt köp och villkor: avtal, hjälp och reklamation samt ånger när ångerrätt finns. Adressen används bara för det.";
 export function offerCopy(env) {
   let c = OFFER_COPY;
   if (reviewsActive(env)) c = { ...c, getsNot: c.getsNot.map((t) => (/^Inga omdömen om företagen/.test(t) ? REVIEWS_ON_GETSNOT : t)) };
-  if (consentPolicy(env) === "P") c = { ...c, how: c.how.map((t, i) => (i === 0 ? HOW_P_START : t)) };
+  if (consentPolicy(env) === "P") c = { ...c, how: c.how.map((t, i) => (i === 0 ? HOW_P_START : /^Du anger en e-postadress/.test(t) ? HOW_P_EMAIL : t)) };
   return c === OFFER_COPY ? c : Object.freeze(c);
 }
 export function dataCoverage(env) {

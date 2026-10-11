@@ -2,6 +2,7 @@
 // Rotens sex prov (lagringsinjektion i minnesadaptern, inget offentligt exploit) som regressionstester + hela kundkedjan med verklig lokal källstatus.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { offerCopy, OFFER_COPY, consentSnapshot } from "../src/compare_config.js";
 import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, consentOf, REVIEW_VARS, GOOGLE_VARS, TP_VARS, placeId, synthTpReviews } from "./helpers/compare_env.mjs";
 
 const S = (total) => ({ extracted: { totalBeforeRotSek: total, totalVatBasis: "inkl" }, scope: { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" } });
@@ -229,4 +230,12 @@ test("injicerad täckning + klientens ingen_kalla (rotens prov 6) kan inte ta bo
     const v = await view(env, h.orderId, h.token); assert.equal(v.rights.angerratt, "kvar");
     assert.equal((await withdraw(env, h.orderId, h.token)).json.withdrawal.outcome, "angrat_fore_fullgoring");
   } finally { f.restore(); }
+});
+
+test("copy: P beskriver den faktiska köplänken (Ditt köp och villkor) i förköpets 'så går det till' och villkoren; Q oförändrad", () => {
+  const p = makeEnv({ COMPARE_CONSENT_POLICY: "P" }), q = makeEnv();
+  const pc = offerCopy(p).how.join(" ");
+  assert.match(pc, /länk till Ditt köp och villkor: avtal, hjälp och reklamation samt ånger när ångerrätt finns/); assert.doesNotMatch(pc, /länk för att ångra köpet/);
+  assert.equal(offerCopy(q), OFFER_COPY); assert.match(offerCopy(q).how.join(" "), /länk för att ångra köpet/);
+  const terms = JSON.stringify(consentSnapshot(p).terms); assert.match(terms, /Ditt köp och villkor/); assert.doesNotMatch(terms, /länk för att ångra avtalet/);
 });
