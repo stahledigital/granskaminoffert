@@ -11,6 +11,7 @@
 
 import { OFFER, OFFER_COPY, CONSENT, RETENTION_CLASSES, sellerInfo, sellerLines, termsPlain, retentionPolicy, vatPart } from "./compare_config.js";
 import { sha256Hex, randomToken, timingSafeEqual } from "./compare_util.js";
+import { b64Utf8 } from "./compare_mailer.js";
 
 export const WITHDRAW_PREFIX = "ang_";
 const MAX_EVENTS = 100;
@@ -79,8 +80,43 @@ export function addEvent(ledger, type, now, extra = {}) {
   ledger.events = [...ledger.events, { at: now, type, ...extra }].slice(-MAX_EVENTS);
 }
 
+export const ANGER_FILE = "angerblankett.txt";
 const kr = (ore) => `${(ore / 100).toFixed(2).replace(".", ",")} kr`;
 const iso = (t) => new Date(t).toISOString();
+
+// ---- Standardformulär för ångerrätt (Konsumentverkets ångerblankett) som FAKTISK varaktig text ----
+// Källa: Konsumentverket, "Ångerblankett" (PDF, skapad 2025-12-11, ändrad 2026-02-11; baserad på bilaga 1 i direktiv 2011/83/EU; "Företaget kan använda den här mallen").
+// Primärfilen är läst (GMO-implementation, CODEX_ATERTEST/angerblankett-Konsumentverket-2025.pdf, sha256 nedan). Fälten följer mallen; uppgifterna om företaget
+// och köpet förifylls ur det FRYSTA avtalet (ledger.agreement) – aldrig ur dagens konfiguration – och konsumentfälten lämnas tomma. Ingen fjärrlänk, ingen platshållare.
+export const ANGERBLANKETT_SOURCE = Object.freeze({ publisher: "Konsumentverket", title: "Ångerblankett", sha256: "28718c239809fc98d1d8de9ac771338cbf62813eddf50cea44ad0167f0aad142", created: "2025-12-11", modified: "2026-02-11" });
+export function withdrawalFormText(ledger) {
+  const ag = ledger.agreement, sel = ag.seller || {};
+  const day = new Date(ag.payment.paidAt).toISOString().slice(0, 10);
+  const L = "______________________________";
+  return [
+    "ÅNGERBLANKETT",
+    `Mall: ${ANGERBLANKETT_SOURCE.publisher}, "${ANGERBLANKETT_SOURCE.title}" (PDF ${ANGERBLANKETT_SOURCE.created}, ändrad ${ANGERBLANKETT_SOURCE.modified}, sha256 ${ANGERBLANKETT_SOURCE.sha256}). Baserad på bilaga 1 i direktiv 2011/83/EU.`,
+    "",
+    "Information om företaget",
+    ` Namn: ${sel.name}`,
+    ...(sel.form === "ENSKILD" ? [` Ägare: ${sel.owner}`] : []),
+    ` Adress: ${sel.address}`,
+    ` E-post: ${sel.email}`,
+    "",
+    "Information om konsument",
+    ` Namn (kan vara fler än en person): ${L}`,
+    ` Adress: ${L}`,
+    ` E-post eller telefonnummer (frivilligt): ${L}`,
+    "",
+    `Jag/Vi* meddelar härmed att jag/vi* frånträder mitt/vårt* köpeavtal avseende följande varor*/tjänster*: ${ag.product} (avtals-ID ${ledger.agreementId}, ordernummer ${ag.orderId})`,
+    "",
+    `Beställdes* (datum): ${day}      Mottogs* (datum): ${L}`,
+    "* Stryk det som inte gäller",
+    "",
+    `Underskrift (gäller endast pappersblankett): ${L}      Underskrift 2 (om ni är fler som gjort köpet): ${L}`,
+    `Datum: ${L}`,
+  ].join("\n");
+}
 
 // ---- Mejl (oföränderliga mallar; hemligheter ersätts först vid sändning) ----
 export function confirmationMail(ledger) {
@@ -108,10 +144,13 @@ export function confirmationMail(ledger) {
     `Kvittot från betalleverantören är en separat handling.`,
     ``,
     `Vill du ångra köpet? Använd den här länken: {{ANGERLANK}}`,
-    `Standardformulär för ångerrätt (Konsumentverkets blankett) fylls i med säljarens uppgifter: ${ag.seller.name}, ${ag.seller.address}, ${ag.seller.email}. [UTKAST – blankettens text bifogas/länkas av människa före skarp drift; ingen blankettext återges här.]`,
+    `Standardformulär för ångerrätt (Konsumentverkets ångerblankett) finns här i mejlet och som bifogad fil (${ANGER_FILE}), förifyllt med säljarens uppgifter ur ditt avtal. Fyll i dina uppgifter och skicka den till ${ag.seller.email}, eller använd länken ovan.`,
+    ``,
+    withdrawalFormText(ledger),
+    ``,
     `Du kan också ångra från sidan med ditt resultat.`,
   ].join("\n");
-  return { id: `mail_avtal_${ag.orderId}`, kind: "avtalsbekraftelse", subject: `Avtalsbekräftelse ${ledger.agreementId}`, body };
+  return { id: `mail_avtal_${ag.orderId}`, kind: "avtalsbekraftelse", subject: `Avtalsbekräftelse ${ledger.agreementId}`, body, attachments: [{ filename: ANGER_FILE, contentType: "text/plain; charset=utf-8", text: withdrawalFormText(ledger) }] };
 }
 export function receiptMail(ledger, wd) {
   const ag = ledger.agreement;
@@ -132,8 +171,11 @@ export function receiptMail(ledger, wd) {
   ].join("\n");
   return { id: `mail_angrakvitto_${ag.orderId}`, kind: "angermottagning", subject: `Mottagningsbevis ${wd.requestId}`, body };
 }
+// Utkorgsposten fryser meddelandet (ämne, brödtext med platshållare, typade bilagor) vid köandet. Bilagor lagras som base64 (typad nyttolast, inte parsad ur brödtext).
 export async function outboxEntry(mail, { to, now, secrets = null }) {
-  return { id: mail.id, kind: mail.kind, to, subject: mail.subject, body: mail.body, bodyHash: await sha256Hex(`${mail.subject}\n${mail.body}`), secrets, state: "queued", attempts: 0, createdAt: now, sentAt: null, lastError: null, providerRef: null };
+  const attachments = (mail.attachments || []).map((a) => ({ filename: a.filename, contentType: a.contentType, content: b64Utf8(a.text) }));
+  const payloadHash = await sha256Hex(JSON.stringify({ to, subject: mail.subject, body: mail.body, attachments: attachments.map((a) => [a.filename, a.contentType, a.content]) }));
+  return { id: mail.id, kind: mail.kind, to, subject: mail.subject, body: mail.body, attachments, bodyHash: await sha256Hex(`${mail.subject}\n${mail.body}`), payloadHash, secrets, state: "queued", attempts: 0, createdAt: now, sentAt: null, lastError: null, providerRef: null };
 }
 
 // ---- Export (bokföring/återbetalning, aldrig offertinnehåll eller e-post) ----

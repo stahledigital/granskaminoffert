@@ -5,6 +5,8 @@
 // Funktionen är AVSTÄNGD tills COMPARE_ENABLED = "1" OCH betalningsadaptern är uttryckligen
 // konfigurerad. Ingen kostnad kan uppstå utan ett av en människa konfigurerat hårt tak.
 
+import { mailHttpConfig } from "./compare_mailer.js";
+
 export const COMPARE_VERSION = "jamfor-v1";
 export const OFFER = Object.freeze({
   version: "erbjudande-1",
@@ -275,8 +277,10 @@ export function refundMode(env) {
 
 // Mejltransport för avtalsbekräftelsen. "adapter" = env.COMPARE_MAILER.send (extern, AV tills människa kopplar). "mock" = uttryckligt TESTLÄGE
 // (COMPARE_MAILER_MODE=mock, aldrig i live): kvittensen är en attrapp och märks så. Utan någon av dem kan bekräftelsen inte ges ⇒ inga ordrar tas emot.
+// "http" = verklig HTTP-adapter (compare_mailer.js): kräver ALLA av COMPARE_MAIL_HTTP=1, COMPARE_MAIL_HTTP_VERIFIED=1, COMPARE_MAIL_FROM, COMPARE_MAIL_DAY_CAP>0 och COMPARE_MAIL_API_KEY – default AV.
 export function mailerKind(env) {
   if (env && env.COMPARE_MAILER && typeof env.COMPARE_MAILER.send === "function") return "adapter";
+  if (mailHttpConfig(env).on) return "http";
   if (env && env.COMPARE_MAILER_MODE === "mock" && env.COMPARE_PAYMENTS !== "live") return "mock";
   return null;
 }

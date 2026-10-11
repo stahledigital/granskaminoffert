@@ -18,6 +18,8 @@
 //   delivered|failed|… → deleted (innehållet raderat på kundens begäran)
 
 import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy, mailerKind } from "./compare_config.js";
+import { mailHttpConfig, mailIdemKey, buildMailRequest, requestHash, sendViaHttp, validMailTo, IDEM_WINDOW_MS, LEASE_MS } from "./compare_mailer.js";
+import { countToday } from "./compare_budget.js";
 import { timingSafeEqual, sha256Hex } from "./compare_util.js";
 import { stripLedger, validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow } from "./compare_ledger.js";
 import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } from "./compare_stripe.js";
@@ -661,37 +663,70 @@ export class CompareOrders {
     await this.state.storage.put(`outbox:${m.id}`, await outboxEntry(m, { to: ledger.agreement.contact.email, now }));
   }
 
-  // Lokal utkorg. Extern sändning är AV: utan env.COMPARE_MAILER ligger meddelandena kvar som "queued" (inget påstås skickat).
-  // "sent" sätts bara efter transportens kvittens. Samma meddelande-ID vid omförsök (transporten ska deduplicera), så en förlorad
-  // kvittens ger omsändning av SAMMA meddelande, aldrig ett nytt eller ett falskt "skickat".
+  // Lokal utkorg. Extern sändning är AV: utan konfigurerad transport ligger meddelandena kvar som "queued" (inget påstås skickat).
+  // "sent" sätts bara efter transportens verifierade kvittens (för HTTP: 2xx + giltigt leverantörs-ID) och betyder ENDAST "accepterat av transporten", inte "levererat till inkorgen".
+  // Samma meddelande-ID vid omförsök; för HTTP-transporten dessutom EN stabil Idempotency-Key per meddelande och en FRYST begäran (avsändare + hash) från första försöket:
+  // timeout/förlorad kvittens/omstart ger omsändning med SAMMA nyckel och SAMMA nyttolast inom leverantörens 24 h-fönster (här 23 h), aldrig ny nyckel. Efter fönstret med oklart
+  // utfall ⇒ state "avstamning" (manuell grind, ingen blind omsändning). 409 med annan nyttolast stoppar meddelandet ("failed"); 409 pågående hanteras med begränsade omförsök.
   async _drainOutbox(now) {
     const kind = mailerKind(this.env);
     if (kind === null) return;
+    const http = kind === "http" ? mailHttpConfig(this.env) : null;
     const mailer = kind === "adapter" ? this.env.COMPARE_MAILER : { send: async (msg) => ({ ok: true, ref: "mock:" + String(msg.id).slice(-12) }) }; // mock = uttryckligt testläge, ingen verklig sändning
     const entries = [...(await this.state.storage.list({ prefix: "outbox:" }))];
     let retryAt = null;
     for (const [key] of entries) {
       const claim = await this._tx(async () => {
         const m = await this.state.storage.get(key);
-        if (!m || m.state === "sent" || m.state === "failed") return null;
-        if (m.attempts >= (m.kind === "avtalsbekraftelse" ? 12 : 5)) { m.state = "failed"; await this.state.storage.put(key, m); return null; }
+        if (!m || ["sent", "failed", "avstamning"].includes(m.state)) return null;
+        if (m.attempts >= (m.kind === "avtalsbekraftelse" ? 12 : 5)) { m.state = "failed"; m.lastError = m.lastError || "for_manga_forsok"; await this.state.storage.put(key, m); return null; }
+        if (m.leaseUntil && m.leaseUntil > now) return { wait: m.leaseUntil };
         if (m.nextAt && m.nextAt > now) return { wait: m.nextAt };
-        m.attempts += 1; m.lastAttemptAt = now; await this.state.storage.put(key, m);
-        return { m: { ...m } };
+        let req = null;
+        if (kind === "http") {
+          if (!validMailTo(m.to)) { m.state = "failed"; m.lastError = "mejl_ogiltig_mottagare"; await this.state.storage.put(key, m); return null; }
+          if (!m.idem) {
+            // Första sändningen: spårat dygnstak (COMPARE_MAIL_DAY_CAP) räknas EN gång per meddelande, inte per omförsök. Ingen räkning möjlig ⇒ ingen sändning.
+            const c = await countToday(this.env, { name: "mail_send", limit: http.dayCap, now: new Date(now) });
+            if (!c.ok) { m.lastError = "mejl_dygnstak"; m.nextAt = now + 600_000; await this.state.storage.put(key, m); return { wait: m.nextAt }; }
+            m.idem = { key: mailIdemKey(m.id), firstAt: now };
+          } else if (now > m.idem.firstAt + IDEM_WINDOW_MS) {
+            m.state = "avstamning"; m.lastError = "idem_fonster_utgatt"; m.leaseUntil = null; await this.state.storage.put(key, m); return null; // ingen ny nyckel, ingen blind omsändning
+          }
+          let text = m.body;
+          for (const [k, v] of Object.entries(m.secrets || {})) text = text.split(`{{${k}}}`).join(v);
+          req = buildMailRequest({ from: m.frozen ? m.frozen.from : http.from, to: m.to, subject: m.subject, text, attachments: m.attachments });
+          const h = await requestHash(req);
+          if (!m.frozen) m.frozen = { from: req.from, hash: h, at: now };
+          else if (m.frozen.hash !== h) { m.state = "failed"; m.lastError = "mejl_nyttolast_andrad"; await this.state.storage.put(key, m); return null; } // fryst nyttolast får aldrig ändras under samma nyckel
+        }
+        m.attempts += 1; m.lastAttemptAt = now; m.leaseUntil = now + LEASE_MS; await this.state.storage.put(key, m);
+        return { m: { ...m }, req };
       });
       if (!claim) continue;
       if (claim.wait) { retryAt = Math.min(retryAt ?? claim.wait, claim.wait); continue; }
-      let ack = null;
+      let ack = null, res = null;
       try {
-        let text = claim.m.body;
-        for (const [k, v] of Object.entries(claim.m.secrets || {})) text = text.split(`{{${k}}}`).join(v);
-        ack = await mailer.send({ id: claim.m.id, to: claim.m.to, subject: claim.m.subject, body: text });
+        if (kind === "http") {
+          res = await sendViaHttp(this.env, { req: claim.req, idemKey: claim.m.idem.key });
+          ack = res.ok ? { ok: true, ref: res.ref } : null;
+        } else {
+          let text = claim.m.body;
+          for (const [k, v] of Object.entries(claim.m.secrets || {})) text = text.split(`{{${k}}}`).join(v);
+          ack = await mailer.send({ id: claim.m.id, to: claim.m.to, subject: claim.m.subject, body: text, attachments: claim.m.attachments || [] });
+        }
       } catch { ack = null; }
       await this._tx(async () => {
         const m = await this.state.storage.get(key);
         if (!m || m.state === "sent") return;
+        m.leaseUntil = null;
         if (ack && ack.ok === true) { m.state = "sent"; m.transport = kind; m.sentAt = Date.now(); m.providerRef = typeof ack.ref === "string" ? ack.ref.slice(0, 80) : null; m.secrets = null; m.lastError = null; }
-        else { m.lastError = "transport"; m.nextAt = Date.now() + Math.min(m.kind === "avtalsbekraftelse" ? 300_000 : 60_000, 2_000 * 2 ** m.attempts); retryAt = Math.min(retryAt ?? m.nextAt, m.nextAt); }
+        else if (res && (res.kind === "payload_conflict" || res.kind === "terminal" || res.kind === "config")) { m.state = "failed"; m.lastError = res.code; }
+        else {
+          m.lastError = res && res.code ? res.code : "transport";
+          const base = res && res.kind === "inprogress" ? 30_000 : 2_000 * 2 ** m.attempts;
+          m.nextAt = Date.now() + Math.min(m.kind === "avtalsbekraftelse" ? 300_000 : 60_000, base); retryAt = Math.min(retryAt ?? m.nextAt, m.nextAt);
+        }
         await this.state.storage.put(key, m);
       });
     }

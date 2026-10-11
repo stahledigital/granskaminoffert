@@ -111,7 +111,7 @@ export function fixtureResponse(spec) {
 
 // ---- fetch-attrapp (Anthropic + Stripe) ----
 export function installFetch(opts = {}) {
-  const log = { google: [], tp: [], anthropic: [], count: [], stripeCreate: [], stripeGet: [], refunds: [], refundGets: [] };
+  const log = { mail: [], mailSent: [], google: [], tp: [], anthropic: [], count: [], stripeCreate: [], stripeGet: [], refunds: [], refundGets: [] };
   const refundsByIdem = new Map();
   const sessions = new Map(); // id -> session-objekt som Stripe skulle returnera
   const byIdem = new Map();
@@ -186,8 +186,37 @@ export function installFetch(opts = {}) {
     }
     const rg = url.match(/^https:\/\/api\.stripe\.com\/v1\/refunds\/(re_[A-Za-z0-9_]+)$/);
     if (rg) { log.refundGets.push(rg[1]); return ctl.refundObj ? Response.json(ctl.refundObj) : Response.json({ error: { code: "resource_missing" } }, { status: 404 }); }
+    if (url === "https://api.resend.com/emails" && init.method === "POST") return fakeResend(init, body);
     throw new Error("oväntat externt anrop: " + url);
   };
+  // ---- Resend-DUBBEL (ingen riktig leverantör): efterliknar dokumenterad Idempotency-Key-semantik (24 h, samma svar, 409 vid annan nyttolast / pågående). ----
+  const mailIdem = new Map();
+  ctl.mailSeed = (idem, rec) => mailIdem.set(idem, { at: Date.now(), body: "", id: "seed", inprogress: false, ...rec });
+  ctl.mailClear = (idem) => mailIdem.delete(idem);
+  async function fakeResend(init, body) {
+    const hd = Object.fromEntries(Object.entries(init.headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
+    const idem = hd["idempotency-key"], auth = hd.authorization;
+    log.mail.push({ idem, auth, body: JSON.parse(body), at: Date.now() });
+    if (!/^Bearer re_/.test(auth || "")) return Response.json({ statusCode: 401, name: "missing_api_key" }, { status: 401 });
+    if (!idem || idem.length > 256) return Response.json({ statusCode: 400, name: "invalid_idempotency_key" }, { status: 400 });
+    const prev = mailIdem.get(idem);
+    if (prev && Date.now() - prev.at <= 24 * 3600_000) {
+      if (prev.body !== body) return Response.json({ statusCode: 409, name: "invalid_idempotent_request" }, { status: 409 });
+      if (prev.inprogress) return Response.json({ statusCode: 409, name: "concurrent_idempotent_requests" }, { status: 409 });
+      return Response.json({ id: prev.id });
+    }
+    const mode = ctl.mailModes && ctl.mailModes.length ? ctl.mailModes.shift() : ctl.mailMode || "ok";
+    if (mode === "500") return Response.json({ statusCode: 500, name: "internal_server_error" }, { status: 500 });
+    if (mode === "422") return Response.json({ statusCode: 422, name: "validation_error" }, { status: 422 });
+    if (mode === "timeout_before_accept") throw new Error("timeout");
+    const rec = { at: Date.now(), body, id: "49a3999c-0ce1-4ea6-ab68-" + String(log.mailSent.length + 1).padStart(12, "0"), inprogress: false };
+    mailIdem.set(idem, rec); log.mailSent.push({ idem, body: JSON.parse(body), id: rec.id });
+    if (mode === "hold" && ctl.holdMail) { rec.inprogress = true; await ctl.holdMail; rec.inprogress = false; }
+    if (mode === "timeout_after_accept") throw new Error("timeout");
+    if (mode === "noid") return Response.json({});
+    if (mode === "badjson") return new Response("<html>ok</html>", { status: 200 });
+    return Response.json({ id: rec.id });
+  }
   return { log, ctl, sessions, restore: () => { globalThis.fetch = real; } };
 }
 

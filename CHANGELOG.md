@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1s – verklig mejltransport (HTTP, DEFAULT AV) + varaktig ångerblankett (KANDIDAT – AV; ovanpå aeec6c38; testad ENDAST med HTTP-dubbel)
+- Ny `worker/src/compare_mailer.js`: HTTP-adapter (Resend-format enligt primärdocs; ej leverantörsval) bakom fem samverkande villkor (flagga, verifierad-flagga, avsändare, dygnstak>0, nyckel); en nyckel ensam aktiverar inget. Stabil `Idempotency-Key` per meddelande, frusen begäran, 23 h-fönster ⇒ `avstamning`, lease mot dubbelsändning, 409-hantering (payloadkonflikt stoppar, pågående = begränsade omförsök), ack bara vid 2xx + giltigt ID, sent = transportaccept. Spårat dygnstak via befintlig `countToday`.
+- `compare_orders.js` `_drainOutbox` utökad (befintligt outbox-kontrakt och bekräftelse-före-generation-grind oförändrade; adapter/mock får även typade bilagor). `compare_ledger.js`: Konsumentverkets ångerblankett som faktisk text + typad bilaga, förifylld ur frusna avtalet (ersätter placeholdern); utkorgsposten bär bilagor + `payloadHash`.
+- Tester: `worker/test/compare_mailer.test.mjs` (11) – default/config/cap/concurrency/acklost/stabil nyttolast/omstart/24 h/409/gen0/blankettprefill/configändring/refund; Resend-dubbel i `compare_env.mjs`. UI: statusen `avstamning` visas som manuell hantering.
+- Ingen nyckel/credential, inget verkligt HTTP/utskick, ingen Q/P-/retention-/slutvillkorsändring.
+
 ## jamfor-v1r – neutral Google-knapp "Visa Googles omdömen" (root-fynd 23:04; KANDIDAT; ovanpå e00fe23a)
 - `jamfor/index.html` rad 818/820: knappen lovade alltid "Visa Googles senaste omdömen"; konfigurationen `rank-preference="newest"` är inte faktisk levererad ordning. Nu neutral text "Visa Googles omdömen" (även när widgeten stängs). Försöket med newest och ärlig täckningsstatus är oförändrade; Trustpilot-knappen ("senaste") är kvar eftersom serverns ordning verifieras. Inget Googleprov/ingen nyckel/ingen providerkostnad. UI-testerna uppdaterade till ny knapptext.
 
