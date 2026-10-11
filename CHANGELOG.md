@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## d07-resume-ui – återupptagen obetald order visar/anger firmor och källor före betalning (ovanpå 8bb1b03 + d07-rattelse)
+- `jamfor/index.html` (endast frontend): `resumeSources()` i `tick()` för draft/ready/awaiting_payment – återanvänder befintliga källpaneler (`srcForm`/`srcRender`/`preidBlock`), rätt `docCount`, firmor ur serverns sourcesview, fullnyckel (aldrig r-token). Inga dokument/AI, ingen ny order, ingen checkout.
+- Ändras källorna efter återupptagning kräver betalningen nytt aktivt samtycke (`consentAgain`) i stället för tyst retry.
+- Prov: `tests/ui/compare_resume_sources.test.mjs`.
+
 ## d07-rattelse – D07 recensionsdelta, rättelse ovanpå 8bb1b03 (root-review: 3 brister), auth oförändrad
 - Brist 1: PDF nämner aldrig en inaktiv källa. Texten byggs ur faktisk per-offert-status; Trustpilot nämns bara om den är på.
 - Brist 2: `sourceCards` kommer inte längre ur envflaggan utan ur serverns egna firma-/bekräftelsetillstånd (`sourceCardsFor`, compare_sources.js), frusna när rapporten byggs (före rapportmejlet): `ej_aktiverad` / `ej_bekraftad` / `bekraftad`, firma (namn, ort, webbplats, ursprung), Google-status, bekräftelsetid, `sourcesFrozenAt`. Okänt förblir okänt.

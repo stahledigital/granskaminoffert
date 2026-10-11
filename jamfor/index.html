@@ -8,7 +8,8 @@
 <title>Jämför mina offerter – Granska min offert</title>
 <meta name="description" content="Lägg två till fyra hantverkaroffertar bredvid varandra och se vad som skiljer: omfattning, pris, moms och ROT. Engångsköp 49 kr.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<style>@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/barlow-condensed-700.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/barlow-400.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/barlow-500.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/barlow-600.woff2) format('woff2')}</style>
+<style>@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/barlow-condensed-700.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/barlow-400.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/barlow-500.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/barlow-600.woff2) format('woff2')}#offer.srconly>:not(#srcbox){display:none}
+</style>
 <style>
 :root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b;--acc-text:#b8431f;--ok:#2e7d4f;--warn:#8a6508;--bad:#c0392b;--oksoft:#e3f1e8;--warnsoft:#fbf0d2;--badsoft:#f9e0dc}
 *{box-sizing:border-box}
@@ -534,6 +535,7 @@ async function tick(cancelled){
   if(r.status===404){if(startFreshFromGone('Din tidigare jämförelse hittades inte (den kan ha gått ut eller raderats), så den är inte påverkad av detta. Du börjar en ny.'))return;store('jamfor_order',null);setStatus('Ordern hittades inte. Den kan ha gått ut (24 timmar) eller raderats.',true);return}
   var o=r.json.order;if(!o){state.timer=setTimeout(tick,4000);return}
   if(Number.isInteger(o.docCount))state.docCount=o.docCount;
+  if(['draft','ready','awaiting_payment'].indexOf(o.status)<0&&$('offer'))show('offer',false); // källpanelen hör bara till obetald återupptagning
   $('reclink').textContent=recoveryLink();show('recovery',true);
   var box=$('statusbox');box.textContent='';
   var next=null;
@@ -542,6 +544,7 @@ async function tick(cancelled){
     if(o.status!=='awaiting_payment'||cancelled){var b=el('button',{type:'button',class:'btn acc',text:'Gå till betalning igen'});b.addEventListener('click',retryPay);box.appendChild(b)}
     else next=(r.json.pollMs||2000)+1000;
     if(o.status==='awaiting_payment'&&!cancelled)box.appendChild(el('p',{class:'hint',text:'Betalade du nyss? Vänta några sekunder – sidan uppdateras själv.'}));
+    resumeSources(o);
   }else if(o.status==='expired'){box.appendChild(el('p',{text:'Ordern har gått ut. Du har inte debiterats. Börja om med dina offerter.'}));box.appendChild(restartBtn());}
   else if(o.status==='paid'||o.status==='running'){
     var pct=Math.round(100*(o.progress.extracted+(o.progress.synth==='done'||o.progress.synth==='skipped'?1:0))/(o.progress.total+1));
@@ -566,6 +569,18 @@ async function tick(cancelled){
   }else if(o.status==='deleted'){box.appendChild(el('p',{text:'Jämförelsen är raderad.'}));store('jamfor_order',null)}
   if(['paid','running','failed'].indexOf(o.status)>=0){var wb=withdrawBlock(o);if(wb)box.appendChild(wb)}
   if(next)state.timer=setTimeout(tick,next);
+}
+// D07: återupptagen obetald order (draft/ready/awaiting_payment) ska kunna se och ange sina befintliga firmor och källor INNAN betalning. Inga dokument/AI läses om, ingen ny order, ingen checkout. Källtäckningen hämtas färsk från servern.
+async function resumeSources(o){
+  if(state.resumeSrc||!srcActive())return;
+  var n=Number.isInteger(o.docCount)?o.docCount:0;if(n<1)return;
+  var r;try{r=await srcApi('GET','')}catch(e){return}
+  if(r.status!==200||!r.json||!r.json.sources)return;
+  state.resumeSrc=true;state.n=n;state.docCount=n;state.slots=[];for(var i=0;i<n;i++)state.slots.push({label:''});
+  (r.json.sources.firms||[]).forEach(function(f){(f.offers||[]).forEach(function(i){if(i<n)state.slots[i].label=f.name})});
+  var off=$('offer'),box=$('statusbox');if(!off||!box||!box.parentNode)return;
+  box.parentNode.insertBefore(off,box.nextSibling);off.classList.add('srconly');show('offer',true);show('srcbox',true);
+  srcForm();srcRender(r.json.sources,'offer');preidBlock();
 }
 function mailText(st){return st==='sent'?'skickad':st==='avstamning'?'leveransen är oklar och kontrolleras manuellt (vi har inte kunnat bekräfta att den skickades)':st==='failed'?'kunde inte skickas (vi hanterar det manuellt)':'köad (ännu inte skickad)'}
 function withdrawBlock(o){
@@ -594,6 +609,7 @@ function withdrawBlock(o){
 function setStatus(t,bad){var b=$('statusbox');b.textContent='';b.appendChild(el('p',{text:t}));if(bad)b.appendChild(restartBtn())}
 function restartBtn(){var b=el('button',{type:'button',class:'btn ghost',text:'Börja om'});b.addEventListener('click',function(){var keep=hoRead().state==='ok';store('jamfor_order',null);location.href=location.pathname+(keep?'#fran=gratis':'');if(keep)location.reload()});return b}
 async function retryPay(){
+  if(state.srcChanged)return consentAgain('Du har ändrat källorna för dina firmor sedan du senast godkände. Läs och godkänn igen innan du betalar.'); // tidigare samtycke återanvänds aldrig tyst när det köpta innehållet ändrats
   // Inget samtycke skickas i det tysta: servern återanvänder bara ett samtycke som kunden redan gett till SAMMA text (hash).
   var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token});
   if(r.status===200&&r.json.url){location.href=r.json.url;return}
@@ -880,7 +896,7 @@ function srcOn(){var c=srcCfg();return !!(c&&c.active&&(c.google.state!=='ej_akt
 // Orderkontext för källor: aktiv order, eller (skrivskyddad resultatvy) samma orders sparade nyckel i DEN HÄR webbläsaren. Resultatlänkens token ger ALDRIG källåtkomst.
 function srcCtx(){if(state.order)return state.order;if(!SRC.roId)return null;try{var v=JSON.parse(store('jamfor_order')||'null');if(v&&v.id===SRC.roId&&v.token)return v}catch(e){}return null}
 function srcActive(){return srcOn()&&!!srcCtx()}
-function srcApi(method,sub,body){var cx=srcCtx();return api(method,'/compare/orders/'+cx.id+'/sources'+(sub||''),{token:cx.token,body:body})}
+function srcApi(method,sub,body){var cx=srcCtx();if(method!=='GET'&&state.resumeSrc)state.srcChanged=true;return api(method,'/compare/orders/'+cx.id+'/sources'+(sub||''),{token:cx.token,body:body})}
 // Google: skriptet laddas FÖRST när kunden uttryckligen öppnar omdömena. __GMP_LOADER__ finns bara för offlineprov (attrapp).
 // D11-P1: EN enda SDK-laddning per sida (singleflight) med Googles callback-parameter. Skriptets onload är inte beredskapen (importLibrary kan saknas då);
 // beredskap = Googles callback, därefter importLibrary('places'). Timeout avbryter bara VÄNTAN, inte laddningen: ett nytt försök väntar in samma laddning och
