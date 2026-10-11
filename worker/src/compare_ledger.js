@@ -83,8 +83,8 @@ export function addEvent(ledger, type, now, extra = {}) {
 }
 
 export const ANGER_FILE = "angerblankett.txt";
-const kr = (ore) => `${(ore / 100).toFixed(2).replace(".", ",")} kr`;
-const iso = (t) => new Date(t).toISOString();
+export const kr = (ore) => `${(ore / 100).toFixed(2).replace(".", ",")} kr`;
+export const iso = (t) => new Date(t).toISOString();
 
 // ---- Standardformulär för ångerrätt (Konsumentverkets ångerblankett) som FAKTISK varaktig text ----
 // Källa: Konsumentverket, "Ångerblankett" (PDF, skapad 2025-12-11, ändrad 2026-02-11; baserad på bilaga 1 i direktiv 2011/83/EU; "Företaget kan använda den här mallen").
@@ -121,7 +121,7 @@ export function withdrawalFormText(ledger) {
 }
 
 // ---- Mejl (oföränderliga mallar; hemligheter ersätts först vid sändning) ----
-function pLines(ag) {
+export function pLines(ag) {
   const c = ag.p.consents, t = ag.accepted.texts, f = (k) => `[${iso(c[k].at)}; text-ID ${c[k].textId}; text-hash ${c[k].textHash}]`;
   const cov = ag.p.agreed && ag.p.agreed.sources && ag.p.agreed.sources.required;
   return [
@@ -141,39 +141,20 @@ function pLines(ag) {
     `Innan tjänsten är fullt utförd kan du ångra avtalet och få hela beloppet tillbaka. När den är fullt utförd upphör ångerrätten, men reklamation och övriga rättigheter gäller. Du kan alltid kontakta oss: ${ag.seller.email}.`,
   ];
 }
+// D16-R2 fix3b (Anders 20:36): köpmejlet är KORT. Hela det frusna avtalet (belopp, säljare, exakt godkända texter, ordernummer, fullgörande, ångerrätt och ångerblankett) ligger i den bifogade
+// PDF:en (Avtal-och-villkor.pdf), som byggs vid sändning ur ledgern (compare_docs.agreementPdf). Ingen villkorstext, ingen länk-hemlighet och inga belopp i brödtexten.
+export const AGREEMENT_PDF = "Avtal-och-villkor.pdf";
 export function confirmationMail(ledger) {
   const ag = ledger.agreement;
   const body = [
-    `Avtalsbekräftelse – ${ag.product}`,
-    ...(ag.draft ? [`Utkast: villkoren är inte slutgiltiga.`] : []),
+    `Tack för ditt köp!`,
     ``,
-    ...sellerLines(ag.seller),
-    `Avtals-ID: ${ledger.agreementId}   Ordernummer: ${ag.orderId}`,
-    `Köpt: ${iso(ag.payment.paidAt)}`,
-    `Antal offerter: ${ag.docCount}`,
-    `Pris: ${kr(ag.price.ore)} inklusive moms (varav moms ${kr(ag.price.vatOre)}, ${ag.price.vatPct} %). Engångsköp.`,
+    `Din beställning är bekräftad. Vi förbereder din jämförelse.`,
+    `Avtal och köpinformation finns i bifogad PDF (${AGREEMENT_PDF}).`,
     ``,
-    `Det här ingår:`, ...ag.scope.gets.map((t) => `- ${t}`),
-    `Det här ingår inte:`, ...ag.scope.getsNot.map((t) => `- ${t}`),
-    `Så går det till:`, ...ag.scope.how.map((t) => `- ${t}`),
-    ``,
-    `Du godkände (version ${ag.accepted.version}, kontrollsumma ${ag.accepted.hash}, ${iso(ag.accepted.at)}):`,
-    `- ${ag.accepted.texts.sameJob}`, `- ${ag.accepted.texts.terms}`, ...(ag.p ? [] : [`- ${ag.accepted.texts.immediate}`]),
-    ...(ag.p ? pLines(ag) : []),
-    ``,
-    `Villkor (version ${ag.accepted.fullTerms ? ag.accepted.fullTerms.version : "saknas"}${ag.accepted.fullTerms && ag.accepted.fullTerms.draft ? ", UTKAST" : ""}) – exakt den text du godkände:`,
-    ag.accepted.fullTerms ? termsPlain(ag.accepted.fullTerms) : "(villkorstexten saknas i snapshoten)",
-    ``,
-    `Kvittot från betalleverantören är en separat handling.`,
-    ``,
-    `Vill du ångra köpet? Använd den här länken: {{ANGERLANK}}`,
-    `Standardformulär för ångerrätt (Konsumentverkets ångerblankett) finns här i mejlet och som bifogad fil (${ANGER_FILE}), förifyllt med säljarens uppgifter ur ditt avtal. Fyll i dina uppgifter och skicka den till ${ag.seller.email}, eller använd länken ovan.`,
-    ``,
-    withdrawalFormText(ledger),
-    ``,
-    ag.p ? `Ditt köp och villkor (avtal, reklamation/support och ångra avtalet här när ångerrätt finns): {{KOPLANK}}` : `Du kan också ångra från sidan med ditt resultat.`,
+    `Frågor? ${ag.seller.email}`,
   ].join("\n");
-  return { id: `mail_avtal_${ag.orderId}`, kind: "avtalsbekraftelse", subject: `Avtalsbekräftelse ${ledger.agreementId}`, body, attachments: [{ filename: ANGER_FILE, contentType: "text/plain; charset=utf-8", text: withdrawalFormText(ledger) }] };
+  return { id: `mail_avtal_${ag.orderId}`, kind: "avtalsbekraftelse", subject: `Tack för ditt köp – avtalsbekräftelse ${ledger.agreementId}`, body, attachments: [{ filename: AGREEMENT_PDF, contentType: "application/pdf", gen: "agreement" }] };
 }
 export function receiptMail(ledger, wd) {
   const ag = ledger.agreement;
@@ -198,10 +179,27 @@ export function receiptMail(ledger, wd) {
   ].join("\n");
   return { id: `mail_angrakvitto_${ag.orderId}`, kind: "angermottagning", subject: `Mottagningsbevis ${wd.requestId}`, body };
 }
+// Rapport-mejl (kort): fullständig rapport som PDF + samma avtals-PDF + personlig 24 h-länk ({{RAPPORTLANK}} fylls i vid sändning och töms efteråt). Ingen rapport-/offerttext i brödtexten.
+export const REPORT_PDF_PREFIX = "Jamforelse-";
+export function reportReadyMail(orderId, sellerEmail) {
+  const no = orderId.slice(2, 10).toUpperCase();
+  const body = [
+    `Tack för ditt köp!`,
+    ``,
+    `Här är din jämförelse – rapporten finns bifogad som PDF.`,
+    `Du kan också öppna den online (länken gäller i 24 timmar): {{RAPPORTLANK}}`,
+    ``,
+    `Avtal och köpinformation finns i den andra bilagan.`,
+    ``,
+    `Frågor? ${sellerEmail}`,
+  ].join("\n");
+  return { id: `mail_rapport_${orderId}`, kind: "rapport", subject: `Din jämförelse är klar – ordernummer ${no}`, body, attachments: [{ filename: `${REPORT_PDF_PREFIX}${no}.pdf`, contentType: "application/pdf", gen: "report" }, { filename: AGREEMENT_PDF, contentType: "application/pdf", gen: "agreement" }] };
+}
 // Utkorgsposten fryser meddelandet (ämne, brödtext med platshållare, typade bilagor) vid köandet. Bilagor lagras som base64 (typad nyttolast, inte parsad ur brödtext).
 export async function outboxEntry(mail, { to, now, secrets = null }) {
-  const attachments = (mail.attachments || []).map((a) => ({ filename: a.filename, contentType: a.contentType, content: b64Utf8(a.text) }));
-  const payloadHash = await sha256Hex(JSON.stringify({ to, subject: mail.subject, body: mail.body, attachments: attachments.map((a) => [a.filename, a.contentType, a.content]) }));
+  // Typad bilaga: antingen text (base64 vid köandet) eller en PDF-beskrivning {gen:"agreement"|"report"} som byggs deterministiskt vid sändning (ingen rapporttext lagras i utkorgen).
+  const attachments = (mail.attachments || []).map((a) => (a.gen ? { filename: a.filename, contentType: a.contentType, gen: a.gen } : { filename: a.filename, contentType: a.contentType, content: b64Utf8(a.text) }));
+  const payloadHash = await sha256Hex(JSON.stringify({ to, subject: mail.subject, body: mail.body, attachments: attachments.map((a) => [a.filename, a.contentType, a.gen || a.content]) }));
   return { id: mail.id, kind: mail.kind, to, subject: mail.subject, body: mail.body, attachments, bodyHash: await sha256Hex(`${mail.subject}\n${mail.body}`), payloadHash, secrets, state: "queued", attempts: 0, createdAt: now, sentAt: null, lastError: null, providerRef: null };
 }
 
@@ -214,7 +212,7 @@ export function exportRow(order, ledger, mode) {
     stripeSessionId: ag.payment.sessionId, stripePaymentIntentId: ag.payment.paymentIntentId,
     orderStatus: order.status, refundState: order.refund.state, refundId: order.refund.id || null, refundProviderStatus: order.refund.providerStatus || null,
     withdrawalAt: ledger.withdrawal ? iso(ledger.withdrawal.at) : null, withdrawalOutcome: ledger.withdrawal ? ledger.withdrawal.outcome : null,
-    source: mode === "live" ? "stripe_live" : "stripe_test_eller_mock",
+    source: (ledger.test || order.test) ? "stripe_test_adminorder" : mode === "live" ? "stripe_live" : "stripe_test_eller_mock", // testorder har alltid explicit testkälla, aldrig stripe_live
     settlement: { status: "ej_avstamt", bankDeposit: null }, // ingen utbetalning/insättning är bekräftad här
     retentionClass: "bokforing",
   };

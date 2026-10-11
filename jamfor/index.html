@@ -220,8 +220,11 @@ async function init(){
   var cfg;
   try{cfg=(await api('GET','/compare/config')).json}catch(e){cfg=null}
   state.cfg=cfg;footerInfoLink(cfg);
+  var rl=readResultLink();if(rl)return showResultLink(rl.id,rl.token); // personlig rapportlänk (#o=…&r=…): bara läsning av rapporten, sparas aldrig
   var rec=readRecovery();
   var fromFree=/(^|[#&])fran=gratis(&|$)/.test(location.hash);
+  var qo=returnOrderId();
+  if(qo&&(!rec||rec.id!==qo))return showOrderMismatch(qo,rec); // betalningens order ≠ sparad order: byt aldrig tyst, visa tydligt
   if(rec){state.order=rec;show('s3',true);if(fromFree)hoConflict();return resume()}
   if(!cfg||!cfg.enabled||!cfg.accepting){
     var c=$('closed');c.textContent='';
@@ -300,6 +303,49 @@ function fillSeller(cfg){
   if(b2){b2.appendChild(el('b',{text:'Du köper av'}));s.text.split('\n').forEach(function(l){b2.appendChild(el('div',{text:l}))})}
 }
 function footerInfoLink(cfg){var fb=$('ftbuy');if(fb&&isP(cfg)){fb.href='/jamfor/kop/';fb.textContent='Köp, villkor och hjälp'} var u=cfg&&cfg.terms&&cfg.terms.seller&&safeInfoUrl(cfg.terms.seller.infoUrl);if(u){document.querySelectorAll('a.fu').forEach(function(a){a.href=u})}}
+// Orderns id i betalningens returadress (?order=…). Ingen åtkomstnyckel finns där; den används bara för att upptäcka att sparad order är en annan.
+function returnOrderId(){var v=new URLSearchParams(location.search).get('order');return /^o_[0-9a-f]{32}$/.test(v||'')?v:null}
+function shortId(id){return String(id).slice(2,10).toUpperCase()}
+function parseRecoveryInput(txt){
+  var m=/[#&]?o=(o_[0-9a-f]{32})&t=([A-Za-z0-9_-]{32})/.exec(String(txt||''));
+  return m?{id:m[1],token:m[2]}:null;
+}
+function showOrderMismatch(qo,rec){
+  show('s1',false);show('s2',false);show('s3',true);clearTimeout(state.timer);
+  var box=$('statusbox');box.textContent='';
+  box.appendChild(el('p',{text:'Du kom tillbaka från en betalning för jämförelse '+shortId(qo)+', men '+(rec?'den här webbläsaren har en annan jämförelse sparad ('+shortId(rec.id)+')':'den här webbläsaren har ingen åtkomstnyckel sparad för den')+'. Vi byter inte jämförelse automatiskt – en jämförelse öppnas bara med sin egen återställningslänk.'}));
+  box.appendChild(el('p',{class:'hint',text:'Betalningen påverkas inte. Klistra in återställningslänken för jämförelse '+shortId(qo)+' (den som slutar på #o=…&t=…) för att öppna den.'}));
+  var inp=el('input',{type:'text',id:'mmlink',autocomplete:'off',spellcheck:'false','aria-label':'Återställningslänk','style':'width:100%;box-sizing:border-box'});
+  var msg=el('p',{class:'hint',id:'mmmsg',role:'alert'});
+  var go=el('button',{type:'button',class:'btn acc',id:'mmopen',text:'Öppna jämförelse '+shortId(qo)});
+  go.addEventListener('click',function(){
+    var p=parseRecoveryInput(inp.value);
+    if(!p){msg.textContent='Det där är ingen återställningslänk. Den ska innehålla #o=…&t=….';return}
+    if(p.id!==qo){msg.textContent='Länken hör till en annan jämförelse ('+shortId(p.id)+'), inte till '+shortId(qo)+'.';return}
+    store('jamfor_order',JSON.stringify(p));history.replaceState(null,'',location.pathname+location.search);
+    state.order=p;box.textContent='';show('s3',true);resume();
+  });
+  box.appendChild(inp);box.appendChild(go);box.appendChild(msg);
+  if(rec){
+    var keep=el('button',{type:'button',class:'btn ghost',id:'mmkeep',text:'Visa den sparade jämförelsen ('+shortId(rec.id)+')'});
+    keep.addEventListener('click',function(){state.order=rec;box.textContent='';resume()});
+    box.appendChild(keep);
+  }
+}
+function readResultLink(){
+  var p=new URLSearchParams(location.hash.replace(/^#/,''));var o=p.get('o'),r=p.get('r');
+  if(p.get('t')||!/^o_[0-9a-f]{32}$/.test(o||'')||!/^[A-Za-z0-9_-]{32}$/.test(r||''))return null;
+  try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
+  return {id:o,token:r};
+}
+async function showResultLink(id,tok){
+  show('s1',false);show('s2',false);show('s3',true);
+  var box=$('statusbox');box.textContent='';box.appendChild(el('p',{text:'Hämtar din jämförelse…'}));
+  var rr;try{rr=await api('GET','/compare/orders/'+id+'/report',{token:tok})}catch(e){box.textContent='';box.appendChild(el('p',{text:'Kunde inte nå tjänsten just nu. Ladda om sidan om en stund.'}));return}
+  if(rr.status===200&&rr.json.report){show('s3',false);renderReport(rr.json.report,{id:id,readOnly:true});return}
+  box.textContent='';
+  box.appendChild(el('p',{text:rr.status===409?'Jämförelsen är inte klar än. Försök igen om en stund.':rr.status===410?'Rapporten har gått ut och är raderad (den sparas i 24 timmar).':'Länken är ogiltig eller har gått ut. Rapporten sparas i 24 timmar efter leverans.'}));
+}
 function readRecovery(){
   var p=new URLSearchParams(location.hash.replace(/^#/,''));var o=p.get('o'),t=p.get('t');
   if(o&&t){store('jamfor_order',JSON.stringify({id:o,token:t}));history.replaceState(null,'',location.pathname+location.search)}
@@ -692,6 +738,8 @@ function buildGrid(R,mode,view){
 }
 var lastOrderForLink=null;
 function buyLinkNode(o){
+  // Skrivskyddad resultatvy (resultatlänk #r=): ingen order i webbläsaren ⇒ bara den neutrala köp-/hjälpsidan, ingen personlig länk, ingen ångra-länk.
+  if(o&&o.readOnly)return el('p',{class:'noprint',id:'buylinkp'},el('a',{id:'buylink',href:'/jamfor/kop/',text:'Ditt köp och hjälp'}),' – avtal, villkor och reklamation. Din personliga ångerlänk finns i bekräftelsemejlet.');
   var kopHref='/jamfor/kop/#o='+encodeURIComponent(state.order.id)+'&t='+encodeURIComponent(state.order.token);
   if(isP(state.cfg)){
     // Policy P: neutral köp- och hjälplänk. Finns ångerrätten faktiskt kvar (ofullständig/oklar leverans) visas en tydligt märkt, normalstor Ångra-länk – aldrig gömd under Läs mer. Full giltig leverans: ingen ångerreklam.
@@ -794,7 +842,7 @@ function renderReport(R,o){
     var r=await api('DELETE','/compare/orders/'+state.order.id,{token:state.order.token});
     if(r.status===200){store('jamfor_order',null);host.textContent='';host.appendChild(el('div',{class:'okbox',text:'Jämförelsen är raderad.'}));}else err('Kunde inte radera just nu.');
   });
-  act.appendChild(pb);act.appendChild(jb);act.appendChild(db);host.appendChild(act);
+  act.appendChild(pb);act.appendChild(jb);if(!(o&&o.readOnly))act.appendChild(db);host.appendChild(act);
   host.appendChild(el('p',{class:'hint noprint',text:'Resultatet finns kvar till '+new Date(R.expiresAt).toLocaleString('sv-SE')+'. Ladda ner om du vill spara det.'}));
   host.appendChild(buyLinkNode(o));
   host.scrollIntoView({block:'start'});

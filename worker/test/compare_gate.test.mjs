@@ -55,7 +55,7 @@ test("återhämtning: efter kvittens startar arbetet; bekräftelsen är skickad 
     try { await env.COMPARE_ORDERS.runAlarms(); } finally { globalThis.fetch = realFetch; }
     assert.equal(mailAckedBeforeModel, true, "första externa modell-/räkneanropet kom efter lagrad kvittens");
     assert.equal(conf(env, orderId).state, "sent"); assert.equal(conf(env, orderId).attempts, 2);
-    assert.equal(t.delivered.size, 1);
+    assert.equal([...t.delivered.keys()].filter((k) => k.startsWith("mail_avtal_")).length, 1);
     const st = await status(env, orderId, token); assert.equal(st.status, "delivered"); assert.equal(st.waiting, null);
     assert.equal(f.log.anthropic.length, 2);
   } finally { f.restore(); }
@@ -67,9 +67,9 @@ test("förlorad kvittens räknas inte som godkänd: arbetet väntar tills en kvi
     const env = makeEnv(); const t = transport({ lostAck: 1 }); env.COMPARE_MAILER = t;
     const { orderId, token } = await paid(env, f); const b = f.log.count.length;
     await env.COMPARE_ORDERS.runAlarms(1);
-    assert.equal(t.delivered.size, 1); assert.equal(conf(env, orderId).state, "queued"); assert.equal(f.log.anthropic.length, 0); assert.equal((await status(env, orderId, token)).status, "paid");
+    assert.equal([...t.delivered.keys()].filter((k) => k.startsWith("mail_avtal_")).length, 1); assert.equal(conf(env, orderId).state, "queued"); assert.equal(f.log.anthropic.length, 0); assert.equal((await status(env, orderId, token)).status, "paid");
     reset(env, orderId); await env.COMPARE_ORDERS.runAlarms();
-    assert.equal(conf(env, orderId).state, "sent"); assert.equal(t.delivered.size, 1, "samma meddelande-ID, transporten deduplicerar");
+    assert.equal(conf(env, orderId).state, "sent"); assert.equal([...t.delivered.keys()].filter((k) => k.startsWith("mail_avtal_")).length, 1, "samma meddelande-ID, transporten deduplicerar");
     assert.equal((await status(env, orderId, token)).status, "delivered");
   } finally { f.restore(); }
 });

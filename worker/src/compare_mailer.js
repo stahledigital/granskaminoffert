@@ -53,7 +53,7 @@ export function b64Utf8(text) {
 // Typad begäran (aldrig regexparsad ur brödtext). Bara avtals-/bekräftelsetext och ångerblankett – aldrig offert-, rapport- eller recensionstext.
 // D14: tagg gmo_mail=<mejl-ID> (ASCII, inget personuppgifts- eller offertinnehåll) låter en leveranshändelse som kommer FÖRE vår HTTP-kvittens ändå föras till rätt order/mejl.
 export const MAIL_TAG = "gmo_mail";
-const MAILID_RE = /^mail_(avtal|angrakvitto)_(o_[0-9a-f]{32})$/;
+const MAILID_RE = /^mail_(avtal|angrakvitto|rapport)_(o_[0-9a-f]{32})$/;
 export function parseMailId(id) { const m = MAILID_RE.exec(String(id)); return m ? { mailId: String(id), kind: m[1], orderId: m[2] } : null; }
 export function buildMailRequest({ from, to, subject, text, attachments, mailId }) {
   const req = { from, to: [to], subject, text };

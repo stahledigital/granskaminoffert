@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sellerInfo, sellerLines, termsSnapshot, termsPlain, consentSnapshot, acceptingOrders, normalizeOrgNrAB, httpsInfoUrl } from "../src/compare_config.js";
 import { sha256Hex } from "../src/compare_util.js";
-import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, agreementText, norm } from "./helpers/compare_env.mjs";
 
 // Oberoende Luhn-beräkning i testet (inte importerad ur koden): kontrollsiffran för de nio första siffrorna.
 const checkDigit = (nine) => { let sum = 0; nine.split("").forEach((c, i) => { let x = Number(c) * (i % 2 === 0 ? 2 : 1); if (x > 9) x -= 9; sum += x; }); return (10 - (sum % 10)) % 10; };
@@ -140,10 +140,12 @@ test("fall 9: ENSKILD – hela sellerLines når termsSnapshot, avtalsposten och 
     const lines = sellerLines(snap.terms.seller);
     assert.ok(snap.terms.sections.find((x) => x.id === "saljare").text === lines.join("\n"));
     const mail = [...st].find(([k]) => k.startsWith("outbox:"))[1];
-    for (const l of lines) assert.ok(mail.body.includes(l), l);
+    // avtalet ligger i den bifogade PDF:en (byggd ur ledgerns frusna avtal); varje säljarrad står som "Rubrik värde"
+    const pdf = norm(agreementText(ledger)); assert.equal(mail.attachments[0].gen, "agreement");
+    for (const l of lines) assert.ok(pdf.includes(norm(l.replace(": ", " "))), l);
     assert.deepEqual(sellerLines(ledger.agreement.seller), lines);
-    assert.ok(mail.body.includes("Ägare: Syntetisk Ägare") && mail.body.includes("Organisationsnummer: saknas (enskild firma)"));
-    assert.doesNotMatch(JSON.stringify(ledger) + mail.body, /\b\d{6}-?\d{4}\b/, "inget 10-siffrigt nummer i avtalspost eller mejl");
+    assert.ok(pdf.includes("Ägare Syntetisk Ägare") && pdf.includes("Organisationsnummer saknas (enskild firma)"));
+    assert.doesNotMatch(JSON.stringify(ledger) + mail.body + pdf, /\b\d{6}-?\d{4}\b/, "inget 10-siffrigt nummer i avtalspost, mejl eller PDF");
   } finally { f.restore(); }
 });
 

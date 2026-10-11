@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { consentPolicy, fulfilmentPoint, acceptingOrders, consentSnapshot } from "../src/compare_config.js";
 import { sha256Hex } from "../src/compare_util.js";
-import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, consentOf, TEST_EMAIL } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, consentOf, TEST_EMAIL, fullText, norm } from "./helpers/compare_env.mjs";
 
 const S = (total) => ({ extracted: { totalBeforeRotSek: total, totalVatBasis: "inkl" }, scope: { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" } });
 const P = { COMPARE_CONSENT_POLICY: "P" };
@@ -109,9 +109,12 @@ test("frusna samtycken: två val med tid/text-ID/text-hash/order, avtalad presta
     mm.down = false; const s = st(env, o.orderId); for (const [k, v] of [...s]) if (k.startsWith("outbox:") && v.nextAt) s.set(k, { ...v, nextAt: 0, leaseUntil: null });
     await env.COMPARE_ORDERS.runAlarms();
     const conf = mm.sent.find((m) => m.id.startsWith("mail_avtal_"));
-    for (const t of [a.snapshot.texts.declaration, a.snapshot.texts.terms, a.snapshot.texts.fulfilmentDef]) assert.ok(conf.body.includes(t), "ordagrant: " + t);
-    for (const k of ["declaration", "terms"]) { assert.ok(conf.body.includes(a.consents[k].textHash)); assert.ok(conf.body.includes(new Date(a.consents[k].at).toISOString())); }
-    assert.match(conf.body, /Analysen startar först när den här bekräftelsen har skickats/); assert.match(conf.body, /\/jamfor\/kop\//); assert.match(conf.body, /reklamation/i); assert.ok(!/\{\{/.test(conf.body), "inga kvarvarande platshållare");
+    // 20:36: brödtexten är kort; de ordagranna texterna, hashar och tider ligger i den bifogade avtals-PDF:en (byggd ur ledgerns frusna avtal)
+    const cb = fullText(conf), cn = norm(cb);
+    assert.ok(conf.attachments.some((x) => x.filename === "Avtal-och-villkor.pdf"), "avtals-PDF bifogad"); assert.ok(conf.body.length < 400 && !/\{\{/.test(conf.body));
+    for (const t of [a.snapshot.texts.declaration, a.snapshot.texts.terms, a.snapshot.texts.fulfilmentDef]) assert.ok(cn.includes(norm(t)), "ordagrant: " + t);
+    for (const k of ["declaration", "terms"]) { assert.ok(cb.includes(a.consents[k].textHash)); assert.ok(cb.includes(new Date(a.consents[k].at).toISOString())); }
+    assert.match(cn, /Analysen startar först när den här bekräftelsen har skickats/); assert.match(cb, /\/jamfor\/kop\//); assert.match(cb, /reklamation/i); assert.ok(!/\{\{/.test(cb), "inga kvarvarande platshållare");
     const o2 = orderOf(env, o.orderId); assert.ok(o2.accept.confirmation && o2.accept.confirmation.sentAt <= o2.work.deliveredAt); assert.equal(o2.status, "delivered");
     const ag = ledgerOf(env, o.orderId).agreement; assert.equal(ag.p.policy, "P"); assert.equal(ag.p.consents.declaration.textHash, a.consents.declaration.textHash);
     assert.equal(JSON.stringify(ag).includes("FIXTURE"), false);

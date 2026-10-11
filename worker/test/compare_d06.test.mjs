@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { retentionPolicy, sellerInfo, RETENTION_CLASSES } from "../src/compare_config.js";
 import { parseWithdrawToken, validEmail } from "../src/compare_ledger.js";
 import { sha256Hex } from "../src/compare_util.js";
-import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheckout, paidSession, webhook, docKeys, consentOf, TEST_EMAIL } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, api, createOrder, upload, readyOrder, startCheckout, paidSession, webhook, docKeys, consentOf, TEST_EMAIL, fullText } from "./helpers/compare_env.mjs";
 
 const S = (total, scope = {}) => ({ extracted: { totalBeforeRotSek: total, totalVatBasis: "inkl" }, scope });
 const ALL = { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" };
@@ -34,7 +34,7 @@ async function paidOrder(env, f, { run = true, specs = [S(100000, ALL), S(110000
   return { orderId, token, sess };
 }
 const nextMailRound = async (env, orderId) => { const st = env.COMPARE_ORDERS.peek(orderId).store; for (const [k, v] of [...st]) if (k.startsWith("outbox:") && v.nextAt) { st.set(k, { ...v, nextAt: 0 }); } };
-const tokenFrom = (mail) => (/ang_o_[0-9a-f]{32}\.[A-Za-z0-9_-]{32}/.exec(mail.body) || [])[0];
+const tokenFrom = (mail) => (/ang_o_[0-9a-f]{32}\.[A-Za-z0-9_-]{32}/.exec(fullText(mail)) || [])[0];
 
 test("avtalspost: skapas vid betalning, frusen, med faktiska texter + version + hash (hashen stämmer mot sparad text), skild från innehåll", async () => {
   const f = installFetch();
@@ -76,10 +76,13 @@ test("avtalsbekräftelse: köas medan transporten är nere (inget påstås skick
     assert.equal(m.state, "sent"); assert.ok(m.sentAt); assert.equal(m.secrets, null); assert.match(m.providerRef, /^ref_/);
     const sent = mm.delivered.get(m.id);
     assert.equal(sent.to, TEST_EMAIL);
-    assert.match(sent.body, /Avtalsbekräftelse/); assert.match(sent.body, /49,00 kr inklusive moms \(varav moms 9,80 kr/);
-    assert.match(sent.body, /Utkast/); assert.match(sent.body, /Kvittot från betalleverantören är en separat handling/);
-    assert.ok(tokenFrom(sent), "ångerlänk i mejlet"); assert.match(sent.body, /\/jamfor\/angra\/#t=ang_o_/);
-    assert.ok(!sent.body.includes("FIXTURE")); assert.ok(!m.body.includes("ang_o_")); // lagrad mall har bara platshållare
+    // 20:36: brödtexten är KORT; hela avtalet (belopp, villkor, ångerblankett, personlig ångerlänk) ligger i PDF-bilagan
+    const ft = fullText(sent);
+    assert.match(sent.body, /Tack för ditt köp!/); assert.ok(!/49,00|ångra|villkor/i.test(sent.body.replace(/Avtal och köpinformation[^\n]*/, "")), "ingen villkors-/beloppstext i brödtexten");
+    assert.match(ft, /Avtal och köpinformation/); assert.match(ft, /49,00 kr inklusive moms \(varav moms 9,80 kr/);
+    assert.match(ft, /Utkast/); assert.match(ft, /Kvittot från betalleverantören är en separat handling/);
+    assert.ok(tokenFrom(sent), "ångerlänk i PDF-bilagan"); assert.match(ft, /\/jamfor\/angra\/#t=ang_o_/);
+    assert.ok(!ft.includes("FIXTURE")); assert.ok(!m.body.includes("ang_o_")); // lagrad mall har bara platshållare; PDF:en byggs först vid sändning
     assert.equal(m.bodyHash, await sha256Hex(`${m.subject}\n${m.body}`));
     assert.equal((await status(env, orderId, token)).status, "delivered");
   } finally { f.restore(); }
@@ -95,7 +98,7 @@ test("utkorg: transport nere → omförsök med samma ID; förlorad kvittens ger
     assert.equal(m.state, "sent");
     assert.equal(m.attempts, 4); // 2 fel + 1 förlorad kvittens + 1 lyckad
     assert.equal(new Set(mm.attempts.filter((id) => id === m.id)).size, 1);
-    assert.equal(mm.delivered.size, 1); // transporten deduplicerade: ett meddelande levererat
+    assert.equal([...mm.delivered.keys()].filter((k) => k.startsWith("mail_avtal_")).length, 1); // transporten deduplicerade: ett bekräftelsemejl levererat
   } finally { f.restore(); }
 });
 

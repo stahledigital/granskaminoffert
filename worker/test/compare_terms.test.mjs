@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sellerInfo, termsSnapshot, termsPlain, consentSnapshot, acceptingOrders } from "../src/compare_config.js";
 import { sha256Hex } from "../src/compare_util.js";
-import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, consentOf } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, consentOf, agreementText, norm } from "./helpers/compare_env.mjs";
 
 const FULL = { COMPARE_SELLER_FORM: "AB", COMPARE_COMPANY_INFO_URL: "https://example.test/foretagsuppgifter", COMPARE_CONFIRM_SHOW_VAT: "1", COMPARE_SELLER_NAME: "Syntetisk Säljare AB", COMPARE_SELLER_ORGNR: "556000-0001", COMPARE_SELLER_EMAIL: "kontakt@example.test", COMPARE_SELLER_ADDRESS: "Exempelgatan 1, 111 11 Teststad", COMPARE_SELLER_VAT: "SE556000000101", COMPARE_SELLER_PHONE: "+46 8 000 00 00" };
 const S = (t) => ({ extracted: { totalBeforeRotSek: t, totalVatBasis: "inkl" }, scope: { rivning: "ingar", bortforsling: "ingar", material: "ingar", arbete: "ingar", resor: "ingar" } });
@@ -48,9 +48,11 @@ test("hela villkorstexten når den varaktiga avtalsposten och mockbekräftelsen 
     assert.deepEqual(ledger.agreement.accepted.fullTerms, snap.terms);
     assert.equal(ledger.agreement.seller.address, FULL.COMPARE_SELLER_ADDRESS); assert.equal(ledger.agreement.seller.vat, FULL.COMPARE_SELLER_VAT);
     const mail = [...st].find(([k]) => k.startsWith("outbox:"))[1];
-    assert.ok(mail.body.includes(termsPlain(snap.terms)), "bekräftelsen innehåller exakt den godkända villkorstexten");
-    for (const v of ["Organisationsnummer: 556000-0001", "Momsregistreringsnummer: SE556000000101", "Adress: Exempelgatan 1", "Telefon: +46 8 000 00 00", "Fler företagsuppgifter: https://example.test/foretagsuppgifter"]) assert.ok(mail.body.includes(v), v);
-    assert.match(mail.body, /Villkor \(version villkor-utkast-1, UTKAST\)/);
+    const pdf = norm(agreementText(ledger));
+    assert.equal(mail.attachments[0].gen, "agreement"); assert.ok(mail.body.length < 400, "kort brödtext; villkoren ligger i PDF:en");
+    assert.ok(pdf.includes(norm(termsPlain(snap.terms))), "bekräftelse-PDF:en innehåller exakt den godkända villkorstexten");
+    for (const v of ["Organisationsnummer 556000-0001", "Momsregistreringsnummer SE556000000101", "Adress Exempelgatan 1", "Telefon +46 8 000 00 00", "Fler företagsuppgifter https://example.test/foretagsuppgifter"]) assert.ok(pdf.includes(v), v);
+    assert.match(pdf, /Villkor \(version villkor-utkast-1, UTKAST\)/);
     assert.equal(ledger.agreement.accepted.hash, (await consentOf(env)).hash);
     // konfigurationsändring efter godkännande: gammal hash gäller inte längre
     const env2 = makeEnv({ ...FULL, COMPARE_SELLER_ADDRESS: "Ny adress 9, 333 33 Teststad" });

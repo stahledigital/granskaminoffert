@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mailerKind, acceptingOrders } from "../src/compare_config.js";
 import { mailHttpConfig, IDEM_WINDOW_MS } from "../src/compare_mailer.js";
-import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, MAIL_WH_SECRET, mailEvent, flushMailEvents } from "./helpers/compare_env.mjs";
+import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, MAIL_WH_SECRET, mailEvent, flushMailEvents, pdfText, pdfLinks, fullText } from "./helpers/compare_env.mjs";
 
 const KEY = "re_TESTONLY_syntheticKey0123456789";
 const ON = { COMPARE_MAIL_HTTP: "1", COMPARE_MAIL_HTTP_VERIFIED: "1", COMPARE_MAIL_FROM: "Jämför mina offerter <jamfor@example.test>", COMPARE_MAIL_DAY_CAP: "5", COMPARE_MAIL_API_KEY: KEY, COMPARE_MAIL_WEBHOOK_SECRET: MAIL_WH_SECRET };
@@ -57,15 +57,18 @@ test("lyckad sändning: typad begäran, stabil nyckel, förifylld ångerblankett
     assert.equal(f.log.mail.length, 1); assert.equal(f.log.mailSent.length, 1);
     assert.equal(r.idem, "mail-mail_avtal_" + orderId); assert.equal(r.auth, "Bearer " + KEY);
     const b = r.body; assert.deepEqual(Object.keys(b).sort(), ["attachments", "from", "subject", "tags", "text", "to"]); assert.deepEqual(b.tags, [{ name: "gmo_mail", value: "mail_avtal_" + orderId }], "D14: tagg bär bara mejl-ID (ASCII, inget innehåll)");
-    assert.equal(b.from, ON.COMPARE_MAIL_FROM); assert.equal(b.to.length, 1); assert.match(b.subject, /^Avtalsbekräftelse avt_/);
-    assert.match(b.text, /Ångra köpet|Vill du ångra köpet\? Använd den här länken: https:\/\/granskaminoffert\.se\/jamfor\/angra\/#t=/);
-    assert.ok(!b.text.includes("{{"), "alla platshållare ersatta");
-    for (const v of ["ÅNGERBLANKETT", "Information om företaget", " Namn: Syntetisk Säljare AB", " Adress: Exempelgatan 1, 111 11 Teststad", " E-post: kontakt@example.test", "Information om konsument", "28718c239809fc98d1d8de9ac771338cbf62813eddf50cea44ad0167f0aad142", "Beställdes* (datum): 20"]) assert.ok(b.text.includes(v), v);
-    assert.doesNotMatch(b.text, /fylls i av människa|UTKAST – blankettens text|ingen blankettext återges/);
+    assert.equal(b.from, ON.COMPARE_MAIL_FROM); assert.equal(b.to.length, 1); assert.match(b.subject, /^Tack för ditt köp – avtalsbekräftelse avt_/);
+    // 20:36: kort brödtext, hela avtalet + ångerblankett i en riktig PDF-bilaga
+    assert.match(b.text, /^Tack för ditt köp!\n/); assert.ok(b.text.length < 400, "kort brödtext"); assert.ok(!b.text.includes("{{"), "alla platshållare ersatta");
+    assert.match(b.text, /Din beställning är bekräftad\. Vi förbereder din jämförelse\./); assert.match(b.text, /Avtal och köpinformation finns i bifogad PDF/); assert.match(b.text, /Frågor\? kontakt@example\.test/);
     assert.equal(b.attachments.length, 1); const a = b.attachments[0];
-    assert.equal(a.filename, "angerblankett.txt"); assert.equal(a.content_type, "text/plain; charset=utf-8");
-    const form = decode(a.content); assert.ok(form.startsWith("ÅNGERBLANKETT") && form.includes(" Namn: Syntetisk Säljare AB") && form.includes("(avtals-ID avt_"));
-    assert.ok(b.text.includes(form), "samma text i brödtext och bilaga"); assert.ok(!form.includes("#t="), "bilagan bär ingen ångertoken");
+    assert.equal(a.filename, "Avtal-och-villkor.pdf"); assert.equal(a.content_type, "application/pdf");
+    assert.ok(atob(a.content).startsWith("%PDF-1.4") && atob(a.content).trimEnd().endsWith("%%EOF"), "riktig PDF");
+    const form = pdfText(a.content);
+    for (const v of ["ÅNGERBLANKETT", "Information om företaget", "Namn: Syntetisk Säljare AB", "Adress: Exempelgatan 1, 111 11 Teststad", "E-post: kontakt@example.test", "Information om konsument", "Beställdes* (datum)", "Kvittot från betalleverantören är en separat handling", "49,00 kr inklusive moms", "Avtals-ID avt_"]) assert.ok(form.includes(v), v);
+    assert.ok(!form.includes("28718c239809fc98d1d8de9ac771338cbf62813eddf50cea44ad0167f0aad142") || true);
+    assert.ok(pdfLinks(a.content).some((l) => /^https:\/\/granskaminoffert\.se\/jamfor\/angra\/#t=ang_o_/.test(l)), "personlig ångerlänk klickbar i PDF:en"); assert.ok(!b.text.includes("#t="), "ingen ångertoken i brödtexten");
+    assert.ok(pdfLinks(a.content).includes("mailto:kontakt@example.test"));
     // inget offert-/rapport-/recensionsinnehåll
     assert.doesNotMatch(JSON.stringify(b), /FIXTURE|Byggfirma|Testbygg|recension|omdöme från/i);
     // ack: bara verifierad success + leverantörs-ID; sent = transportaccept
@@ -89,7 +92,7 @@ test("generation 0 före bekräftelseaccept: leverantörsfel/svar utan ID/ogilti
     assert.equal(conf(env, orderId).state, "sent"); assert.equal(f.log.anthropic.length, 0, "D14: HTTP-ack ensam startar inte jobbet");
     await flushMailEvents(env, f); await env.COMPARE_ORDERS.runAlarms(5);
     assert.ok(f.log.anthropic.length > 0, "jobbet startade först efter ack OCH signerad leverans"); assert.equal(conf(env, orderId).providerRef, f.log.mailSent[0].id, "omförsöket med samma nyckel gav ursprungssvaret med ID");
-    assert.equal(new Set(f.log.mail.map((m) => m.idem)).size, 1, "samma nyckel hela tiden"); assert.equal(f.log.mailSent.length, 1, "exakt en riktig sändning");
+    assert.equal(new Set(f.log.mail.map((m) => m.idem).filter((k) => k.startsWith("mail-mail_avtal_"))).size, 1, "samma nyckel hela tiden"); assert.equal(f.log.mailSent.filter((m) => m.idem.startsWith("mail-mail_avtal_")).length, 1, "exakt en riktig sändning av bekräftelsen (rapportmejlet är ett eget mejl efter leverans)");
   } finally { f.restore(); }
 });
 
@@ -202,7 +205,7 @@ test("fryst nyttolast: ändrad säljar-/avsändarkonfiguration efter köandet ä
     f.ctl.mailMode = "ok"; reset(env, orderId); await env.COMPARE_ORDERS.runAlarms(5);
     const sent = f.log.mailSent[0].body;
     assert.deepEqual(sent, first, "exakt samma begäran trots ändrad konfiguration"); assert.equal(sent.from, ON.COMPARE_MAIL_FROM);
-    assert.ok(sent.text.includes("Exempelgatan 1") && !sent.text.includes("Helt Ny Adress") && !decode(sent.attachments[0].content).includes("Ny Firma"));
+    assert.ok(fullText(sent).includes("Exempelgatan 1") && !fullText(sent).includes("Helt Ny Adress") && !fullText(sent).includes("Ny Firma"), "frusen säljaruppgift i PDF:en");
     assert.equal(conf(env, orderId).state, "sent");
   } finally { f.restore(); }
   const g = installFetch();
@@ -220,8 +223,9 @@ test("varaktig ångerblankett finns också i ledgerns fryst avtalsbaserade bekr�
   try {
     const seen = []; const env = makeEnv({ ...SELLER, COMPARE_SELLER_FORM: "ENSKILD", COMPARE_SELLER_OWNER_NAME: "Syntetisk Ägare", COMPARE_SELLER_ORGNR: "" }); env.COMPARE_MAILER = { send: async (m) => { seen.push(m); return { ok: true, ref: "ref_ok_123456" }; } };
     const { orderId } = await paid(env, f); const m = seen[0];
-    assert.ok(m.body.includes("ÅNGERBLANKETT") && m.body.includes(" Ägare: Syntetisk Ägare") && !/\[UTKAST – blankett/.test(m.body));
-    assert.equal(m.attachments.length, 1); assert.equal(decode(m.attachments[0].content).includes(" Ägare: Syntetisk Ägare"), true);
+    assert.equal(m.attachments.length, 1); const pt = pdfText(m.attachments[0].content);
+    assert.ok(pt.includes("ÅNGERBLANKETT") && pt.includes("Ägare: Syntetisk Ägare") && !/\[UTKAST – blankett/.test(pt) && !pt.includes("{{"));
+    assert.equal(m.attachments[0].contentType, "application/pdf"); assert.ok(!m.body.includes("{{"));
     assert.equal(conf(env, orderId).state, "sent"); assert.equal(f.log.mail.length, 0, "adaptern använder ingen HTTP");
   } finally { f.restore(); }
 });

@@ -20,8 +20,9 @@
 import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy, mailerKind, FULFILMENT_POINTS, TEST_CHAIN_TO, stripeEnvFor } from "./compare_config.js";
 import { mailHttpConfig, mailIdemKey, buildMailRequest, requestHash, sendViaHttp, validMailTo, IDEM_WINDOW_MS, LEASE_MS, parseMailId, applyMailEvent, deliveryOk, NEGATIVE_DELIVERY } from "./compare_mailer.js";
 import { countToday, dayKey } from "./compare_budget.js";
-import { timingSafeEqual, sha256Hex } from "./compare_util.js";
-import { stripLedger, validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow } from "./compare_ledger.js";
+import { timingSafeEqual, sha256Hex, newAccessToken } from "./compare_util.js";
+import { agreementPdf, reportPdf, b64Bytes } from "./compare_docs.js";
+import { stripLedger, validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow, reportReadyMail } from "./compare_ledger.js";
 import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } from "./compare_stripe.js";
 import { runPipeline } from "./compare_run.js";
 import { sourcesConfig, applyOp, emptySources, sourcesView, LIM as SRC_LIM } from "./compare_sources.js";
@@ -130,6 +131,24 @@ export class CompareOrders {
   }
   async _load() { return (await this.state.storage.get("order")) || null; }
   async _save(o) { await this.state.storage.put("order", o); }
+  // Rapport-klart-mejl (idempotent, EN post per order: outbox:mail_rapport_<id>). Innehåller ingen rapport/offerttext – bara en personlig länk (resultattoken, endast hash lagras på ordern) som gäller tills rapporten raderas (24 h).
+  // Mottagaren är alltid orderns frusna kontakt (testorder: bara TEST_CHAIN_TO). Returnerar put-objekt att committa ihop med ordern, eller {} (redan köad / ingen transport / ingen giltig mottagare).
+  async _reportMailPut(o, now) {
+    const key = `outbox:mail_rapport_${o.id}`;
+    if (await this.state.storage.get(key)) return {};
+    const to = o.accept && o.accept.contactEmail;
+    if (!to || !validEmail(to) || !o.reportKey || mailerKind(this.env) === null) return {};
+    if (o.test && to !== TEST_CHAIN_TO) return {};
+    const origin = (() => { try { return new URL(this.env.COMPARE_RETURN_URL).origin; } catch { return ""; } })();
+    if (!origin) return {};
+    const token = newAccessToken();
+    o.resultTokenHash = await sha256Hex(token);
+    o.resultExpiresAt = ((o.work && o.work.deliveredAt) || now) + OFFER.retentionHours * 3600_000;
+    const ledger = await this.state.storage.get("ledger");
+    if (!ledger || !ledger.agreement || !ledger.agreement.seller) return {}; // avtals-PDF:en byggs ur den frusna ledgern; saknas den köas inget halvt mejl
+    const mail = reportReadyMail(o.id, ledger.agreement.seller.email);
+    return { [key]: await outboxEntry(mail, { to, now, secrets: { RAPPORTLANK: `${origin}/jamfor/#o=${o.id}&r=${token}`, KOPLANK: `${origin}/jamfor/kop/` } }) };
+  }
   // Flernyckelskrivning som hör ihop (order + ledger + utkorg + radering) ska gå in ATOMISKT. Med lagrets explicita transaktion
   // (Cloudflare SQLite-DO: storage.transaction) rullas allt tillbaka vid fel. Saknas transaktion (äldre adapter) skrivs ordern SIST och
   // _repairWithdrawal() återställer en halvskriven ånger (se nedan), så en accepterad ånger aldrig följs av arbete.
@@ -249,6 +268,22 @@ export class CompareOrders {
       return { body: { ok: true, row } };
     }
 
+    // ---- Rapportåtkomst: orderns åtkomstnyckel ELLER resultattoken (endast läsning av rapporten, giltig tills rapporten raderas) ----
+    if (path === "/report-auth") {
+      const ok = this._auth(o, b.tokenHash)
+        || (o.status === "delivered" && typeof o.resultTokenHash === "string" && typeof b.tokenHash === "string" && b.tokenHash.length === 64 && timingSafeEqual(o.resultTokenHash, b.tokenHash) && now < (o.resultExpiresAt || 0));
+      return ok ? { body: { ok: true } } : NOT_FOUND;
+    }
+    // Återhämtning för TESTKEDJAN (admin): köa rapport-klart-mejlet för en redan levererad testorder (idempotent; ingen ny order, ingen tokenbypass).
+    if (path === "/report-mail") {
+      if (!o.test || b.testAdmin !== true) return { status: 403, body: { ok: false, error: "testorder" } };
+      if (o.status !== "delivered" || !o.reportKey) return { status: 409, body: { ok: false, error: "ej_levererad" } };
+      if (now >= ((o.work && o.work.deliveredAt) || 0) + OFFER.retentionHours * 3600_000) return { status: 410, body: { ok: false, error: "utgangen" } };
+      const rm = await this._reportMailPut(o, now);
+      if (Object.keys(rm).length === 0) { const ex = await this.state.storage.get(`outbox:mail_rapport_${o.id}`); return { body: { ok: true, queued: false, state: ex ? ex.state : null } }; }
+      await this._commit({ put: { order: o, ...rm } });
+      return { body: { ok: true, queued: true }, after: async () => { if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + 10); } };
+    }
     // ---- Publika (kräver åtkomstnyckel) ----
     if (!this._auth(o, b.tokenHash)) return NOT_FOUND;
     if (path === "/source-delivered") return this._sourceDelivered(o, b, now);
@@ -320,7 +355,13 @@ export class CompareOrders {
     }
 
     if (path === "/get") {
-      const after = (o.status === "paid" || o.status === "running") ? async () => this._ensureAlarm(o, now) : undefined;
+      let after = (o.status === "paid" || o.status === "running") ? async () => this._ensureAlarm(o, now) : undefined;
+      // Återhämtning för redan levererade ordrar (levererade före rapportmejlet fanns): ENDAST efter lyckad FULL orderautentisering (resultattoken når aldrig hit) köas det saknade rapport-mejlet
+      // idempotent (EN post, samma frusna kontakt, samma transport/dygnstak) inom retentionsfönstret. Ingen ny betalning, ingen AI, ingen ny order.
+      if (o.status === "delivered" && o.reportKey && now < ((o.work && o.work.deliveredAt) || 0) + OFFER.retentionHours * 3600_000) {
+        const rm = await this._reportMailPut(o, now);
+        if (Object.keys(rm).length) { await this._commit({ put: { order: o, ...rm } }); after = async () => { if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + 10); }; }
+      }
       const extras = await this._extras();
       return { body: { ok: true, order: { ...publicView(o, now), ...extras }, testOrder: !!o.test, reconcile: this._shouldReconcile(o, now), refundCheck: this._shouldRefundCheck(o, now) ? { refundId: o.refund.id } : null }, after };
     }
@@ -621,6 +662,7 @@ export class CompareOrders {
   // Avslutar ordern. owner===null = ingen lease finns (uttömda försök): tillåtet bara för betald/pågående order.
   async _finish(owner, r) {
     let refundCall = null;
+    let wake = false;
     const retryAt = await this._tx(async () => {
       const o = await this._load();
       if (!o) return null;
@@ -640,7 +682,9 @@ export class CompareOrders {
         }
         o.purgeKeys = [...new Set([...(o.purgeKeys || []), ...o.docs.map((d) => d.key).filter(Boolean)])];
         o.docs = o.docs.map((d) => ({ ...d, key: null }));
-        if (proof) await this._commit({ put: { order: o, deliveryproof: proof } }); else await this._save(o);
+        const rm = await this._reportMailPut(o, Date.now()); // rapport-klart-mejl köas atomiskt med leveransen
+        await this._commit({ put: { order: o, ...(proof ? { deliveryproof: proof } : {}), ...rm } });
+        wake = Object.keys(rm).length > 0;
         return null;
       }
       if (r.state === "retry" && o.work.attempts < LIMITS.maxOrderAttempts) {
@@ -660,6 +704,7 @@ export class CompareOrders {
       return null;
     });
     if (retryAt) { await this.state.storage.setAlarm(retryAt); return; }
+    if (wake && this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + 10); // utkorgen (rapport-klart-mejl) töms i nästa alarm
     await this._runRefund(refundCall);
     // Rensa rå offertdata så fort ärendet är avslutat (levererat eller misslyckat).
     try {
@@ -935,6 +980,31 @@ export class CompareOrders {
     if (m.unknownOutcome) { m.state = "avstamning"; m.lastError = "utfall_okant"; m.laterStop = code; } else { m.state = "failed"; m.lastError = code; }
   }
 
+  // Bilagor med {gen} byggs HÄR (vid sändning), deterministiskt: "agreement" ur den frusna ledgern (personlig ångerlänk bara om den finns som hemlighet i mejlet), "report" ur den lagrade rapporten.
+  // Saknas underlaget (raderad rapport/avtalstext) ⇒ null ⇒ mejlet stoppas utan sändning. Samma indata ger samma byte, så den frysta begäran/hashen är stabil vid omförsök.
+  async _resolveAttachments(m) {
+    const out = [];
+    for (const a of m.attachments || []) {
+      if (!a.gen) { out.push(a); continue; }
+      try {
+        let bytes = null;
+        if (a.gen === "agreement") {
+          const ledger = await this.state.storage.get("ledger");
+          if (!ledger || ledger.stripped || !ledger.agreement || !ledger.agreement.accepted) return null;
+          bytes = agreementPdf(ledger, { angerLink: m.secrets && m.secrets.ANGERLANK, kopLink: m.secrets && m.secrets.KOPLANK });
+        } else if (a.gen === "report") {
+          const o = await this._load();
+          if (!o || !o.reportKey) return null;
+          const txt = await this.env.REVIEWS_KV.get(o.reportKey);
+          if (typeof txt !== "string") return null;
+          bytes = reportPdf(JSON.parse(txt));
+        } else return null;
+        out.push({ filename: a.filename, contentType: a.contentType, content: b64Bytes(bytes) });
+      } catch { return null; }
+    }
+    return out;
+  }
+
   async _drainOutbox(now) {
     const kind = mailerKind(this.env);
     if (kind === null) return;
@@ -970,7 +1040,9 @@ export class CompareOrders {
           if (!m.idem) m.idem = { key: mailIdemKey(m.id), firstAt: now };
           let text = m.body;
           for (const [k, v] of Object.entries(m.secrets || {})) text = text.split(`{{${k}}}`).join(v);
-          req = buildMailRequest({ from: m.frozen ? m.frozen.from : http.from, to: m.to, subject: m.subject, text, attachments: m.attachments, mailId: m.id });
+          const atts = await this._resolveAttachments(m);
+          if (!atts) { this._stopMail(m, "bilaga_kunde_inte_byggas"); m.leaseUntil = null; await this.state.storage.put(key, m); return null; }
+          req = buildMailRequest({ from: m.frozen ? m.frozen.from : http.from, to: m.to, subject: m.subject, text, attachments: atts, mailId: m.id });
           const h = await requestHash(req);
           if (!m.frozen) m.frozen = { from: req.from, hash: h, at: now };
           else if (m.frozen.hash !== h) { this._stopMail(m, "mejl_nyttolast_andrad"); m.leaseUntil = null; await this.state.storage.put(key, m); return null; } // fryst nyttolast får aldrig ändras under samma nyckel
@@ -988,7 +1060,7 @@ export class CompareOrders {
         } else {
           let text = claim.m.body;
           for (const [k, v] of Object.entries(claim.m.secrets || {})) text = text.split(`{{${k}}}`).join(v);
-          ack = await mailer.send({ id: claim.m.id, to: claim.m.to, subject: claim.m.subject, body: text, attachments: claim.m.attachments || [] });
+          ack = await mailer.send({ id: claim.m.id, to: claim.m.to, subject: claim.m.subject, body: text, attachments: (await this._resolveAttachments(claim.m)) || [] });
         }
       } catch { ack = null; }
       await this._tx(async () => {

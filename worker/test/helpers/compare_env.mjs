@@ -2,6 +2,7 @@
 // minnesbaserad lagring (en förfrågan i taget per objekt), minnes-KV och en fetch-attrapp som
 // ersätter Anthropic och Stripe. Ingen riktig modell, inga riktiga betalningar. In-memory-prov är
 // INTE bevis på produktionsbeständighet.
+import { agreementPdf, b64Bytes as _b64Bytes } from "../../src/compare_docs.js";
 import { CompareOrders } from "../../src/compare_orders.js";
 import { CompareBudget } from "../../src/compare_budget.js";
 import { signForTest } from "../../src/compare_stripe.js";
@@ -312,3 +313,25 @@ export async function flushMailEvents(env, f, type = "email.delivered") {
   }
   return n;
 }
+
+// ---- D16-R2 fix3b: PDF-bilagor i mejl (egen renderare ⇒ okomprimerade innehållsströmmar) ----
+const WIN = { 0x80: "€", 0x85: "…", 0x91: "‘", 0x92: "’", 0x93: "“", 0x94: "”", 0x95: "•", 0x96: "–", 0x97: "—", 0x99: "™" };
+const unesc = (s) => s.replace(/\\([0-7]{3}|[()\\])/g, (_, g) => (g.length === 3 ? (WIN[parseInt(g, 8)] || String.fromCharCode(parseInt(g, 8))) : g));
+export const pdfBytesOf = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+export function pdfRaw(b64) { return atob(b64); }
+export function pdfText(b64) { const raw = pdfRaw(b64); const out = []; for (const m of raw.matchAll(/\((?:[^()\\]|\\.)*\) Tj/g)) { const t = unesc(m[0].slice(1, -4)); if (!/Sida \d+ av \d+$/.test(t)) out.push(t); } return out.join(" ").replace(/\s+/g, " "); }
+export function pdfLinks(b64) { return [...pdfRaw(b64).matchAll(/\/URI \(((?:[^()\\]|\\.)*)\)/g)].map((m) => unesc(m[1])); }
+export const isPdfAtt = (a) => /pdf/i.test(String(a.content_type || a.contentType || "")) || /\.pdf$/i.test(String(a.filename || ""));
+// Brödtext + all text/länkar ur PDF-bilagor (adapter-form {body,attachments[contentType]} eller Resend-form {text,attachments[content_type]}).
+export function fullText(msg) {
+  const base = typeof msg.text === "string" ? msg.text : String(msg.body || "");
+  const parts = [base];
+  for (const a of msg.attachments || []) parts.push(isPdfAtt(a) ? `${pdfText(a.content)}\n${pdfLinks(a.content).join("\n")}` : atob(a.content));
+  return parts.join("\n");
+}
+// Bara bekräftelsemejlen (mail_avtal_…) bland leverantörens accepterade sändningar.
+export const confSent = (f) => f.log.mailSent.filter((m) => (m.body.tags || []).some((t) => String(t.value).startsWith("mail_avtal_")));
+
+export const norm = (t) => String(t).replace(/\s+/g, " ").trim();
+// Texten (och länkarna) i den avtals-PDF som skulle bifogas, byggd ur ledgerns frusna avtal (samma kod som vid sändning).
+export function agreementText(ledger, opts = {}) { const b = _b64Bytes(agreementPdf(ledger, opts)); return `${pdfText(b)}\n${pdfLinks(b).join("\n")}`; }

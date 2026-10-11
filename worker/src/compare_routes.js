@@ -262,6 +262,16 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (r.status !== 200 || !r.json.ok) return reply({ error: "Kunde inte skapa testorder." }, 503);
     return reply({ ok: true, orderId: id, token, test: true, to: TEST_CHAIN_TO }, 201);
   }
+  const trm = path.match(/^\/compare\/admin\/test-order\/([^/]+)\/report-mail$/);
+  if (trm && request.method === "POST") {
+    if (!adminOk() || !testChain(env).on || !ORDER_ID_RE.test(trm[1])) return reply({ error: "Not found" }, 404);
+    const r = await orderCall(env, trm[1], "/report-mail", { testAdmin: true, now: Date.now() });
+    if (r.status === 404) return reply({ error: "Not found" }, 404);
+    if (r.status === 409) return reply({ error: "Testordern är inte levererad." }, 409);
+    if (r.status === 410) return reply({ error: "Rapporten har gått ut." }, 410);
+    if (r.status !== 200 || !r.json.ok) return reply({ error: "Kunde inte köa mejlet." }, 503);
+    return reply({ ok: true, queued: !!r.json.queued, state: r.json.state || null, to: TEST_CHAIN_TO });
+  }
   const tcm = path.match(/^\/compare\/admin\/test-order\/([^/]+)\/checkout$/);
   if (tcm && request.method === "POST") {
     if (!adminOk() || !testChain(env).on || !ORDER_ID_RE.test(tcm[1])) return reply({ error: "Not found" }, 404);
@@ -618,7 +628,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     const g = await orderCall(env, id, "/internal", { now: Date.now() });
     if (g.status !== 200 || !g.json.order) return reply({ error: "Ordern hittades inte." }, 404);
     const o = g.json.order;
-    const auth = await orderCall(env, id, "/get", { tokenHash, now: Date.now() });
+    const auth = await orderCall(env, id, "/report-auth", { tokenHash, now: Date.now() }); // orderns åtkomstnyckel ELLER resultattoken från rapport-klart-mejlet (bara denna rutt)
     if (auth.status !== 200) return reply({ error: "Ordern hittades inte." }, 404);
     if (o.status !== "delivered" || !o.reportKey) return reply({ error: "Rapporten är inte klar.", status: o.status }, 409);
     const rep = await env.REVIEWS_KV.get(o.reportKey, "json");
