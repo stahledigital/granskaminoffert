@@ -754,7 +754,11 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       assert.equal((await page.textContent("#t-decl")).trim(), "Jag vill att jämförelsen börjar direkt och godtar att ångerrätten upphör när tjänsten är helt utförd.");
       assert.match(await page.textContent("#pterms"), /^Genom att köpa godkänner du köpvillkoren\.$/); assert.equal(await page.locator('#pterms a[href="/jamfor/villkor/"]').isVisible(), true);
       // köpsammanfattning vid knappen: antal, pris/moms/engångs, täckning, säljare, när utfört, e-post
-      const sum = await page.textContent("#psum"); assert.match(sum, /jämförelse av 3 hantverkarofferter för samma jobb/); assert.match(sum, /49 kr inklusive moms, engångsköp, ingen prenumeration/); assert.match(sum, /Tjänsten är helt utförd när jag har fått min jämförelserapport/); assert.match(sum, /Säljare:/); assert.match(sum, /Begränsningar/);
+      const sum = await page.textContent("#psum"); assert.match(sum, /jämförelse av 3 hantverkarofferter för samma jobb/); assert.match(sum, /49 kr inklusive moms, engångsköp, ingen prenumeration/); assert.match(sum, /Tjänsten är helt utförd när jag har fått min jämförelserapport/); assert.match(sum, /Säljare:/); assert.doesNotMatch(sum, /Begränsningar/, "begränsningar ligger i Läs mer");
+      // minimering: EN kärnsammanfattning – listan 'Det här får du' och begränsningar flyttade bakom Läs mer (inget dubbelt kärnkort)
+      assert.equal(await page.locator("#gets-wrap").isVisible(), false, "får-du-listan dold bakom Läs mer"); assert.equal(await page.locator("#coverage").isVisible(), false); assert.equal(await page.locator("#more-limits").isVisible(), false);
+      assert.equal(await page.locator('#offer h3:visible', { hasText: /^Det här får du$/ }).count(), 0);
+      await page.click("#more-how-s"); assert.equal(await page.locator("#gets-wrap").isVisible(), true); assert.match(await page.textContent("#more-limits"), /Begränsningar/); await page.click("#more-how-s");
       assert.equal(await page.isVisible("#psum"), true); assert.equal(await page.isVisible("#pay"), true);
       // långa texter bakom Läs mer (stängda), tydligt märkta
       assert.equal(await page.locator("#more-how").evaluate((d) => d.open), false); assert.match(await page.textContent("#more-how-s"), /Läs mer/);
@@ -1696,7 +1700,7 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
         // reload ⇒ retry-vy (avbruten betalning) med samma order
         await page.goto(h.base + "/jamfor/?avbruten=1"); await page.waitForSelector("text=Gå till betalning igen"); await page.click("text=Gå till betalning igen");
         await page.waitForSelector("#decl2");
-        assert.match(await page.textContent("#psum2"), new RegExp(`jämförelse av ${n} hantverkarofferter`)); assert.match(await page.textContent("#psum2"), /49 kr inklusive moms, engångsköp/); assert.match(await page.textContent("#psum2"), /Tjänsten är helt utförd när/); assert.match(await page.textContent("#psum2"), /Säljare:/);
+        assert.match(await page.textContent("#psum2"), new RegExp(`jämförelse av ${n} hantverkarofferter`)); assert.match(await page.textContent("#psum2"), /49 kr inklusive moms, engångsköp/); assert.match(await page.textContent("#psum2"), /Tjänsten är helt utförd när/); assert.match(await page.textContent("#psum2"), /Säljare:/); assert.equal(await page.locator("#more2").evaluate((d) => d.open), false); assert.doesNotMatch((await page.locator("#psum2 > p").allTextContents()).join(" "), /Begränsningar/); assert.match(await page.textContent("#more2"), /Begränsningar/);
         assert.equal(await page.locator('#statusbox input[type=checkbox]').count(), 1, "EN ruta i retry"); assert.equal(await page.locator("#pay2").isDisabled(), true);
         assert.equal((await page.textContent("#pay2")).trim(), "Betala 49 kr");
         await page.check("#decl2"); assert.equal(await page.locator("#pay2").isDisabled(), false); await page.uncheck("#decl2"); assert.equal(await page.locator("#pay2").isDisabled(), true);

@@ -140,9 +140,10 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
     <p class="hint hidden" id="paymethods" data-methods=""></p>
     <p id="draftnote" class="warnbox hidden"><b>Utkast.</b> Villkors- och samtyckestexterna är inte slutgiltiga. Skarp betalning är avstängd tills de är fastställda.</p>
     <p id="coverage" class="hint"></p>
-    <h3>Det här får du</h3>
-    <ul class="tight" id="copy-gets"></ul>
+    <div id="gets-wrap"><h3>Det här får du</h3>
+    <ul class="tight" id="copy-gets"></ul></div>
     <details id="more-how" open><summary id="more-how-s">Det här får du inte och så går det till</summary>
+    <p id="more-limits" class="hint hidden"></p>
     <h3>Det här får du inte</h3>
     <ul class="tight" id="copy-getsnot"></ul>
     <h3>Så går det till</h3>
@@ -157,7 +158,7 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
       <ul class="tight" id="srccov"></ul>
     </div>
     <div id="seller" class="hint" aria-label="Säljare"></div>
-    <div id="psum" class="card hidden" role="group" aria-labelledby="psum-h"><h3 id="psum-h" style="margin-top:0">Det här köper du</h3><p id="psum-what"></p><p id="psum-limits" class="hint"></p><p id="psum-done" class="hint"></p><p id="psum-seller" class="hint"></p></div>
+    <div id="psum" class="card hidden" role="group" aria-labelledby="psum-h"><h3 id="psum-h" style="margin-top:0">Det här köper du</h3><p id="psum-what"></p><p id="psum-done" class="hint"></p><p id="psum-seller" class="hint"></p></div>
     <label for="email" style="display:block;font-weight:600;margin:12px 0 4px">E-postadress för avtalsbekräftelsen</label>
     <input type="email" id="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="namn@exempel.se" aria-describedby="emailhint">
     <p class="hint" id="emailhint">Bekräftelsen med din ångerlänk skickas hit. Adressen används bara för det.</p>
@@ -256,7 +257,7 @@ function fillCopy(cfg){
   $('angertext').textContent=(P&&ag&&ag.text)||'';show('terms-more',!!(P&&ag&&ag.text));
   $('t-decl').textContent=t.declaration||'';
   show('lbl-immediate',!P);show('lbl-terms',!P);show('lbl-decl',P);show('seller',!P);show('pterms',P);show('psum',P);
-  var mh=$('more-how'),ms=$('more-how-s');if(mh){mh.open=!P;if(ms)ms.textContent=P?'Läs mer: vad som inte ingår och hur det går till':'Det här får du inte och så går det till'}
+  var mh=$('more-how'),ms=$('more-how-s');if(mh){mh.open=!P;if(ms)ms.textContent=P?'Läs mer: vad som ingår, vad som inte ingår, begränsningar och hur det går till':'Det här får du inte och så går det till';var gw=$('gets-wrap');if(gw){if(P)mh.insertBefore(gw,$('more-limits'));else mh.parentNode.insertBefore(gw,mh)}show('coverage',!P)}
   fillPSum(cfg,t);
   ['immediate','terms','declaration'].forEach(function(id){$(id).checked=false}); // aldrig förkryssade
   $('pay').textContent=payLabel();syncPay();
@@ -283,7 +284,7 @@ function termsSentence(t,id){
 function fillPSum(cfg,t){
   if(!isP(cfg))return;
   var L=psumLines(cfg,t,state.docCount||state.n);
-  $('psum-what').textContent=L.what;$('psum-limits').textContent=L.limits;$('psum-done').textContent=L.done;$('psum-seller').textContent=L.seller;
+  $('psum-what').textContent=L.what;var ml=$('more-limits');if(ml){ml.textContent=L.limits;ml.classList.remove('hidden')}$('psum-done').textContent=L.done;$('psum-seller').textContent=L.seller;
   var old=$('pterms'),np=termsSentence(t,'pterms');np.className=old.className;old.parentNode.replaceChild(np,old);
 }
 function refreshPSum(){var cfg=state.cfg;if(cfg&&isP(cfg))fillPSum(cfg,(cfg.consent&&cfg.consent.texts)||{})}
@@ -563,7 +564,7 @@ async function consentAgain(msg){
   box.appendChild(el('input',{type:'email',id:'email2',autocomplete:'email',maxlength:'254'}));
   var PP=isP(cfg);
   if(PP){
-    var L=psumLines(cfg,t,state.docCount||state.n),card=el('div',{class:'card',id:'psum2',role:'group'},el('h3',{style:'margin-top:0',text:'Det här köper du'}),el('p',{text:L.what}),el('p',{class:'hint',text:L.limits}),el('p',{class:'hint',text:L.done}),el('p',{class:'hint',text:L.seller}));
+    var L=psumLines(cfg,t,state.docCount||state.n),card=el('div',{class:'card',id:'psum2',role:'group'},el('h3',{style:'margin-top:0',text:'Det här köper du'}),el('p',{text:L.what}),el('p',{class:'hint',text:L.done}),el('p',{class:'hint',text:L.seller}),el('details',{id:'more2'},el('summary',{text:'Läs mer: begränsningar'}),el('p',{class:'hint',text:L.limits})));
     box.appendChild(card);box.appendChild(chk('decl2',t.declaration||''));box.appendChild(termsSentence(t,'pterms2'));
   }else{box.appendChild(chk('terms2',t.terms||''));box.appendChild(chk('immediate2',t.immediate||''))}
   var b=el('button',{type:'button',class:'btn acc',id:'pay2',text:PP?payLabel():'Godkänn och gå till betalning'});

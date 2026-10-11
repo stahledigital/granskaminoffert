@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v2d – policy P: EN kärnsammanfattning i förköpet (minimering ovanpå 4c91944e)
+
+- **Flyttat bakom Läs mer (P):** listan ”Det här får du” (+ dubblerad täckningsrad `#coverage`), begränsningstexten, ”får inte” och ”så går det till” ligger nu i det märkta avsnittet ”Läs mer: vad som ingår, vad som inte ingår, begränsningar och hur det går till”. I retry-vyn ligger begränsningar under ”Läs mer: begränsningar”.
+- **Fortsatt synligt vid Betala 49 kr:** EN ”Det här köper du” (aktuellt antal, rapportens huvudinnehåll, 49 kr inkl. moms/engångs/ingen prenumeration, faktisk källtäckning, när tjänsten är helt utförd + e-postkvitto, säljare), källpanelen, e-post, den oikryssade gemensamma deklarationen, villkorsmeningen med länk och ”Betala 49 kr”. Samma struktur i retry. Policy Q: oförändrat (listan ligger kvar synlig).
+- Backend, bevis, mejl (full information + blankett) och spärrar orörda. Tester: P-testen uppdaterade (dold lista, Läs mer öppnar, retry). Ej bevisat: riktig mobil/VoiceOver, juridik.
+
 ## jamfor-v2c – policy P: köpsammanfattning mot ordern faktiska antal + komplett retry-vy (separat rättning ovanpå 39d6504a)
 
 - **P1:** ”Det här köper du” byggdes bara vid init och sa 2 offerter även vid 3–4. Nu följer den `state.docCount` (sätts när ordern skapas och från `order.docCount` vid reload/återupptagning) och uppdateras när erbjudandet visas, vid ändrad hash och i retry. Gamla testassertioner som låste ”2” (med 3 offerter) rättade.
