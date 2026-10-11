@@ -264,17 +264,29 @@ function fillCopy(cfg){
   show('draftnote',!!(cfg.consent&&cfg.consent.draft));
   fillSeller(cfg);
 }
-function fillPSum(cfg,t){
-  if(!isP(cfg))return;
+// Köpsammanfattningen byggs mot ORDERNS faktiska antal dokument (state.docCount: sätts när ordern skapas och vid återupptagning), aldrig mot ett gammalt knappval.
+function psumLines(cfg,t,n){
   var secs=(cfg.terms&&Array.isArray(cfg.terms.sections))?cfg.terms.sections:[],sl=secs.filter(function(x){return x.id==='saljare'})[0];
   var first=sl&&typeof sl.text==='string'?String(sl.text).split('\n')[0]:'';
-  $('psum-what').textContent='Du köper en jämförelse av '+state.n+' hantverkarofferter för samma jobb: en rapport som visar vad som ingår, pris och villkor sida vid sida, med frågor att ställa. Pris: 49 kr inklusive moms, engångsköp, ingen prenumeration. '+((cfg.dataCoverage&&cfg.dataCoverage.text)||'');
-  $('psum-limits').textContent='Begränsningar: ingen bedömning av hantverkare, kvalitet eller om priset är rimligt. Det som inte framgår av en offert är inte detsamma som att det saknas. Källtäckningen för dina firmor visas ovan innan du betalar.';
-  $('psum-done').textContent=(t.fulfilmentDef||'')+' Kvitto och avtalsbekräftelse med alla villkor skickas till din e-post.';
-  $('psum-seller').textContent=first?first+'. Fler företagsuppgifter och köpvillkor: se Köpvillkor, ångerrätt och företagsuppgifter nedan.':'';
-  var pt=$('pterms');pt.textContent='';var tt=t.terms||'',i=tt.indexOf('köpvillkoren'),a=el('a',{href:'/jamfor/villkor/',target:'_blank',rel:'noopener'});
-  if(i>=0){a.textContent='köpvillkoren';pt.appendChild(document.createTextNode(tt.slice(0,i)));pt.appendChild(a);pt.appendChild(document.createTextNode(tt.slice(i+'köpvillkoren'.length)))}else{a.textContent='Köpvillkor';pt.appendChild(document.createTextNode(tt+' '));pt.appendChild(a)}
+  return {
+    what:'Du köper en jämförelse av '+n+' hantverkarofferter för samma jobb: en rapport som visar vad som ingår, pris och villkor sida vid sida, med frågor att ställa. Pris: 49 kr inklusive moms, engångsköp, ingen prenumeration. '+((cfg.dataCoverage&&cfg.dataCoverage.text)||''),
+    limits:'Begränsningar: ingen bedömning av hantverkare, kvalitet eller om priset är rimligt. Det som inte framgår av en offert är inte detsamma som att det saknas. Källtäckningen för dina firmor visas innan du betalar.',
+    done:(t.fulfilmentDef||'')+' Kvitto och avtalsbekräftelse med alla villkor skickas till din e-post.',
+    seller:first?first+'. Fullständiga företagsuppgifter och köpvillkor finns i köpvillkoren (länk nedan).':''
+  };
 }
+function termsSentence(t,id){
+  var pt=el('p',{class:'hint',id:id}),tt=t.terms||'',i=tt.indexOf('köpvillkoren'),a=el('a',{href:'/jamfor/villkor/',target:'_blank',rel:'noopener'});
+  if(i>=0){a.textContent='köpvillkoren';pt.appendChild(document.createTextNode(tt.slice(0,i)));pt.appendChild(a);pt.appendChild(document.createTextNode(tt.slice(i+'köpvillkoren'.length)))}else{a.textContent='Köpvillkor';pt.appendChild(document.createTextNode(tt+' '));pt.appendChild(a)}
+  return pt;
+}
+function fillPSum(cfg,t){
+  if(!isP(cfg))return;
+  var L=psumLines(cfg,t,state.docCount||state.n);
+  $('psum-what').textContent=L.what;$('psum-limits').textContent=L.limits;$('psum-done').textContent=L.done;$('psum-seller').textContent=L.seller;
+  var old=$('pterms'),np=termsSentence(t,'pterms');np.className=old.className;old.parentNode.replaceChild(np,old);
+}
+function refreshPSum(){var cfg=state.cfg;if(cfg&&isP(cfg))fillPSum(cfg,(cfg.consent&&cfg.consent.texts)||{})}
 // Säljaruppgifter direkt i kassan: exakt samma rader som ingår i villkorssnapshoten och bekräftelsen (serverns avsnitt "saljare"). textContent, aldrig HTML.
 function safeInfoUrl(u){try{var x=new URL(String(u||''));return x.protocol==='https:'&&!x.username&&!x.password?x.href:''}catch(e){return ''}}
 function fillSeller(cfg){
@@ -419,7 +431,7 @@ $('check').addEventListener('click',async function(){
   try{
     var c=await api('POST','/compare/orders',{body:{docCount:state.n,labels:state.slots.slice(0,state.n).map(function(s){return s.label}),accept:{sameJob:true}}});
     if(c.status!==201){err((c.json&&c.json.error)||'Det gick inte att starta just nu.');return}
-    state.order={id:c.json.orderId,token:c.json.token};store('jamfor_order',JSON.stringify(state.order));state.carried=null;hoClear();hoStripHash();
+    state.order={id:c.json.orderId,token:c.json.token};state.docCount=state.n;refreshPSum();store('jamfor_order',JSON.stringify(state.order));state.carried=null;hoClear();hoStripHash();
     show('s1',false);show('s2',true);$('docs').textContent='';
     var allOk=true;
     for(var k=0;k<state.n;k++){
@@ -455,7 +467,7 @@ $('pay').addEventListener('click',async function(){
 });
 
 function isP(cfg){return !!(cfg&&cfg.consent&&cfg.consent.policy==='P')}
-function payLabel(){return isP(state.cfg)?'Beställ med betalningsskyldighet: 49 kr':'Betala 49 kr'}
+function payLabel(){return 'Betala 49 kr'} // samma tydliga köpknapp i första köpet och vid retry (betalningsskyldigheten framgår av sammanfattningen och knappen)
 function syncPay(){if(!isP(state.cfg)){$('pay').disabled=false;return}$('pay').disabled=!$('declaration').checked} // P: knappen är inaktiv tills den ENA deklarationen aktivt markerats
 function acceptBody(){var c=(state.cfg&&state.cfg.consent)||{};var em=$('email');var base={terms:true,consentHash:c.hash,consentVersion:c.version,email:((em&&em.value)||state.email||'').trim()};if(isP(state.cfg)){base.declaration=true}else base.immediateDelivery=true;return base}
 ['terms','declaration'].forEach(function(id){$(id).addEventListener('change',syncPay)});
@@ -474,6 +486,7 @@ async function tick(cancelled){
   try{r=await api('GET','/compare/orders/'+state.order.id,{token:state.order.token})}catch(e){setStatus('Kunde inte nå tjänsten just nu. Försöker igen…');state.timer=setTimeout(tick,4000);return}
   if(r.status===404){if(startFreshFromGone('Din tidigare jämförelse hittades inte (den kan ha gått ut eller raderats), så den är inte påverkad av detta. Du börjar en ny.'))return;store('jamfor_order',null);setStatus('Ordern hittades inte. Den kan ha gått ut (24 timmar) eller raderats.',true);return}
   var o=r.json.order;if(!o){state.timer=setTimeout(tick,4000);return}
+  if(Number.isInteger(o.docCount))state.docCount=o.docCount;
   $('reclink').textContent=recoveryLink();show('recovery',true);
   var box=$('statusbox');box.textContent='';
   var next=null;
@@ -548,8 +561,13 @@ async function consentAgain(msg){
   function chk(id,text){var l=el('label',{class:'chk'});l.appendChild(el('input',{type:'checkbox',id:id}));l.appendChild(el('span',{text:text}));return l}
   var le=el('label',{for:'email2',style:'display:block;font-weight:600;margin:10px 0 4px',text:'E-postadress för avtalsbekräftelsen'});box.appendChild(le);
   box.appendChild(el('input',{type:'email',id:'email2',autocomplete:'email',maxlength:'254'}));
-  var PP=isP(cfg);if(PP){box.appendChild(chk('decl2',t.declaration||''));var pt=el('p',{class:'hint',id:'pterms2'});var tt=t.terms||'',ix=tt.indexOf('köpvillkoren'),lk=el('a',{href:'/jamfor/villkor/',target:'_blank',rel:'noopener'});if(ix>=0){lk.textContent='köpvillkoren';pt.appendChild(document.createTextNode(tt.slice(0,ix)));pt.appendChild(lk);pt.appendChild(document.createTextNode(tt.slice(ix+12)))}else{lk.textContent='Köpvillkor';pt.appendChild(document.createTextNode(tt+' '));pt.appendChild(lk)}box.appendChild(pt)}else{box.appendChild(chk('terms2',t.terms||''));box.appendChild(chk('immediate2',t.immediate||''))}
-  var b=el('button',{type:'button',class:'btn acc',id:'pay2',text:'Godkänn och gå till betalning'});
+  var PP=isP(cfg);
+  if(PP){
+    var L=psumLines(cfg,t,state.docCount||state.n),card=el('div',{class:'card',id:'psum2',role:'group'},el('h3',{style:'margin-top:0',text:'Det här köper du'}),el('p',{text:L.what}),el('p',{class:'hint',text:L.limits}),el('p',{class:'hint',text:L.done}),el('p',{class:'hint',text:L.seller}));
+    box.appendChild(card);box.appendChild(chk('decl2',t.declaration||''));box.appendChild(termsSentence(t,'pterms2'));
+  }else{box.appendChild(chk('terms2',t.terms||''));box.appendChild(chk('immediate2',t.immediate||''))}
+  var b=el('button',{type:'button',class:'btn acc',id:'pay2',text:PP?payLabel():'Godkänn och gå till betalning'});
+  function sync2(){if(PP)b.disabled=!$('decl2').checked} // P: knappen är inaktiv tills den ENA rutan aktivt markerats (policy Q oförändrad)
   b.addEventListener('click',async function(){
     err('');
     if(!EMAIL_OK.test(($('email2').value||'').trim())){err('Ange en giltig e-postadress för avtalsbekräftelsen.');return}
@@ -561,6 +579,7 @@ async function consentAgain(msg){
     b.disabled=false;err((r.json&&r.json.error)||'Betalningen kunde inte startas. Du har inte debiterats.');
   });
   box.appendChild(b);
+  if(PP){$('decl2').addEventListener('change',sync2);sync2()}
 }
 
 // ---------- rapport ----------

@@ -754,13 +754,13 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       assert.equal((await page.textContent("#t-decl")).trim(), "Jag vill att jämförelsen börjar direkt och godtar att ångerrätten upphör när tjänsten är helt utförd.");
       assert.match(await page.textContent("#pterms"), /^Genom att köpa godkänner du köpvillkoren\.$/); assert.equal(await page.locator('#pterms a[href="/jamfor/villkor/"]').isVisible(), true);
       // köpsammanfattning vid knappen: antal, pris/moms/engångs, täckning, säljare, när utfört, e-post
-      const sum = await page.textContent("#psum"); assert.match(sum, /2 hantverkarofferter för samma jobb/); assert.match(sum, /49 kr inklusive moms, engångsköp, ingen prenumeration/); assert.match(sum, /Tjänsten är helt utförd när jag har fått min jämförelserapport/); assert.match(sum, /Säljare:/); assert.match(sum, /Begränsningar/);
+      const sum = await page.textContent("#psum"); assert.match(sum, /jämförelse av 3 hantverkarofferter för samma jobb/); assert.match(sum, /49 kr inklusive moms, engångsköp, ingen prenumeration/); assert.match(sum, /Tjänsten är helt utförd när jag har fått min jämförelserapport/); assert.match(sum, /Säljare:/); assert.match(sum, /Begränsningar/);
       assert.equal(await page.isVisible("#psum"), true); assert.equal(await page.isVisible("#pay"), true);
       // långa texter bakom Läs mer (stängda), tydligt märkta
       assert.equal(await page.locator("#more-how").evaluate((d) => d.open), false); assert.match(await page.textContent("#more-how-s"), /Läs mer/);
       assert.equal(await page.locator("#terms-more").evaluate((d) => d.open), false); assert.match(await page.textContent("#terms-more summary"), /Köpvillkor, ångerrätt och företagsuppgifter/);
       assert.match(await page.textContent("#angertext"), /14 dagars ångerrätt.*hela beloppet tillbaka/s); assert.match(await page.textContent("#seller2"), /Du köper av/);
-      assert.match(await page.textContent("#pay"), /Beställ med betalningsskyldighet: 49 kr/);
+      assert.equal((await page.textContent("#pay")).trim(), "Betala 49 kr");
       // en ruta: 0 → disabled → markera → enabled → avmarkera → disabled
       assert.equal(await page.locator("#pay").isDisabled(), true);
       await page.fill("#email", "kund@example.test");
@@ -1656,8 +1656,9 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
         assert.equal(await c2.page.locator("#decl2").isChecked(), false); assert.equal(await c2.page.locator("#terms2").count(), 0, "ingen separat villkorsruta"); assert.equal(await c2.page.locator("#immediate2").count(), 0);
         assert.match(await c2.page.textContent("#pterms2"), /Genom att köpa godkänner du köpvillkoren\./);
         assert.equal((await c2.page.textContent('label:has(#decl2)')).trim(), "Jag vill att jämförelsen börjar direkt och godtar att ångerrätten upphör när tjänsten är helt utförd.");
-        await c2.page.fill("#email2", "kund@example.test"); await c2.page.click("#pay2"); assert.match(await c2.page.textContent("#err"), /Markera själv rutan/); assert.equal(h2.stats.stripeCreate, 0, "ingen tyst accept");
-        await c2.page.check("#decl2"); await c2.page.click("#pay2"); await c2.page.waitForURL("https://checkout.stripe.test/**");
+        await c2.page.fill("#email2", "kund@example.test"); assert.equal(await c2.page.locator("#pay2").isDisabled(), true, "pay2 inaktiv med oikryssad ruta"); assert.equal((await c2.page.textContent("#pay2")).trim(), "Betala 49 kr"); assert.equal(h2.stats.stripeCreate, 0, "ingen tyst accept");
+        assert.match(await c2.page.textContent("#psum2"), /jämförelse av 3 hantverkarofferter för samma jobb/);
+        await c2.page.check("#decl2"); assert.equal(await c2.page.locator("#pay2").isDisabled(), false); await c2.page.uncheck("#decl2"); assert.equal(await c2.page.locator("#pay2").isDisabled(), true); await c2.page.check("#decl2"); await c2.page.click("#pay2"); await c2.page.waitForURL("https://checkout.stripe.test/**");
         assert.equal(h2.stats.stripeCreate, 1);
       } finally { await c2.ctx.close(); await h2.close(); }
       assert.deepEqual(errors.filter((e) => !/status of 4|Failed to load/.test(String(e))), []);
@@ -1678,3 +1679,31 @@ test("policy P: sidfoten är neutral 'Köp, villkor och hjälp' (båda sidorna) 
     assert.ok(await noSideScroll(page));
   } finally { await ctx.close(); await h.close(); }
 });
+
+// Sammanfattningen följer ORDERNS faktiska antal (2/3/4), även efter reload/retry – inte ett gammalt knappval; retry-vyn har samma sammanfattning och EN ruta.
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`policy P (${name}): köpsammanfattningen säger rätt antal 2/3/4 i första köpet och i retry (efter reload), pay2 disabled→enabled→disabled, "Betala 49 kr" i båda, inga fler rutor`, async () => {
+    for (const n of [2, 3, 4]) {
+      const h = await startHarness({ vars: { COMPARE_CONSENT_POLICY: "P" } });
+      const { ctx, page, errors } = await newPage(h, w, hgt);
+      try {
+        const offers = [...OFFERS, "Offert badrum, Firma D\nMaterial och arbete ingår. Resor ingår.\nSumma 120 000 kr inkl. moms före ROT"].slice(0, n);
+        await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)");
+        await page.click('.seg button[data-n="4"]'); await page.click('.seg button[data-n="2"]'); // gammalt knappval ska inte läcka
+        await fillAndCheck(page, offers);
+        assert.match(await page.textContent("#psum-what"), new RegExp(`jämförelse av ${n} hantverkarofferter för samma jobb`));
+        assert.equal((await page.textContent("#pay")).trim(), "Betala 49 kr"); assert.equal(await page.locator('#offer input[type=checkbox]:visible').count(), 1);
+        // reload ⇒ retry-vy (avbruten betalning) med samma order
+        await page.goto(h.base + "/jamfor/?avbruten=1"); await page.waitForSelector("text=Gå till betalning igen"); await page.click("text=Gå till betalning igen");
+        await page.waitForSelector("#decl2");
+        assert.match(await page.textContent("#psum2"), new RegExp(`jämförelse av ${n} hantverkarofferter`)); assert.match(await page.textContent("#psum2"), /49 kr inklusive moms, engångsköp/); assert.match(await page.textContent("#psum2"), /Tjänsten är helt utförd när/); assert.match(await page.textContent("#psum2"), /Säljare:/);
+        assert.equal(await page.locator('#statusbox input[type=checkbox]').count(), 1, "EN ruta i retry"); assert.equal(await page.locator("#pay2").isDisabled(), true);
+        assert.equal((await page.textContent("#pay2")).trim(), "Betala 49 kr");
+        await page.check("#decl2"); assert.equal(await page.locator("#pay2").isDisabled(), false); await page.uncheck("#decl2"); assert.equal(await page.locator("#pay2").isDisabled(), true);
+        assert.ok(await noSideScroll(page));
+        if (n === 3) await page.screenshot({ path: join(EVIDENCE, `jamfor_${name}_P5_retry_3.png`), fullPage: true });
+        assert.deepEqual(errors.filter((e) => !/status of 4|Failed to load/.test(String(e))), []);
+      } finally { await ctx.close(); await h.close(); }
+    }
+  });
+}

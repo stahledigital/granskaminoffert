@@ -1,5 +1,12 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v2c – policy P: köpsammanfattning mot ordern faktiska antal + komplett retry-vy (separat rättning ovanpå 39d6504a)
+
+- **P1:** ”Det här köper du” byggdes bara vid init och sa 2 offerter även vid 3–4. Nu följer den `state.docCount` (sätts när ordern skapas och från `order.docCount` vid reload/återupptagning) och uppdateras när erbjudandet visas, vid ändrad hash och i retry. Gamla testassertioner som låste ”2” (med 3 offerter) rättade.
+- **consentAgain (retry/needAccept/ändrad text):** samma kompakta sammanfattning (antal, 49 kr inkl. moms/engångs, begränsningar, när helt utfört, säljare, villkorsmening med länk) + EN ruta; `pay2` är inaktiv tills rutan markerats (disabled→enabled→disabled). Policy Q oförändrad.
+- Köpknappen heter ”Betala 49 kr” i både första köpet och retry (enligt root). Inga extra rutor, inga ångerkort; ångerlogik/bevis/mejl/spärrar orörda.
+- **Tester:** nytt 2/3/4-test med reload ⇒ retry (×390/1280), uppdaterade P-tester. Ej bevisat: riktig mobil/VoiceOver, juridik, riktiga leverantörer.
+
 ## jamfor-v2b – policy P: EN gemensam samtyckesdeklaration + minimal förköpsyta (separat commit ovanpå v2a; ROOT_MINIMAL_CONSENT_AND_DISCLOSURE)
 
 - **Samtycke:** tre rutor (villkor, start direkt, förlorad ångerrätt) ersatta av EN initialt oikryssad ruta: ”Jag vill att jämförelsen börjar direkt och godtar att ångerrätten upphör när tjänsten är helt utförd.” (EU-kommissionen 2021/C525/01 avsn. 5.6.1: kan uttryckas i en gemensam aktiv handling). Villkorsgodkännandet knyts till köpknappens aktiva klick med synlig mening ”Genom att köpa godkänner du köpvillkoren.” + länk; ingen separat villkorsruta, ingen förkryssning, ingen sammanblandning med frivilliga val. Knappen är inaktiv tills rutan markerats. Knapptexten ”Beställ med betalningsskyldighet: 49 kr” är oförändrad.
