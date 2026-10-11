@@ -1355,3 +1355,197 @@ test("D11 förköpsidentitet: AV ⇒ ingen knapp/anrop; PÅ ⇒ användarstartad
     const hs = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert.ok(hs <= 0, "ingen sidoscroll");
   } finally { await ctx.close(); await h.close(); }
 });
+
+// ================= Gratis → betald jämförelse (kandidat ROOT_FREE_TO_PAID_UX_20261011) =================
+// Gratissidan (/) visar övergången bara när serverns config säger att jämförelsen är öppen. Första offerten följer med som lokal, kortlivad engångshandoff (sessionStorage)
+// efter ett aktivt klick – aldrig i adressen, aldrig i anrop. Allt mot attrapper: /review och /event är route-mockade, ingen modell, ingen betalning.
+const FREE_API = "https://granskaminoffert-api.anders-316.workers.dev";
+const FREE_RESULT = { trade: "tak", calcCoverage: "checked", calcNote: "Kontrollerade timmar × timpris.", contradictions: [], clarify: [{ key: "Startdatum", text: "Inget startdatum anges." }], stated: [{ key: "Moms", text: "Priser anges inklusive moms." }], price: { hourlyRateSek: 595, totalSumSek: 42820, rotDeducted: true, comment: "Tydligt angivet." }, questions: ["Vilket startdatum gäller?"],
+  priceReport: { referenceVersion: "2026-10-09", checked: [{ id: "moms", status: "ok", title: "Moms", text: "Priserna anges inklusive moms, konsekvent.", source: "" }], compared: [], cannotAssess: [], partial: false, readIssues: [], performed: { rules: 1, addons: 0, comparisons: 0 }, disclaimer: "Referensintervallen är en uppskattning.", methodUrl: "x" }, meta: { model: "mock" } };
+async function freePage(h, w, hgt, { vars } = {}) {
+  const ctx = await browser.newContext({ viewport: { width: w, height: hgt }, locale: "sv-SE" });
+  const calls = [];
+  await ctx.route(FREE_API + "/**", (route) => { const u = new URL(route.request().url()); calls.push(route.request().method() + " " + u.pathname); const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "POST, GET, OPTIONS" }; if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors }); if (u.pathname === "/review") return route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify(FREE_RESULT) }); return route.fulfill({ status: 204, headers: cors }); });
+  await ctx.route("https://checkout.stripe.test/**", (route) => route.abort());
+  await ctx.route("https://static.cloudflareinsights.com/**", (route) => route.abort());
+  const page = await ctx.newPage(); const errors = []; const reqs = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource|Access to (XMLHttpRequest|resource)/.test(m.text())) errors.push(m.text()); });
+  page.on("request", (r) => reqs.push(r.method() + " " + new URL(r.url()).pathname));
+  return { ctx, page, errors, calls, reqs };
+}
+const DOC_TEXT = "Offert tak, Taktäckarna AB\nOmläggning av tak, 120 kvm.\nMaterial och arbete ingår.\nTotalt 120 000 kr inkl. moms före ROT";
+const apiRe = (p) => new RegExp(p);
+
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`gratis→betald (${name}): erbjudandet på startsidan och CTA efter resultatet (pris före klick, moms/engångsköp), bara för offertmottagare; stängd jämförelse ⇒ gratissidan oförändrad`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors } = await freePage(h, w, hgt);
+    try {
+      await page.goto(h.base + "/"); await page.waitForSelector("#cmpoffer:not([hidden])");
+      const t = await page.textContent("#cmpoffer");
+      assert.match(t, /Har du fler offerter för samma jobb\?/); assert.match(t, /49 kr/); assert.match(t, /inkl\. moms/); assert.match(t, /Ingen prenumeration/); assert.match(t, /1 offert|en offert i taget|jämföra 2–4 offerter/);
+      assert.equal((await page.textContent("#cmpo-go")).replace(/\s+/g, " ").trim(), "Jämför 2–4 offerter – 49 kr"); assert.equal(await page.getAttribute("#cmpo-go", "href"), "/jamfor/");
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_1_start_erbjudande.png`), fullPage: true });
+      await page.click('.pathcard[data-path="hantverkare"]'); assert.equal(await page.isVisible("#cmpoffer"), false, "ingen mottagaruppmaning till hantverkaren");
+      await page.click('.pathcard[data-path="mottagare"]'); assert.equal(await page.isVisible("#cmpoffer"), true);
+      // resultat
+      await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run");
+      await page.waitForSelector("#res.on"); await page.waitForSelector("#cmpcta:not([hidden])");
+      assert.equal(await page.isVisible("#cmpoffer"), false, "bara en CTA i taget");
+      const r = (await page.textContent("#cmpcta")).replace(/\s+/g, " ");
+      assert.match(r, /Har du fler offerter för samma jobb\?/); assert.match(r, /Jämför vad som ingår, pris och villkor sida vid sida\./); assert.match(r, /49 kr inkl\. moms/); assert.match(r, /Ingen prenumeration, ingen automatisk dragning/); assert.match(r, /följer med/);
+      assert.equal((await page.textContent("#cmpr-go")).replace(/\s+/g, " ").trim(), "Jämför 2–4 offerter – 49 kr");
+      // gratisfrågorna finns kvar och CTA ligger efter dem
+      assert.ok(await page.isVisible("#sendmail")); assert.ok(await page.isVisible("#copybtn"));
+      const order = await page.evaluate(() => { const a = document.getElementById("sendmail").getBoundingClientRect().top, b = document.getElementById("cmpr-go").getBoundingClientRect().top; return a < b; });
+      assert.ok(order, "CTA efter resultatets nästa steg, inte före");
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_2_resultat_cta.png`), fullPage: true });
+      await page.click('.pathcard[data-path="hantverkare"]'); assert.equal(await page.isVisible("#cmpcta"), false); assert.equal(await page.locator("#res a[href*='jamfor']").count(), 0);
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+    // jämförelsen stängd (produktionsläget): ingen CTA någonstans
+    const h2 = await startHarness({ vars: { COMPARE_ENABLED: undefined } });
+    const f2 = await freePage(h2, w, hgt);
+    try {
+      await f2.page.goto(h2.base + "/"); await f2.page.waitForTimeout(800);
+      assert.equal(await f2.page.locator("#cmpoffer").isVisible(), false);
+      await f2.page.click("#paste"); await f2.page.fill("#txt", DOC_TEXT); await f2.page.click("#run"); await f2.page.waitForSelector("#res.on");
+      assert.equal(await f2.page.locator("#cmpcta").isVisible(), false); assert.equal(await f2.page.locator("#res a[href*='jamfor']").count(), 0);
+    } finally { await f2.ctx.close(); await h2.close(); }
+  });
+
+  test(`gratis→betald (${name}): textoffert följer med byteexakt efter aktivt klick, tydlig bekräftelse, ingen analys/betalning/källanrop via navigeringen, innehåll aldrig i adress, förbrukas vid order`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors, calls, reqs } = await freePage(h, w, hgt);
+    try {
+      await page.goto(h.base + "/"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
+      const before = reqs.length; calls.length = 0;
+      await page.click("#cmpr-go"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#carry:not(.hidden)");
+      assert.match(page.url(), /\/jamfor\/#fran=gratis$/); assert.ok(!page.url().includes("Taktäckarna") && !decodeURIComponent(page.url()).includes("Offert tak"), "innehåll aldrig i adressen");
+      assert.equal(calls.filter((c) => /review|event/.test(c)).length, 0, "klicket startade ingen granskning och skickade ingen händelse");
+      assert.equal((await page.textContent("#carry-h")).trim(), "Din första offert följer med."); assert.match(await page.textContent("#carry"), /Lägg till 1–3 offerter för samma jobb\./);
+      assert.equal(await page.inputValue("#t0"), DOC_TEXT); assert.equal(await page.evaluate(() => document.activeElement.id), "carry-h", "fokus på bekräftelsen");
+      assert.equal(await page.inputValue("#t1"), "");
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_3_jamfor_bekraftelse.png`), fullPage: true });
+      // inga mutationer mot jämförelsen före aktivt val
+      await page.waitForTimeout(600);
+      assert.deepEqual(reqs.slice(before).filter((r) => /^(POST|PUT|DELETE) /.test(r) && /\/compare\//.test(r)), [], "ingen order/betalning/källa startad av navigeringen");
+      // byte av antal behåller den medföljande offerten
+      await page.click('.seg button[data-n="3"]'); assert.equal(await page.inputValue("#t0"), DOC_TEXT); assert.equal(await page.isVisible("#carry"), true);
+      // reload: återhämtning
+      await page.reload(); await page.waitForSelector("#carry:not(.hidden)"); assert.equal(await page.inputValue("#t0"), DOC_TEXT);
+      // slutför: lägg till 2 offerter, kontrollera ⇒ ordern skapas och handoffen förbrukas
+      await page.click('.seg button[data-n="3"]'); assert.equal(await page.inputValue("#t0"), DOC_TEXT); await page.fill("#t1", OFFERS[1]); await page.fill("#t2", OFFERS[2]); await page.check("#samejob"); await page.click("#check");
+      await page.waitForSelector("#offer:not(.hidden)", { timeout: 15000 });
+      assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null, "handoffen förbrukad"); assert.ok(!/fran=gratis/.test(page.url()));
+      const ord = await page.evaluate(() => localStorage.getItem("jamfor_order")); assert.ok(ord);
+      await page.reload(); await page.waitForTimeout(800); assert.equal(await page.locator("#carry").isVisible(), false, "ingen gammal medföljande offert efter order");
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+
+  test(`gratis→betald (${name}): PDF, foto (PNG/JPG) och text följer med byte för byte; startsidans CTA; ta bort; egen ändring släpper handoffen`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors } = await freePage(h, w, hgt);
+    const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n%âãÏÓ\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"), Buffer.from(Array.from({ length: 3000 }, (_, i) => (i * 37) % 256))]);
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(Array.from({ length: 5000 }, (_, i) => (i * 91 + 7) % 256))]);
+    const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from(Array.from({ length: 4000 }, (_, i) => (i * 53 + 3) % 256)), Buffer.from([0xff, 0xd9])]);
+    try {
+      for (const [fname, mime, buf] of [["offert.pdf", "application/pdf", pdf], ["foto.png", "image/png", png], ["foto.jpg", "image/jpeg", jpg]]) {
+        await page.goto(h.base + "/"); await page.evaluate(() => sessionStorage.clear());
+        await page.setInputFiles("#file", { name: fname, mimeType: mime, buffer: buf });
+        await page.waitForSelector("#filepreview.on");
+        await page.click("#cmpo-go"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#carry:not(.hidden)");
+        const got = await page.evaluate(async () => { const f = document.getElementById("f0").files[0]; if (!f) return null; const b = new Uint8Array(await f.arrayBuffer()); let s = ""; for (const x of b) s += String.fromCharCode(x); return { name: f.name, type: f.type, b64: btoa(s) }; });
+        assert.ok(got, fname + ": fil i första fältet"); assert.equal(got.name, fname); assert.equal(got.type, mime); assert.equal(got.b64, buf.toString("base64"), fname + ": byteexakt");
+        assert.match(await page.textContent("#fi0"), /följde med/); assert.match(await page.textContent("#carry"), new RegExp(fname.replace(".", "\\.")));
+      }
+      // ta bort den medföljande offerten
+      await page.click("#carry-drop"); assert.equal(await page.isVisible("#carry"), false); assert.equal(await page.evaluate(() => document.getElementById("f0").files.length), 0); assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null); assert.match(await page.textContent("#fi0"), /Ingen fil vald/);
+      assert.ok(!/fran=gratis/.test(page.url()));
+      // egen ändring av första fältet släpper den medföljande offerten
+      await page.goto(h.base + "/"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#cmpo-go"); await page.waitForSelector("#carry:not(.hidden)");
+      await page.fill("#t0", "Helt annan text"); assert.equal(await page.isVisible("#carry"), false); assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null);
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+
+  test(`gratis→betald (${name}): befintlig order skrivs aldrig över; exempeloffert följer inte med; tangentbord (Enter på CTA) och fokus`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors, reqs } = await freePage(h, w, hgt);
+    try {
+      // skapa en riktig order först
+      await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, [OFFERS[0], OFFERS[1]]);
+      const orderBefore = await page.evaluate(() => localStorage.getItem("jamfor_order")); assert.ok(orderBefore);
+      // från gratis med eget dokument
+      await page.goto(h.base + "/"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
+      const n0 = reqs.length;
+      await page.focus("#cmpr-go"); assert.equal(await page.evaluate(() => document.activeElement.id), "cmpr-go"); await page.keyboard.press("Enter");
+      await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#hoconf:not(.hidden)");
+      assert.match(await page.textContent("#hoconf"), /Du har redan en jämförelse igång/); assert.match(await page.textContent("#hoconf"), /orörd/);
+      assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), orderBefore, "befintlig order orörd");
+      assert.equal(reqs.slice(n0).filter((r) => r === "POST /compare/orders").length, 0, "ingen ny order skapad"); assert.equal(await page.isVisible("#carry"), false);
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_4_befintlig_order.png`), fullPage: true });
+      await page.reload(); await page.waitForSelector("#hoconf:not(.hidden)"); assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), orderBefore, "reload: fortfarande orörd");
+      await page.click("#hoconf-keep"); assert.equal(await page.isVisible("#hoconf"), false); assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null);
+      // exempeloffert: ingen medföljande offert
+      await page.goto(h.base + "/"); await page.evaluate(() => { localStorage.removeItem("jamfor_order"); }); await page.reload();
+      await page.click("#demo"); await page.waitForSelector("#cmpcta:not([hidden])"); assert.match(await page.textContent("#cmpcta"), /exempeloffert och följer inte med/);
+      await page.click("#cmpr-go"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#s1:not(.hidden)");
+      assert.equal(await page.isVisible("#carry"), false); assert.equal(await page.inputValue("#t0"), ""); assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null);
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+
+  test(`gratis→betald (${name}): ärliga fel – blockerad lagring, för stor text, gammal och trasig handoff; aldrig falsk "följer med"`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors } = await freePage(h, w, hgt);
+    try {
+      // blockerad lagring på gratissidan
+      await page.addInitScript(() => { if (location.pathname === "/") { Storage.prototype.setItem = function () { throw new DOMException("blocked", "SecurityError"); }; } });
+      await page.goto(h.base + "/"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
+      await page.click("#cmpr-go"); await page.waitForSelector(".cmpfail");
+      assert.match(await page.textContent(".cmpfail"), /kunde inte följa med/); assert.ok(page.url().endsWith("/") || /127\.0\.0\.1:\d+\/$/.test(page.url()), "stannar kvar");
+      assert.equal(await page.evaluate(() => document.activeElement.className), "cmpfail"); assert.equal(await page.getAttribute(".cmpfail a.btn", "href"), "/jamfor/");
+      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_5_lagring_blockerad.png`), fullPage: true });
+      await page.click("[data-stay]"); assert.equal(await page.locator(".cmpfail").count(), 0);
+      // gå vidare utan offerten ⇒ tom jämförelse, inget falskt påstående
+      await page.click("#cmpr-go"); await page.waitForSelector(".cmpfail"); await page.click(".cmpfail a.btn"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#s1:not(.hidden)");
+      assert.equal(await page.isVisible("#carry"), false); assert.equal(await page.inputValue("#t0"), "");
+    } finally { await ctx.close(); }
+    const c2 = await freePage(h, w, hgt);
+    try {
+      // för stor text (över handoff-gränsen)
+      await c2.page.goto(h.base + "/"); await c2.page.click("#paste"); await c2.page.evaluate(() => { document.getElementById("txt").value = "x".repeat(4600000); });
+      await c2.page.click("#cmpo-go"); await c2.page.waitForSelector(".cmpfail"); assert.match(await c2.page.textContent(".cmpfail"), /för stor/);
+      // gammal, trasig, ogiltig och saknad handoff på /jamfor/
+      const seed = async (val) => { await c2.page.goto(h.base + "/jamfor/"); await c2.page.evaluate((v) => { if (v === null) sessionStorage.removeItem("sd_handoff_v1"); else sessionStorage.setItem("sd_handoff_v1", v); }, val); await c2.page.goto(h.base + "/jamfor/#fran=gratis"); await c2.page.reload(); await c2.page.waitForSelector("#carry:not(.hidden)"); };
+      const cases = [
+        [JSON.stringify({ v: 1, at: 1, exp: Date.now() - 1000, doc: { kind: "text", text: "gammal" } }), /finns inte kvar/],
+        ["{inte json", /gick inte att läsa/],
+        [JSON.stringify({ v: 1, at: 1, exp: Date.now() + 60000, doc: { kind: "pdf", dataBase64: "@@@" } }), /gick inte att läsa/],
+        [JSON.stringify({ v: 2, exp: Date.now() + 60000, doc: { kind: "text", text: "x" } }), /gick inte att läsa/],
+        [null, /Vi hittar ingen medföljande offert/],
+      ];
+      for (const [val, re] of cases) {
+        await seed(val);
+        assert.equal((await c2.page.textContent("#carry-h")).trim(), "Ingen offert följde med"); assert.match(await c2.page.textContent("#carry"), re);
+        assert.notEqual((await c2.page.textContent("#carry-h")).trim(), "Din första offert följer med.");
+        assert.equal(await c2.page.inputValue("#t0"), ""); assert.equal(await c2.page.evaluate(() => document.getElementById("f0").files.length), 0);
+        assert.equal(await c2.page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null, "gammal/trasig handoff städad");
+        assert.ok(await noSideScroll(c2.page));
+      }
+      await c2.page.screenshot({ path: join(EVIDENCE, `gratis_${name}_6_handoff_saknas.png`), fullPage: true });
+      // blockerad läsning på /jamfor/
+      await c2.page.addInitScript(() => { if (location.pathname.startsWith("/jamfor")) { Storage.prototype.getItem = function (k) { if (k === "sd_handoff_v1") throw new DOMException("blocked", "SecurityError"); return null; }; } });
+      await c2.page.goto(h.base + "/jamfor/#fran=gratis"); await c2.page.reload(); await c2.page.waitForSelector("#carry:not(.hidden)");
+      assert.match(await c2.page.textContent("#carry"), /tillåter inte tillfällig lagring/);
+      assert.deepEqual(c2.errors, []);
+    } finally { await c2.ctx.close(); await h.close(); }
+  });
+}

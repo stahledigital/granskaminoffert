@@ -113,12 +113,14 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
 
 <div id="closed" class="card hidden" role="status"></div>
 <div id="err" class="err hidden" role="alert"></div>
+<div id="hoconf" class="card hidden" role="region" aria-labelledby="hoconf-h" tabindex="-1"></div>
 
 <!-- STEG 1 -->
 <section id="s1" class="hidden" aria-labelledby="h-s1">
   <ol class="steps" aria-label="Steg"><li aria-current="step">1 Offerter</li><li>2 Kontroll</li><li>3 Betala</li><li>4 Resultat</li></ol>
   <h2 id="h-s1">Hur många offerter vill du jämföra?</h2>
   <div class="seg" role="group" aria-label="Antal offerter"><button type="button" data-n="2" aria-pressed="true">2</button><button type="button" data-n="3" aria-pressed="false">3</button><button type="button" data-n="4" aria-pressed="false">4</button></div>
+  <div id="carry" class="card hidden" role="region" aria-labelledby="carry-h"></div>
   <div id="slots"></div>
   <p class="hint" id="limits"></p>
   <label class="chk"><input type="checkbox" id="samejob"><span id="t-samejob">Jag bekräftar att offerterna gäller samma jobb. Annars blir jämförelsen missvisande.</span></label>
@@ -215,7 +217,8 @@ async function init(){
   try{cfg=(await api('GET','/compare/config')).json}catch(e){cfg=null}
   state.cfg=cfg;footerInfoLink(cfg);
   var rec=readRecovery();
-  if(rec){state.order=rec;show('s3',true);return resume()}
+  var fromFree=/(^|[#&])fran=gratis(&|$)/.test(location.hash);
+  if(rec){state.order=rec;show('s3',true);if(fromFree)hoConflict();return resume()}
   if(!cfg||!cfg.enabled||!cfg.accepting){
     var c=$('closed');c.textContent='';
     c.appendChild(el('h2',{text:'Jämförelsen är inte öppen än'}));
@@ -228,6 +231,7 @@ async function init(){
   $('limits').textContent='Varje fil får vara högst '+Math.round(cfg.limits.maxFileBytes/1e6)+' MB (PDF, foto eller text), PDF högst ca '+cfg.limits.maxPdfPagesPerDoc+' sidor. Tillsammans högst '+Math.round(cfg.limits.maxTotalBytes/1e6)+' MB. Ta gärna bara sidorna med pris och villkor.';
   fillCopy(cfg);
   buildSlots();show('s1',true);
+  if(fromFree)hoApply();
 }
 function fillList(id,items){var u=$(id);u.textContent='';(items||[]).forEach(function(t){u.appendChild(el('li',{text:t}))})}
 function fillCopy(cfg){
@@ -270,11 +274,89 @@ function buildSlots(){
     name.addEventListener('input',function(){s.label=name.value});
     var file=el('input',{type:'file',id:'f'+i,accept:'.pdf,image/*,.txt','aria-label':'Fil för offert '+(i+1)});
     var info=el('p',{class:'hint',id:'fi'+i,text:'Ingen fil vald.'});
-    file.addEventListener('change',function(){s.file=file.files[0]||null;s.text='';ta.value='';info.textContent=s.file?s.file.name+' ('+Math.max(1,Math.round(s.file.size/1024))+' kB)':'Ingen fil vald.'});
+    file.addEventListener('change',function(){if(i===0)dropCarried();s.file=file.files[0]||null;s.text='';ta.value='';info.textContent=s.file?s.file.name+' ('+Math.max(1,Math.round(s.file.size/1024))+' kB)':'Ingen fil vald.'});
     var ta=el('textarea',{id:'t'+i,placeholder:'…eller klistra in offertens text här','aria-label':'Text för offert '+(i+1)});
-    ta.addEventListener('input',function(){s.text=ta.value;if(ta.value){s.file=null;file.value='';info.textContent='Inklistrad text.'}});
+    ta.addEventListener('input',function(){if(i===0&&state.carried&&ta.value!==state.carried.text)dropCarried();s.text=ta.value;if(ta.value){s.file=null;file.value='';info.textContent='Inklistrad text.'}});
     host.appendChild(el('div',{class:'card'},el('h3',{style:'margin-top:0',text:'Offert '+(i+1)}),el('label',{class:'t','for':'lab'+i,text:'Namn på hantverkaren (valfritt)'}),name,el('label',{class:'t','for':'f'+i,text:'Fil (PDF, foto eller text)'}),file,info,ta));
   })(i)}
+  if(state.carried)fillCarried(true);
+}
+// ---------- offert som följt med från den gratis granskningen (lokal, kortlivad engångshandoff) ----------
+// Skapas bara av ett aktivt klick på gratissidan, ligger i sessionStorage (aldrig i adressen, aldrig i händelser/loggar), förbrukas när ordern skapas och slängs när den gått ut.
+// Inget anrop till modell, betalning eller källor görs av att den följer med: kunden måste själv välja Kontrollera.
+var HO_KEY='sd_handoff_v1';
+function hoClear(){try{sessionStorage.removeItem(HO_KEY)}catch(e){}}
+function hoStripHash(){try{if(/fran=gratis/.test(location.hash))history.replaceState(null,'',location.pathname+location.search)}catch(e){}}
+function hoRead(){
+  var raw;try{raw=sessionStorage.getItem(HO_KEY)}catch(e){return {state:'blocked'}}
+  if(!raw)return {state:'none'};
+  var r;try{r=JSON.parse(raw)}catch(e){return {state:'corrupt'}}
+  if(!r||r.v!==1||typeof r.exp!=='number'||!r.doc||typeof r.doc!=='object')return {state:'corrupt'};
+  if(Date.now()>r.exp)return {state:'stale'};
+  var d=r.doc;
+  if(d.kind==='text'){if(typeof d.text!=='string'||!d.text.trim())return {state:'corrupt'}}
+  else if(d.kind==='pdf'||d.kind==='image'){
+    if(typeof d.dataBase64!=='string'||!/^[A-Za-z0-9+\/]+=*$/.test(d.dataBase64)||d.dataBase64.length%4===1)return {state:'corrupt'};
+    if(d.kind==='image'&&!(typeof d.mediaType==='string'&&/^image\/[a-z0-9.+-]+$/i.test(d.mediaType)))return {state:'corrupt'};
+    if(d.filename!==undefined&&d.filename!==null&&typeof d.filename!=='string')return {state:'corrupt'};
+  }else return {state:'corrupt'};
+  return {state:'ok',doc:d};
+}
+function hoMsg(text){
+  var b=$('carry');b.textContent='';
+  b.appendChild(el('h2',{id:'carry-h',tabindex:'-1',text:'Ingen offert följde med'}));
+  b.appendChild(el('p',{text:text}));
+  show('carry',true);try{b.scrollIntoView({block:'start'});$('carry-h').focus({preventScroll:true})}catch(e){}
+}
+function hoApply(){
+  var r=hoRead();
+  if(r.state==='ok'){state.carried=r.doc;fillCarried();return}
+  var t={blocked:'Webbläsaren tillåter inte tillfällig lagring, så din offert kunde inte följa med. Lägg in dina offerter här nedan.',
+    corrupt:'Den medföljande offerten gick inte att läsa. Lägg in dina offerter här nedan.',
+    stale:'Den medföljande offerten finns inte kvar – den sparas bara en kort stund. Lägg in dina offerter här nedan.',
+    none:'Vi hittar ingen medföljande offert – den sparas bara en kort stund och bara i den flik där du klickade. Lägg in dina offerter här nedan.'}[r.state];
+  if(r.state!=='none'&&r.state!=='blocked')hoClear();
+  hoMsg(t);hoStripHash();
+}
+function b64bytes(b){var bin=atob(b),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u}
+function fillCarried(quiet){
+  var d=state.carried,s=state.slots[0];if(!d||!s)return;
+  var label;
+  try{
+    if(d.kind==='text'){s.text=d.text;s.file=null;$('t0').value=d.text;$('fi0').textContent='Inklistrad text (följde med från gratisgranskningen).';label='inklistrad text'}
+    else{
+      var type=d.kind==='pdf'?'application/pdf':d.mediaType;
+      var nm=(d.filename&&String(d.filename).slice(0,120))||(d.kind==='pdf'?'offert.pdf':'offert');
+      var f=new File([b64bytes(d.dataBase64)],nm,{type:type});
+      s.file=f;s.text='';$('t0').value='';
+      try{var dt=new DataTransfer();dt.items.add(f);$('f0').files=dt.files}catch(e){}
+      $('fi0').textContent=nm+' ('+Math.max(1,Math.round(f.size/1024))+' kB) – följde med från gratisgranskningen.';label=nm;
+    }
+  }catch(e){state.carried=null;hoClear();hoMsg('Den medföljande offerten gick inte att läsa. Lägg in dina offerter här nedan.');hoStripHash();return}
+  var b=$('carry');b.textContent='';
+  b.appendChild(el('h2',{id:'carry-h',tabindex:'-1',text:'Din första offert följer med.'}));
+  b.appendChild(el('p',{text:'Lägg till 1–3 offerter för samma jobb.'}));
+  b.appendChild(el('p',{class:'hint',text:'Offert 1: '+label+'. Den ligger bara kvar i den här webbläsarfliken en kort stund och skickas först när du själv väljer Kontrollera.'}));
+  var rm=el('button',{type:'button',class:'btn ghost',id:'carry-drop',text:'Ta bort den medföljande offerten'});
+  rm.addEventListener('click',function(){dropCarried(true)});b.appendChild(rm);
+  show('carry',true);
+  if(!quiet){try{b.scrollIntoView({block:'start'});$('carry-h').focus({preventScroll:true})}catch(e){}}
+}
+function dropCarried(clearSlot){
+  if(!state.carried&&!clearSlot)return;
+  state.carried=null;hoClear();hoStripHash();show('carry',false);$('carry').textContent='';
+  if(clearSlot&&state.slots[0]){var s=state.slots[0];s.file=null;s.text='';try{$('t0').value='';$('f0').value=''}catch(e){}$('fi0').textContent='Ingen fil vald.';try{$('f0').focus()}catch(e){}}
+}
+// Redan en jämförelse igång: den skrivs aldrig över och inget tas betalt igen. Den väntande offerten kastas om kunden väljer det (annars förbrukas den aldrig och går ut).
+function hoConflict(){
+  var r=hoRead();if(r.state!=='ok'){if(r.state!=='none'&&r.state!=='blocked')hoClear();hoStripHash();return}
+  var b=$('hoconf');b.textContent='';
+  b.appendChild(el('h2',{id:'hoconf-h',text:'Du har redan en jämförelse igång'}));
+  b.appendChild(el('p',{text:'Din offert från gratisgranskningen följde inte med in i den, och din pågående jämförelse är orörd. Ingenting har skickats eller debiterats.'}));
+  b.appendChild(el('p',{class:'hint',text:'Vill du jämföra ett annat jobb? Välj Börja om längre ned när du är klar med den här.'}));
+  var keep=el('button',{type:'button',class:'btn acc',id:'hoconf-keep',text:'Fortsätt med min jämförelse'});
+  keep.addEventListener('click',function(){hoClear();hoStripHash();show('hoconf',false);b.textContent=''});b.appendChild(keep);
+  show('hoconf',true);try{b.scrollIntoView({block:'start'});b.focus({preventScroll:true})}catch(e){}
 }
 document.querySelector('.seg').addEventListener('click',function(e){
   var b=e.target.closest('button');if(!b)return;state.n=Number(b.dataset.n);
@@ -300,7 +382,7 @@ $('check').addEventListener('click',async function(){
   try{
     var c=await api('POST','/compare/orders',{body:{docCount:state.n,labels:state.slots.map(function(s){return s.label}),accept:{sameJob:true}}});
     if(c.status!==201){err((c.json&&c.json.error)||'Det gick inte att starta just nu.');return}
-    state.order={id:c.json.orderId,token:c.json.token};store('jamfor_order',JSON.stringify(state.order));
+    state.order={id:c.json.orderId,token:c.json.token};store('jamfor_order',JSON.stringify(state.order));state.carried=null;hoClear();hoStripHash();
     show('s1',false);show('s2',true);$('docs').textContent='';
     var allOk=true;
     for(var k=0;k<state.n;k++){

@@ -53,6 +53,13 @@ h1 em{font-style:normal;color:var(--acc-text)}
 @media (max-width:480px){.pathsel{grid-template-columns:1fr}}
 .pathnote{margin:-8px 0 20px;font-size:15px;color:var(--ink2);max-width:52ch}
 .fromsd{margin-top:28px;border:1px solid var(--line);border-left:6px solid var(--acc);border-radius:10px;padding:16px 18px;background:var(--paper)}
+.cmpoffer,.cmpcta{margin-top:24px;border:1px solid var(--line);border-radius:10px;padding:16px 18px;background:var(--paper)}
+.cmpoffer[hidden],.cmpcta[hidden]{display:none}
+.cmph{font:700 18px Barlow,sans-serif;margin:0 0 6px}
+.cmpoffer p,.cmpcta p{margin:0 0 10px;font-size:15px;max-width:52ch}
+.cmpmeta{color:var(--ink2);font-size:14px!important}
+.cmpfail{margin-top:12px;border:1px solid var(--bad);background:var(--badsoft);border-radius:8px;padding:12px 14px;font-size:15px}
+.cmpfail .alt{margin-top:10px}
 .fromsd-tag{font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--acc-text);margin:0 0 6px}
 .fromsd p{margin:0 0 12px;font-size:15px;max-width:52ch}
 .fromsd .sub{margin:14px 0 0;font-size:14px;color:var(--ink2)}
@@ -180,6 +187,13 @@ details.gmo-all{margin-top:12px}
   <label class="optin"><input type="checkbox" id="statsopt"> <span>Bidra anonymt till prisstatistik. Sparar bara jobbtyp, län, prisband och vilka kontroller som föll ut – aldrig text, namn, företag eller belopp. <a href="/sa-granskar-vi-priser/">Läs vad som sparas</a>.</span></label>
   <div class="alt"><button class="btn" id="run">Granska</button></div>
 </div>
+
+<aside class="cmpoffer" id="cmpoffer" hidden aria-labelledby="cmpo-h">
+  <p class="cmph" id="cmpo-h" role="heading" aria-level="2">Har du fler offerter för samma jobb?</p>
+  <p>Här granskas en offert i taget, gratis. Vill du i stället jämföra 2–4 offerter för samma jobb sida vid sida – vad som ingår, pris och villkor – finns Jämför mina offerter.</p>
+  <p class="cmpmeta">Betalas en gång: <span data-cmp-price>49 kr</span> inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
+  <a class="btn" id="cmpo-go" href="/jamfor/" data-cmp="start">Jämför 2–4 offerter – <span data-cmp-price>49 kr</span></a>
+</aside>
 
 <div class="loading" id="loading" role="status" aria-live="polite">Granskningen kan ta en stund.</div>
 <div class="errbox" id="errbox" role="alert"></div>
@@ -556,6 +570,70 @@ function animateBars(){
   requestAnimationFrame(()=>requestAnimationFrame(go));
 }
 
+// ---- Övergång gratis → betald jämförelse (kandidat). Visas bara när jämförelsen är öppen enligt serverns config (annars oförändrad gratissida).
+// Första offerten följer med efter ett AKTIVT klick som lokal, kortlivad engångshandoff i sessionStorage (aldrig i adressen, aldrig i händelser/loggar). Ingen analys, betalning eller källanrop startas av navigeringen.
+const HANDOFF_KEY='sd_handoff_v1',HANDOFF_TTL=30*60*1000,HANDOFF_MAX=4500000;
+let cmpOpen=false,cmpPrice='49 kr';
+function handoffSweep(){try{const raw=sessionStorage.getItem(HANDOFF_KEY);if(!raw)return;let r=null;try{r=JSON.parse(raw)}catch(e){}if(!r||typeof r.exp!=='number'||Date.now()>r.exp)sessionStorage.removeItem(HANDOFF_KEY);}catch(e){}}
+function currentDoc(){
+  if(lastIsDemo&&lastResult&&$('res').classList.contains('on'))return null;
+  if(pendingFile)return{kind:pendingFile.kind,mediaType:pendingFile.mediaType,dataBase64:pendingFile.dataBase64,filename:pendingFile.filename};
+  const t=($('txt').value||'').trim();
+  if(!t||t===demoText.trim())return null;
+  return{kind:'text',text:t};
+}
+function putHandoff(doc){
+  try{
+    const s=JSON.stringify({v:1,at:Date.now(),exp:Date.now()+HANDOFF_TTL,doc});
+    if(s.length>HANDOFF_MAX)return false;
+    sessionStorage.setItem(HANDOFF_KEY,s);
+    if(sessionStorage.getItem(HANDOFF_KEY)!==s){sessionStorage.removeItem(HANDOFF_KEY);return false;}
+    return true;
+  }catch(e){try{sessionStorage.removeItem(HANDOFF_KEY)}catch(_){}return false;}
+}
+function cmpCtaHtml(isDemo){
+  return `<aside class="cmpcta" id="cmpcta" aria-labelledby="cmpr-h">
+    <p class="cmph" id="cmpr-h" role="heading" aria-level="2">Har du fler offerter för samma jobb?</p>
+    <p>Jämför vad som ingår, pris och villkor sida vid sida.</p>
+    <p class="cmpmeta">Betalas en gång: <span data-cmp-price>${cmpPrice}</span> inkl. moms. Ingen prenumeration, ingen automatisk dragning. ${isDemo?'Det här är en exempeloffert och följer inte med.':'Din offert här följer med när du klickar – du behöver inte ladda upp den igen.'}</p>
+    <a class="btn acc" id="cmpr-go" href="/jamfor/" data-cmp="result">Jämför 2–4 offerter – <span data-cmp-price>${cmpPrice}</span></a>
+  </aside>`;
+}
+function cmpFail(host){
+  const old=host.parentNode.querySelector('.cmpfail');if(old)old.remove();
+  const b=document.createElement('div');b.className='cmpfail';b.setAttribute('role','alert');b.tabIndex=-1;
+  b.innerHTML='<p style="margin:0">Din offert kunde inte följa med till jämförelsen. Webbläsaren tillåter inte tillfällig lagring, eller så är offerten för stor. Du kan gå vidare och lägga in den där igen, eller stanna här.</p><div class="alt"><a class="btn acc" href="/jamfor/">Gå vidare utan offerten</a><button type="button" class="btn ghost" data-stay>Stanna här</button></div>';
+  host.parentNode.insertBefore(b,host.nextSibling);
+  b.querySelector('[data-stay]').addEventListener('click',()=>{b.remove();host.focus();});
+  b.focus();
+}
+function goCompare(ev){
+  const a=ev.currentTarget;
+  if(ev.metaKey||ev.ctrlKey||ev.shiftKey||ev.button===1)return; // öppna i ny flik = ren länk utan offert
+  ev.preventDefault();
+  const doc=currentDoc();
+  if(!doc){location.assign('/jamfor/');return;}
+  if(putHandoff(doc))location.assign('/jamfor/#fran=gratis');else cmpFail(a);
+}
+function bindCmp(){document.querySelectorAll('[data-cmp]').forEach(a=>{if(!a.dataset.bound){a.dataset.bound='1';a.addEventListener('click',goCompare);}});}
+function syncCmp(){
+  document.querySelectorAll('[data-cmp-price]').forEach(n=>{n.textContent=cmpPrice;});
+  const mott=chosenPath==='mottagare',shown=$('res').classList.contains('on');
+  const o=$('cmpoffer');if(o)o.hidden=!(cmpOpen&&mott&&!shown);
+  const c=$('cmpcta');if(c)c.hidden=!(cmpOpen&&mott);
+  if(cmpOpen&&mott&&shown&&!c){const alt=$('res').querySelector(':scope > .alt');if(alt){alt.insertAdjacentHTML('beforebegin',cmpCtaHtml(lastIsDemo));bindCmp();const n=$('cmpcta');if(n)n.hidden=false;}}
+}
+(function(){
+  handoffSweep();bindCmp();
+  try{
+    const local=/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+    const base=local?(new URLSearchParams(location.search).get('api')||location.origin):API_BASE;
+    fetch(base.replace(/\/$/,'')+'/compare/config',{headers:{accept:'application/json'}}).then(r=>r.ok?r.json():null).then(c=>{
+      if(c&&c.enabled===true&&c.accepting===true&&c.offer&&Number.isFinite(c.offer.priceOre)){cmpOpen=true;cmpPrice=Math.round(c.offer.priceOre/100)+' kr';syncCmp();}
+    }).catch(()=>{});
+  }catch(e){}
+})();
+
 function render(result,isDemo){
   lastResult=result;lastIsDemo=!!isDemo;
   const clarifyN=(result.clarify||[]).length;
@@ -580,6 +658,7 @@ function render(result,isDemo){
   <h3>Prisbild</h3>${renderPriceReport(result)}
   <h3>Uppgifter som framgår (${statedN})</h3>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}
   </details>
+  ${chosenPath==='hantverkare'||!cmpOpen?'':cmpCtaHtml(isDemo)}
   <div class="alt">
     <button class="btn ghost" onclick="location.reload()">Granska en till</button>
   </div>
@@ -601,6 +680,7 @@ function render(result,isDemo){
   $('announce').textContent=(isDemo?'Exempel. ':'Granskningen är klar. ')+summary;
   const h=$('res').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}
   animateBars();
+  bindCmp();syncCmp();
   if(!isDemo)sendEvent({type:'client',event:'rapport_klar'});
 
   const copyBtn=$('copybtn');
@@ -677,6 +757,7 @@ document.querySelectorAll('.pathcard').forEach(el=>{
     document.querySelectorAll('.pathcard').forEach(c=>{c.classList.toggle('sel',c===el);c.setAttribute('aria-pressed',c===el?'true':'false');});
     $('pathnote').textContent=PATHNOTE[chosenPath];
     if(lastResult&&$('res').classList.contains('on'))render(lastResult,lastIsDemo);
+    syncCmp();
   });
 });
 
