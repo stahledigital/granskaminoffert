@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1u – mejltransport: senare stopp ersätter inte tidigare okänt utfall (root-QA ROOT_MAILER_28284; KANDIDAT – AV; ovanpå 28284f3a; ENDAST HTTP-dubbel)
+- `_stopMail`: ogiltig mottagare, ändrad nyttolast, terminal/config/409-payload efter tidigare `unknownOutcome` ⇒ `avstamning`/`utfall_okant` (`laterStop` = koden); första säkra stopp utan osäkerhet ⇒ `failed`; okänt→ID-ack ⇒ `sent`. Stabil nyckel/frusen nyttolast/dygnsreservation/confirmWait oförändrade.
+- Tester: `compare_mailer_fix.test.mjs` +7 (6 kombinationer röda mot 28284f3a); `compare_mailer.test.mjs` förväntan för 500→manipulerad nyttolast uppdaterad (failed→avstamning).
+
 ## jamfor-v1t – mejltransport: dygnstak per UTC-dygn + okänt utfall som avstämning (root-QA ROOT_MAILER_37B9; KANDIDAT – AV; ovanpå 37b9c535; ENDAST HTTP-dubbel)
 - P1: `_drainOutbox` reserverar nu `countToday` per meddelande OCH faktiskt UTC-dygn (`capDay`) före HTTP, även för omförsök efter midnatt; samma meddelande räknas högst en gång per dygn; stabil nyckel/frusen nyttolast/lease/ack-lost-skydd oförändrade; nekad ⇒ inget HTTP.
 - P2: okänt utfall till försöksslut ⇒ `avstamning`/`utfall_okant` (inte `failed`); verifierade terminala avslag förblir `failed`. `jamfor/index.html` `mailText`: ärlig text för avstämning.

@@ -668,6 +668,12 @@ export class CompareOrders {
   // Samma meddelande-ID vid omförsök; för HTTP-transporten dessutom EN stabil Idempotency-Key per meddelande och en FRYST begäran (avsändare + hash) från första försöket:
   // timeout/förlorad kvittens/omstart ger omsändning med SAMMA nyckel och SAMMA nyttolast inom leverantörens 24 h-fönster (här 23 h), aldrig ny nyckel. Efter fönstret med oklart
   // utfall ⇒ state "avstamning" (manuell grind, ingen blind omsändning). 409 med annan nyttolast stoppar meddelandet ("failed"); 409 pågående hanteras med begränsade omförsök.
+  // Stopp utan leverans. Har ett tidigare försök OKÄNT utfall (timeout/förlorad kvittens/5xx/409 pågår) kan leverantören redan ha accepterat det: ett senare avslag/konfig-/nyttolastfel
+  // bevisar inte att det tidigare mejlet inte skickades ⇒ "avstamning"/utfall_okant (avslagskoden sparas som senare observation). Första säkra stopp utan tidigare osäkerhet ⇒ "failed".
+  _stopMail(m, code) {
+    if (m.unknownOutcome) { m.state = "avstamning"; m.lastError = "utfall_okant"; m.laterStop = code; } else { m.state = "failed"; m.lastError = code; }
+  }
+
   async _drainOutbox(now) {
     const kind = mailerKind(this.env);
     if (kind === null) return;
@@ -688,7 +694,7 @@ export class CompareOrders {
         if (m.nextAt && m.nextAt > now) return { wait: m.nextAt };
         let req = null;
         if (kind === "http") {
-          if (!validMailTo(m.to)) { m.state = "failed"; m.lastError = "mejl_ogiltig_mottagare"; await this.state.storage.put(key, m); return null; }
+          if (!validMailTo(m.to)) { this._stopMail(m, "mejl_ogiltig_mottagare"); m.leaseUntil = null; await this.state.storage.put(key, m); return null; }
           if (m.idem && now > m.idem.firstAt + IDEM_WINDOW_MS) {
             m.state = "avstamning"; m.lastError = "idem_fonster_utgatt"; m.leaseUntil = null; await this.state.storage.put(key, m); return null; // ingen ny nyckel, ingen blind omsändning
           }
@@ -706,7 +712,7 @@ export class CompareOrders {
           req = buildMailRequest({ from: m.frozen ? m.frozen.from : http.from, to: m.to, subject: m.subject, text, attachments: m.attachments });
           const h = await requestHash(req);
           if (!m.frozen) m.frozen = { from: req.from, hash: h, at: now };
-          else if (m.frozen.hash !== h) { m.state = "failed"; m.lastError = "mejl_nyttolast_andrad"; await this.state.storage.put(key, m); return null; } // fryst nyttolast får aldrig ändras under samma nyckel
+          else if (m.frozen.hash !== h) { this._stopMail(m, "mejl_nyttolast_andrad"); m.leaseUntil = null; await this.state.storage.put(key, m); return null; } // fryst nyttolast får aldrig ändras under samma nyckel
         }
         m.attempts += 1; m.lastAttemptAt = now; m.leaseUntil = now + LEASE_MS; await this.state.storage.put(key, m);
         return { m: { ...m }, req };
@@ -729,7 +735,7 @@ export class CompareOrders {
         if (!m || m.state === "sent") return;
         m.leaseUntil = null;
         if (ack && ack.ok === true) { m.state = "sent"; m.transport = kind; m.sentAt = Date.now(); m.providerRef = typeof ack.ref === "string" ? ack.ref.slice(0, 80) : null; m.secrets = null; m.lastError = null; }
-        else if (res && (res.kind === "payload_conflict" || res.kind === "terminal" || res.kind === "config")) { m.state = "failed"; m.lastError = res.code; }
+        else if (res && (res.kind === "payload_conflict" || res.kind === "terminal" || res.kind === "config")) { this._stopMail(m, res.code); }
         else {
           m.lastError = res && res.code ? res.code : "transport";
           if (kind === "http") m.unknownOutcome = true; // ej verifierat avslag: leverantören kan ha accepterat

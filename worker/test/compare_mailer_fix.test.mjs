@@ -91,3 +91,53 @@ test("P2 verifierat terminalt avslag (422) förblir failed; rena 5xx till förs�
       assert.equal(confOf(b).state, "avstamning"); assert.equal(confOf(b).lastError, "utfall_okant"); assert.equal(f.log.mailSent.length, 0);
     } finally { f.restore(); }
   }));
+
+// ---- P2b (root-QA ROOT_MAILER_28284): ett senare stopp efter tidigare OKÄNT utfall får inte ersätta det med failed ----
+const injected = (f, mk) => { const real = globalThis.fetch; globalThis.fetch = async (input, init) => (String(input) === "https://api.resend.com/emails" && f.log.mailSent.length ? mk() : real(input, init)); return () => { globalThis.fetch = real; }; };
+const J = (status, name) => Response.json({ statusCode: status, name }, { status });
+const CASES = [
+  ["422 (terminalt avslag)", (f) => injected(f, () => J(422, "validation_error")), null],
+  ["401/403 (terminalt)", (f) => injected(f, () => J(401, "restricted_api_key")), null],
+  ["400 ogiltig nyckel (config)", (f) => injected(f, () => J(400, "invalid_idempotency_key")), null],
+  ["409 annan nyttolast (payload_conflict)", (f) => injected(f, () => J(409, "invalid_idempotent_request")), null],
+  ["ändrad nyttolast (fryst hash)", () => () => {}, (a) => { for (const [k, v] of a.store) if (k.startsWith("outbox:")) a.store.set(k, { ...v, subject: v.subject + " ändrad" }); }],
+  ["ogiltig mottagare", () => () => {}, (a) => { for (const [k, v] of a.store) if (k.startsWith("outbox:")) a.store.set(k, { ...v, to: "inte en adress" }); }],
+];
+for (const [name, install, mutate] of CASES) {
+  test(`P2b okänt utfall (accept 1, kvittens förlorad) ⇒ senare ${name} ger avstamning/utfall_okant, inte failed; ingen ny nyckel, ingen fler sändning`, () =>
+    atClock("2026-10-12T15:00:00Z", async (c) => {
+      const f = installFetch(); const fakeFetch = globalThis.fetch; let restore = () => {};
+      try {
+        const env = makeEnv({ ...SELLER, ...ON, COMPARE_MAIL_DAY_CAP: "5" }); const a = await prepare(env, f);
+        f.ctl.mailModes = ["timeout_after_accept"]; await a.obj._drainOutbox(c.get());
+        assert.equal(f.log.mailSent.length, 1); assert.equal(confOf(a).unknownOutcome, true); assert.equal(confOf(a).state, "queued");
+        restore = install(f); if (mutate) mutate(a);
+        const mails = f.log.mail.length;
+        for (let i = 0; i < 3; i++) { c.adv(400_000); clear(a); await a.obj._drainOutbox(c.get()); }
+        const m = confOf(a);
+        assert.equal(m.state, "avstamning", name); assert.equal(m.lastError, "utfall_okant"); assert.ok(m.laterStop || mutate, "senare stopp noterat");
+        assert.equal(f.log.mailSent.length, 1);
+        const before = f.log.mail.length; clear(a); await a.obj._drainOutbox(c.get()); assert.equal(f.log.mail.length, before, "avstämning är terminal för automatisk sändning");
+        assert.equal(new Set(f.log.mail.map((x) => x.idem)).size, 1, "aldrig ny nyckel"); assert.ok(f.log.mail.length >= mails);
+      } finally { restore(); globalThis.fetch = fakeFetch; f.restore(); }
+    }));
+}
+
+test("P2b första säkra stopp utan tidigare osäkerhet ⇒ failed (422, ogiltig mottagare); okänt→verkligt ID-ack ⇒ sent", () =>
+  atClock("2026-10-12T16:00:00Z", async (c) => {
+    const f = installFetch();
+    try {
+      const env = makeEnv({ ...SELLER, ...ON, COMPARE_MAIL_DAY_CAP: "9" });
+      const a = await prepare(env, f); f.ctl.mailModes = ["422"]; await a.obj._drainOutbox(c.get());
+      assert.equal(confOf(a).state, "failed"); assert.equal(confOf(a).lastError, "mejl_http_422"); assert.equal(confOf(a).unknownOutcome, undefined);
+      const b = await prepare(env, f); for (const [k, v] of b.store) if (k.startsWith("outbox:")) b.store.set(k, { ...v, to: "inte en adress" });
+      await b.obj._drainOutbox(c.get()); assert.equal(confOf(b).state, "failed"); assert.equal(confOf(b).lastError, "mejl_ogiltig_mottagare");
+      // okänt (accept, kvittens förlorad) → nästa försök får ID-ack ⇒ sent, samma nyckel, EN accept
+      const d = await prepare(env, f); f.ctl.mailModes = ["timeout_after_accept"]; await d.obj._drainOutbox(c.get());
+      assert.equal(confOf(d).state, "queued"); c.adv(400_000); clear(d); await d.obj._drainOutbox(c.get());
+      assert.equal(confOf(d).state, "sent"); assert.ok(confOf(d).providerRef); assert.equal(f.log.mailSent.filter((x) => x.idem === "mail-" + confOf(d).id).length, 1);
+      // 5xx först, sedan ack ⇒ sent
+      const e = await prepare(env, f); f.ctl.mailModes = ["500", "ok"]; await e.obj._drainOutbox(c.get()); c.adv(400_000); clear(e); await e.obj._drainOutbox(c.get());
+      assert.equal(confOf(e).state, "sent");
+    } finally { f.restore(); }
+  }));

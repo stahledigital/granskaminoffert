@@ -207,7 +207,8 @@ test("fryst nyttolast: ändrad säljar-/avsändarkonfiguration efter köandet ä
     const env = mockless(ON); g.ctl.mailMode = "500"; const { orderId } = await paid(env, g); const n = g.log.mail.length;
     const st = store(env, orderId), k = confKey(env, orderId); st.set(k, { ...st.get(k), subject: "MANIPULERAT ÄMNE", nextAt: 0, leaseUntil: null }); g.ctl.mailMode = "ok";
     await env.COMPARE_ORDERS.peek(orderId).obj.alarm();
-    assert.equal(conf(env, orderId).state, "failed"); assert.equal(conf(env, orderId).lastError, "mejl_nyttolast_andrad"); assert.equal(g.log.mail.length, n, "ingen sändning med ändrad nyttolast under samma nyckel");
+    // första försöket gav 500 (okänt utfall) ⇒ senare nyttolastfel ersätter inte det okända: avstämning, avslagskoden noteras
+    assert.equal(conf(env, orderId).state, "avstamning"); assert.equal(conf(env, orderId).lastError, "utfall_okant"); assert.equal(conf(env, orderId).laterStop, "mejl_nyttolast_andrad"); assert.equal(g.log.mail.length, n, "ingen sändning med ändrad nyttolast under samma nyckel");
   } finally { g.restore(); }
 });
 
