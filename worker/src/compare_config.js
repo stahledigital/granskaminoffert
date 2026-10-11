@@ -112,15 +112,26 @@ export function sellerInfo(env) {
   // Konfigfel rapporteras som kod, aldrig med värdet.
   const errors = form === "ENSKILD" && orgRaw !== "" ? ["orgnr_forbidden_enskild"] : [];
   const ph = (v, label) => v || `[${label} – fylls i före skarp drift]`;
-  return {
-    form: formOk ? form : "",
-    name: ph(name, "Säljare"), owner: form === "ENSKILD" ? ph(owner, "ägarens namn") : "",
-    orgnr: form === "AB" ? ph(orgAB, "org.nr") : "", // ENSKILD: aldrig något nummer; ogiltigt/förbjudet värde återges aldrig
-    email: ph(email, "kontakt-e-post"), address: ph(address, "adress"), phone: ph(phone, "telefon"),
-    infoUrl: ph(infoUrl, "länk till företagsuppgifter"),
-    showVat, vat: showVat ? ph(ok.vat ? vatRaw : "", "momsreg.nr") : "",
-    placeholder: missing.length > 0 || errors.length > 0, missing, errors,
+  // Robust default-redaktion vid förbjudet ENSKILD-org.nr: identifieraren får inte kunna återges via NÅGOT annat fält (t.ex. VAT = SE + samma siffror,
+  // namn, adress, telefon, länk). Ett fält som innehåller hela strängen eller hela sifferföljden ersätts av platshållare och räknas som saknat (bara fältnamnet rapporteras);
+  // VAT-raden släpps helt så länge konfigfelet finns. Ingen del av det förbjudna värdet lämnar funktionen.
+  const bad = new Set();
+  const digits = errors.length ? orgRaw.replace(/\D/g, "") : "";
+  const clean = (key, v) => {
+    if (!errors.length || !v) return v;
+    if ((orgRaw && v.includes(orgRaw)) || (digits.length >= 4 && v.replace(/\D/g, "").includes(digits))) { bad.add(key); return ""; }
+    return v;
   };
+  const out = {
+    form: formOk ? form : "",
+    name: ph(clean("name", name), "Säljare"), owner: form === "ENSKILD" ? ph(clean("owner", owner), "ägarens namn") : "",
+    orgnr: form === "AB" ? ph(orgAB, "org.nr") : "", // ENSKILD: aldrig något nummer; ogiltigt/förbjudet värde återges aldrig
+    email: ph(clean("email", email), "kontakt-e-post"), address: ph(clean("address", address), "adress"), phone: ph(clean("phone", phone), "telefon"),
+    infoUrl: ph(clean("infoUrl", infoUrl || ""), "länk till företagsuppgifter"),
+    showVat: showVat && !errors.length, vat: showVat && !errors.length ? ph(ok.vat ? vatRaw : "", "momsreg.nr") : "",
+  };
+  const missingOut = [...new Set([...missing, ...bad])];
+  return { ...out, placeholder: missingOut.length > 0 || errors.length > 0, missing: missingOut, errors };
 }
 export function sellerLines(sel) {
   const orgLine = sel.form === "ENSKILD" ? "Organisationsnummer: saknas (enskild firma)" : `Organisationsnummer: ${sel.orgnr || "[org.nr – fylls i före skarp drift]"}`;

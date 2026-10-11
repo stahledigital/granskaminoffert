@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1q-fix1 – säljarinfo: no-echo även via VAT/andra fält; docs-synk footerlänk (root-QA P1; KANDIDAT – AV; ovanpå a6a98a08)
+- Rotorsak (reproducerad av root): ENSKILD med förbjudet 12-siffrigt org.nr + VAT = SE+samma siffror + `COMPARE_CONFIRM_SHOW_VAT=1` ⇒ `sellerInfo` saniterade org.nr men lämnade VAT ⇒ identifieraren syntes i `terms.seller.vat` och säljarsektionen trots köpstopp.
+- Nu: vid konfigfel släpps VAT-raden helt och varje fält som innehåller värdet eller dess sifferföljd redigeras till platshållare (bara fältnamn i `missing`). Giltig ENSKILD med tillåten, osammanfallande VAT fungerar oförändrat. Nytt negativt test (rött mot a6a98a08) + positivt kontrollfall.
+- Docs: ångrasidans footer är bara den statiska reservlänken (hämtar inte config); COMPARE.md synkad mot verklig funktion. Ingen produkt-/budget-/juridikändring.
+
 ## jamfor-v1q – konfigurerbar säljarinfo AB/ENSKILD (Modesty §5h; teknisk OFFLINEförlaga, KANDIDAT – AV; ovanpå b9650b3f)
 - `COMPARE_SELLER_FORM` (AB|ENSKILD) obligatorisk; ENSKILD kräver ägare och tomt org.nr (annars konfigfel `orgnr_forbidden_enskild`, värdet återges aldrig, ordrar stängda i alla lägen); AB kräver org.nr med Luhn + tredje siffran ≥ 2 (personnummer avvisas). Namn/adress/e-post/telefon/https-företagsuppgiftslänk krävs. VAT valfri, visas bara med `COMPARE_CONFIRM_SHOW_VAT=1` (då SE+12 krävs).
 - Form/ägare/org.nr-rad/VAT-flagga/länk ingår i termsSnapshot ⇒ samtyckeshash, avtalspost, bekräftelse. Kassan visar samma säljarrader direkt; länk "Företagsuppgifter" i footer på /jamfor/, villkor, ångra. Ingen ändring av offert-/prislogik, canonical eller publik företagssida.

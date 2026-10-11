@@ -62,6 +62,34 @@ test("fall 4: ENSKILD med org.nr ⇒ konfigfel orgnr_forbidden_enskild, stängt 
   }
 });
 
+test("P1 (root): ENSKILD + förbjudet 12-siffrigt org.nr + VAT = SE + samma siffror + SHOW_VAT=1 ⇒ identifieraren återges ingenstans (VAT, snapshot, publik config, sellerLines; ordrar/mejl kan inte uppstå när konfigfel stänger)", async () => {
+  const RAW = "199001019999", DIG = RAW;
+  const E = { ...ENS, COMPARE_SELLER_ORGNR: RAW, COMPARE_SELLER_VAT: "SE" + DIG, COMPARE_CONFIRM_SHOW_VAT: "1" };
+  const s = sellerInfo(E);
+  assert.deepEqual(s.errors, ["orgnr_forbidden_enskild"]); assert.equal(s.placeholder, true); assert.equal(s.vat, ""); assert.equal(s.showVat, false);
+  const env = { ...E, COMPARE_ENABLED: "1", COMPARE_PAYMENTS: "test", COMPARE_MAILER_MODE: "mock" };
+  const dump = JSON.stringify({ s, lines: sellerLines(s), t: termsSnapshot(env), c: consentSnapshot(env), p: termsPlain(termsSnapshot(env)) });
+  for (let i = 0; i + 4 <= DIG.length; i++) assert.ok(!dump.includes(DIG.slice(i, i + 4)), "delsträng " + DIG.slice(i, i + 4));
+  assert.ok(!dump.includes("SE" + DIG));
+  const r = await api(makeEnv(E), "GET", "/compare/config"); const body = JSON.stringify(r.json);
+  assert.equal(r.status, 200); assert.equal(r.json.accepting, false); assert.deepEqual(r.json.terms.seller.errors, ["orgnr_forbidden_enskild"]);
+  for (let i = 0; i + 4 <= DIG.length; i++) assert.ok(!body.includes(DIG.slice(i, i + 4)), "publik config " + DIG.slice(i, i + 4));
+  assert.ok(!body.includes("SE" + DIG));
+  // sammanfallande värde i andra fält (namn/adress/telefon/länk) redigeras också, bara fältnamnet rapporteras
+  const e2 = sellerInfo({ ...ENS, COMPARE_SELLER_ORGNR: RAW, COMPARE_SELLER_NAME: "Firma " + RAW, COMPARE_SELLER_ADDRESS: "Gatan " + RAW.slice(0, 6) + "-" + RAW.slice(6) + ", Ort", COMPARE_COMPANY_INFO_URL: "https://example.test/" + RAW });
+  const d2 = JSON.stringify({ e2, l: sellerLines(e2) });
+  assert.ok(!d2.includes(RAW) && !d2.includes(RAW.slice(0, 6)), "inga fält återger värdet");
+  for (const k of ["name", "infoUrl"]) assert.ok(e2.missing.includes(k), k);
+});
+
+test("P1-kontroll: giltig ENSKILD med SHOW_VAT=1 och egen (osammanfallande) VAT fungerar och visar momsraden; utan fel ingen redaktion", async () => {
+  const E = { ...ENS, COMPARE_CONFIRM_SHOW_VAT: "1", COMPARE_SELLER_VAT: "SE556000000101" };
+  const s = sellerInfo(E); assert.equal(s.placeholder, false); assert.deepEqual(s.errors, []); assert.equal(s.showVat, true);
+  assert.match(sellerLines(s).join("\n"), /Momsregistreringsnummer: SE556000000101/);
+  assert.equal((await api(makeEnv(E), "GET", "/compare/config")).json.accepting, true);
+  assert.equal(sellerInfo({ ...E, COMPARE_SELLER_VAT: "" }).placeholder, true, "SHOW_VAT=1 kräver VAT");
+});
+
 test("kontroll: samma testmiljö med giltig ENSKILD-konfiguration tar emot ordrar (så stängningen i fall 4 beror på konfigfelet)", async () => {
   const r = await api(makeEnv(ENS), "GET", "/compare/config"); assert.equal(r.json.accepting, true);
   const r2 = await api(makeEnv({ ...ENS, COMPARE_SELLER_ORGNR: GOOD }), "GET", "/compare/config"); assert.equal(r2.json.accepting, false);
