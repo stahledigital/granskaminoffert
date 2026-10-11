@@ -122,6 +122,7 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
   <div class="seg" role="group" aria-label="Antal offerter"><button type="button" data-n="2" aria-pressed="true">2</button><button type="button" data-n="3" aria-pressed="false">3</button><button type="button" data-n="4" aria-pressed="false">4</button></div>
   <div id="carry" class="card hidden" role="region" aria-labelledby="carry-h"></div>
   <div id="slots"></div>
+  <p id="slotnote" class="hint hidden" role="status"></p>
   <p class="hint" id="limits"></p>
   <label class="chk"><input type="checkbox" id="samejob"><span id="t-samejob">Jag bekräftar att offerterna gäller samma jobb. Annars blir jämförelsen missvisande.</span></label>
   <button type="button" class="btn acc block" id="check">Kontrollera offerterna</button>
@@ -233,6 +234,16 @@ async function init(){
   buildSlots();show('s1',true);
   if(fromFree)hoApply();
 }
+// Gammal order som inte finns (404) eller gått ut: den skrivs inte över, den är redan borta. Den väntande första offerten från gratissidan tas då upp explicit.
+function startFreshFromGone(why){
+  if(hoRead().state!=='ok')return false;
+  var cfg=state.cfg;if(!cfg||!cfg.enabled||!cfg.accepting)return false;
+  clearTimeout(state.timer);store('jamfor_order',null);state.order=null;
+  ['s3','hoconf','recovery'].forEach(function(id){show(id,false)});$('statusbox').textContent='';
+  fillCopy(cfg);buildSlots();show('s1',true);hoApply();
+  var b=$('carry');if(b&&why){var n=el('p',{class:'hint',id:'carry-why',text:why});b.insertBefore(n,b.firstChild.nextSibling)}
+  return true;
+}
 function fillList(id,items){var u=$(id);u.textContent='';(items||[]).forEach(function(t){u.appendChild(el('li',{text:t}))})}
 function fillCopy(cfg){
   var c=cfg.offerCopy||{},t=(cfg.consent&&cfg.consent.texts)||{};
@@ -266,9 +277,17 @@ function readRecovery(){
 }
 
 // ---------- steg 1 ----------
+// Antalsbyte raderar aldrig något: redan byggda offertkort (text, fil, namn) behålls och döljs bara när antalet minskar, så 2→3→2→3 tappar ingenting.
 function buildSlots(){
-  var host=$('slots');host.textContent='';state.slots=[];
-  for(var i=0;i<state.n;i++){(function(i){
+  var host=$('slots');state.slots=state.slots||[];state.cards=state.cards||[];
+  for(var i=0;i<state.n;i++){if(!state.cards[i])makeSlot(i,host)}
+  for(var j=0;j<state.cards.length;j++){state.cards[j].classList.toggle('hidden',j>=state.n)}
+  var hid=0;for(var k=state.n;k<state.slots.length;k++){var sk=state.slots[k];if(sk&&(sk.file||(sk.text&&sk.text.trim())||(sk.label&&sk.label.trim())))hid++}
+  var hn=$('slotnote');if(hn){hn.textContent=hid?('Du har '+hid+' dold'+(hid>1?'a':'')+' offert'+(hid>1?'er':'')+' kvar med innehåll. Välj ett högre antal för att få fram '+(hid>1?'dem':'den')+' igen – ingenting har tagits bort. Dolda offerter skickas inte.'):'';show('slotnote',!!hid)}
+  if(state.carried&&!state.carriedFilled){fillCarried(true)}
+}
+function makeSlot(i,host){
+  (function(i){
     var s={label:'',file:null,text:'',name:''};state.slots[i]=s;
     var name=el('input',{type:'text',id:'lab'+i,maxlength:'40',autocomplete:'off',placeholder:'t.ex. Byggfirma AB'});
     name.addEventListener('input',function(){s.label=name.value});
@@ -277,9 +296,9 @@ function buildSlots(){
     file.addEventListener('change',function(){if(i===0)dropCarried();s.file=file.files[0]||null;s.text='';ta.value='';info.textContent=s.file?s.file.name+' ('+Math.max(1,Math.round(s.file.size/1024))+' kB)':'Ingen fil vald.'});
     var ta=el('textarea',{id:'t'+i,placeholder:'…eller klistra in offertens text här','aria-label':'Text för offert '+(i+1)});
     ta.addEventListener('input',function(){if(i===0&&state.carried&&ta.value!==state.carried.text)dropCarried();s.text=ta.value;if(ta.value){s.file=null;file.value='';info.textContent='Inklistrad text.'}});
-    host.appendChild(el('div',{class:'card'},el('h3',{style:'margin-top:0',text:'Offert '+(i+1)}),el('label',{class:'t','for':'lab'+i,text:'Namn på hantverkaren (valfritt)'}),name,el('label',{class:'t','for':'f'+i,text:'Fil (PDF, foto eller text)'}),file,info,ta));
-  })(i)}
-  if(state.carried)fillCarried(true);
+    var card=el('div',{class:'card'},el('h3',{style:'margin-top:0',text:'Offert '+(i+1)}),el('label',{class:'t','for':'lab'+i,text:'Namn på hantverkaren (valfritt)'}),name,el('label',{class:'t','for':'f'+i,text:'Fil (PDF, foto eller text)'}),file,info,ta);
+    state.cards[i]=card;host.appendChild(card);
+  })(i);
 }
 // ---------- offert som följt med från den gratis granskningen (lokal, kortlivad engångshandoff) ----------
 // Skapas bara av ett aktivt klick på gratissidan, ligger i sessionStorage (aldrig i adressen, aldrig i händelser/loggar), förbrukas när ordern skapas och slängs när den gått ut.
@@ -310,7 +329,7 @@ function hoMsg(text){
 }
 function hoApply(){
   var r=hoRead();
-  if(r.state==='ok'){state.carried=r.doc;fillCarried();return}
+  if(r.state==='ok'){state.carried=r.doc;state.carriedFilled=false;fillCarried();return}
   var t={blocked:'Webbläsaren tillåter inte tillfällig lagring, så din offert kunde inte följa med. Lägg in dina offerter här nedan.',
     corrupt:'Den medföljande offerten gick inte att läsa. Lägg in dina offerter här nedan.',
     stale:'Den medföljande offerten finns inte kvar – den sparas bara en kort stund. Lägg in dina offerter här nedan.',
@@ -321,7 +340,7 @@ function hoApply(){
 function b64bytes(b){var bin=atob(b),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u}
 function fillCarried(quiet){
   var d=state.carried,s=state.slots[0];if(!d||!s)return;
-  var label;
+  var label;state.carriedFilled=true;
   try{
     if(d.kind==='text'){s.text=d.text;s.file=null;$('t0').value=d.text;$('fi0').textContent='Inklistrad text (följde med från gratisgranskningen).';label='inklistrad text'}
     else{
@@ -344,7 +363,7 @@ function fillCarried(quiet){
 }
 function dropCarried(clearSlot){
   if(!state.carried&&!clearSlot)return;
-  state.carried=null;hoClear();hoStripHash();show('carry',false);$('carry').textContent='';
+  state.carried=null;state.carriedFilled=false;hoClear();hoStripHash();show('carry',false);$('carry').textContent='';
   if(clearSlot&&state.slots[0]){var s=state.slots[0];s.file=null;s.text='';try{$('t0').value='';$('f0').value=''}catch(e){}$('fi0').textContent='Ingen fil vald.';try{$('f0').focus()}catch(e){}}
 }
 // Redan en jämförelse igång: den skrivs aldrig över och inget tas betalt igen. Den väntande offerten kastas om kunden väljer det (annars förbrukas den aldrig och går ut).
@@ -380,7 +399,7 @@ $('check').addEventListener('click',async function(){
   for(var i=0;i<state.n;i++){var s=state.slots[i];if(!(s.file||(s.text&&s.text.trim()))){err('Offert '+(i+1)+' saknar fil eller text.');return}}
   var btn=$('check');btn.disabled=true;btn.textContent='Kontrollerar…';
   try{
-    var c=await api('POST','/compare/orders',{body:{docCount:state.n,labels:state.slots.map(function(s){return s.label}),accept:{sameJob:true}}});
+    var c=await api('POST','/compare/orders',{body:{docCount:state.n,labels:state.slots.slice(0,state.n).map(function(s){return s.label}),accept:{sameJob:true}}});
     if(c.status!==201){err((c.json&&c.json.error)||'Det gick inte att starta just nu.');return}
     state.order={id:c.json.orderId,token:c.json.token};store('jamfor_order',JSON.stringify(state.order));state.carried=null;hoClear();hoStripHash();
     show('s1',false);show('s2',true);$('docs').textContent='';
@@ -435,7 +454,7 @@ async function resume(){
 async function tick(cancelled){
   var r;
   try{r=await api('GET','/compare/orders/'+state.order.id,{token:state.order.token})}catch(e){setStatus('Kunde inte nå tjänsten just nu. Försöker igen…');state.timer=setTimeout(tick,4000);return}
-  if(r.status===404){store('jamfor_order',null);setStatus('Ordern hittades inte. Den kan ha gått ut (24 timmar) eller raderats.',true);return}
+  if(r.status===404){if(startFreshFromGone('Din tidigare jämförelse hittades inte (den kan ha gått ut eller raderats), så den är inte påverkad av detta. Du börjar en ny.'))return;store('jamfor_order',null);setStatus('Ordern hittades inte. Den kan ha gått ut (24 timmar) eller raderats.',true);return}
   var o=r.json.order;if(!o){state.timer=setTimeout(tick,4000);return}
   $('reclink').textContent=recoveryLink();show('recovery',true);
   var box=$('statusbox');box.textContent='';
@@ -495,7 +514,7 @@ function withdrawBlock(o){
   return box;
 }
 function setStatus(t,bad){var b=$('statusbox');b.textContent='';b.appendChild(el('p',{text:t}));if(bad)b.appendChild(restartBtn())}
-function restartBtn(){var b=el('button',{type:'button',class:'btn ghost',text:'Börja om'});b.addEventListener('click',function(){store('jamfor_order',null);location.href=location.pathname});return b}
+function restartBtn(){var b=el('button',{type:'button',class:'btn ghost',text:'Börja om'});b.addEventListener('click',function(){var keep=hoRead().state==='ok';store('jamfor_order',null);location.href=location.pathname+(keep?'#fran=gratis':'');if(keep)location.reload()});return b}
 async function retryPay(){
   // Inget samtycke skickas i det tysta: servern återanvänder bara ett samtycke som kunden redan gett till SAMMA text (hash).
   var r=await api('POST','/compare/orders/'+state.order.id+'/checkout',{token:state.order.token});
@@ -1049,7 +1068,7 @@ function srcRender(view,mode){
 }
 function srcForm(){
   var f=$('srcform');f.textContent='';
-  var rows=[];state.slots.forEach(function(s,i){if(s.label&&s.label.trim())rows.push(i)});
+  var rows=[];state.slots.slice(0,state.n).forEach(function(s,i){if(s.label&&s.label.trim())rows.push(i)});
   if(!rows.length){f.appendChild(el('p',{class:'hint',text:'Skriv hantverkarens namn på offerten (steg 1) för att kunna se källor.'}));return}
   rows.forEach(function(i){
     f.appendChild(el('div',{class:'srcfirm'},el('b',{text:'Offert '+(i+1)+' – '+state.slots[i].label}),

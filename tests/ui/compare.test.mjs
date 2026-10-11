@@ -1524,7 +1524,7 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       await c2.page.goto(h.base + "/"); await c2.page.click("#paste"); await c2.page.evaluate(() => { document.getElementById("txt").value = "x".repeat(4600000); });
       await c2.page.click("#cmpo-go"); await c2.page.waitForSelector(".cmpfail"); assert.match(await c2.page.textContent(".cmpfail"), /för stor/);
       // gammal, trasig, ogiltig och saknad handoff på /jamfor/
-      const seed = async (val) => { await c2.page.goto(h.base + "/jamfor/"); await c2.page.evaluate((v) => { if (v === null) sessionStorage.removeItem("sd_handoff_v1"); else sessionStorage.setItem("sd_handoff_v1", v); }, val); await c2.page.goto(h.base + "/jamfor/#fran=gratis"); await c2.page.reload(); await c2.page.waitForSelector("#carry:not(.hidden)"); };
+      const seed = async (val) => { await c2.page.goto(h.base + "/jamfor/"); await c2.page.waitForSelector("#s1:not(.hidden)"); await c2.page.evaluate((v) => { if (v === null) sessionStorage.removeItem("sd_handoff_v1"); else sessionStorage.setItem("sd_handoff_v1", v); }, val); await c2.page.goto(h.base + "/jamfor/#fran=gratis"); await c2.page.reload(); await c2.page.waitForSelector("#carry:not(.hidden)"); };
       const cases = [
         [JSON.stringify({ v: 1, at: 1, exp: Date.now() - 1000, doc: { kind: "text", text: "gammal" } }), /finns inte kvar/],
         ["{inte json", /gick inte att läsa/],
@@ -1547,5 +1547,74 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       assert.match(await c2.page.textContent("#carry"), /tillåter inte tillfällig lagring/);
       assert.deepEqual(c2.errors, []);
     } finally { await c2.ctx.close(); await h.close(); }
+  });
+}
+
+// Commit 1 – dataförlust vid antalbyte och återhämtning med väntande första offert (root-repro 9b287506).
+for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
+  test(`gratis→betald (${name}): antalbyte raderar aldrig inskrivna offerter (2→3, redigerad medföljande 3→2→3, filer, namn); dolda skickas inte`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors } = await freePage(h, w, hgt);
+    try {
+      await page.goto(h.base + "/"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
+      await page.click("#cmpr-go"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#carry:not(.hidden)");
+      await page.fill("#lab1", "Firma Två"); await page.fill("#t1", OFFERS[1]);
+      await page.click('.seg button[data-n="3"]');
+      assert.equal(await page.inputValue("#t0"), DOC_TEXT); assert.equal(await page.inputValue("#t1"), OFFERS[1]); assert.equal(await page.inputValue("#lab1"), "Firma Två");
+      await page.fill("#t2", OFFERS[2]);
+      // redigera medföljande offert 1 och gå 3→2→3
+      const edited = DOC_TEXT + "\nEgen ändring.";
+      await page.fill("#t0", edited);
+      await page.click('.seg button[data-n="2"]');
+      assert.equal(await page.inputValue("#t0"), edited, "redigerad första offert består"); assert.equal(await page.inputValue("#t1"), OFFERS[1]);
+      assert.equal(await page.isVisible("#t2"), false, "tredje är dold"); assert.match(await page.textContent("#slotnote"), /dold offert kvar/);
+      await page.click('.seg button[data-n="3"]');
+      assert.equal(await page.inputValue("#t2"), OFFERS[2], "dold offert återkommer orörd"); assert.equal(await page.isVisible("#slotnote"), false);
+      // fil i slot 1, byte 3→2→3
+      await page.setInputFiles("#f1", { name: "o.txt", mimeType: "text/plain", buffer: Buffer.from("Filoffert 55 000 kr") });
+      await page.click('.seg button[data-n="2"]'); await page.click('.seg button[data-n="4"]'); await page.click('.seg button[data-n="2"]');
+      assert.match(await page.textContent("#fi1"), /o\.txt/);
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_7_antalbyte_behaller.png`), fullPage: true });
+      // dold offert 3 (innehåll) skickas inte: ordern får 2 dokument
+      const posted = []; page.on("request", (r) => { if (r.method() === "POST" && /\/compare\/orders$/.test(r.url())) posted.push(r.postData()); });
+      await page.check("#samejob"); await page.click("#check"); await page.waitForSelector("#offer:not(.hidden)", { timeout: 15000 });
+      assert.equal(JSON.parse(posted[0]).docCount, 2); assert.equal(JSON.parse(posted[0]).labels.length, 2);
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+
+  test(`gratis→betald (${name}): gammal order med 404 blockerar inte handoff – ny offert tas upp explicit, Börja om behåller #fran=gratis, befintlig giltig order skyddas`, async () => {
+    const h = await startHarness();
+    const { ctx, page, errors, reqs } = await freePage(h, w, hgt);
+    try {
+      await page.goto(h.base + "/jamfor/"); await page.evaluate(() => localStorage.setItem("jamfor_order", JSON.stringify({ id: "ord_finnsinte", token: "x".repeat(32) })));
+      await page.goto(h.base + "/"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
+      await page.click("#cmpr-go"); await page.waitForURL("**/jamfor/**");
+      await page.waitForSelector("#carry:not(.hidden)", { timeout: 10000 });
+      assert.equal(await page.inputValue("#t0"), DOC_TEXT, "första offerten återtagen efter 404");
+      assert.match(await page.textContent("#carry"), /hittades inte/); assert.equal(await page.isVisible("#hoconf"), false); assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), null);
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_8_gammal_order_404.png`), fullPage: true });
+      // reload: samma tillstånd, ingen gammal order
+      await page.reload(); await page.waitForSelector("#carry:not(.hidden)"); assert.equal(await page.inputValue("#t0"), DOC_TEXT);
+      // Börja om efter utgången order behåller väntande offert
+      await page.evaluate(() => { localStorage.setItem("jamfor_order", JSON.stringify({ id: "ord_finnsinte2", token: "y".repeat(32) })); });
+      await page.reload(); await page.waitForSelector("#t0"); await page.waitForTimeout(500);
+      assert.equal(await page.inputValue("#t0"), DOC_TEXT);
+      assert.equal(reqs.filter((r) => r === "POST /compare/orders").length, 0, "ingen order skapad av återhämtningen");
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+
+  test(`gratis→betald (${name}): ny flik/Ctrl-klick – texten säger ärligt att offerten bara följer med i den här fliken`, async () => {
+    const h = await startHarness();
+    const { ctx, page } = await freePage(h, w, hgt);
+    try {
+      await page.goto(h.base + "/"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
+      assert.match(await page.textContent("#cmpcta"), /i den här fliken/); assert.match(await page.textContent("#cmpcta"), /ny flik följer den inte med/);
+      await page.click("#cmpr-go", { modifiers: ["Control"] }).catch(() => {}); // ren länk, ingen handoff
+      assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null);
+    } finally { await ctx.close(); await h.close(); }
   });
 }

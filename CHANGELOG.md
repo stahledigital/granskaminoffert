@@ -1,5 +1,12 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v2a – dataförlust vid antalbyte + återhämtning med väntande offert (separat rättning ovanpå 9b287506; root-repro P1/P2)
+
+- **P1:** `buildSlots` raderade alla offertkort vid antalbyte (2→3 tömde offert 2, redigerad medföljande offert 1 blev blank vid 3→2). Nu byggs kort en gång och behålls; minskat antal döljer bara kort (text, fil, namn, redigeringar består, 2→3→2→3 tappar inget), en synlig notis säger att dolda offerter finns kvar och inte skickas. Order/källor använder bara de n första.
+- **P2:** gammal order med 404 blockerar inte längre handoffen: den väntande första offerten tas upp explicit med ärlig notis (ordern fanns inte kvar); en giltig/levererad order skyddas som förut. "Börja om" behåller `#fran=gratis` när en giltig väntande offert finns.
+- **Ny flik/Ctrl-klick:** CTA-texten säger nu att offerten bara följer med i den här fliken.
+- **Tester:** `tests/ui/compare.test.mjs` +3 (×390/1280 = +6) samt en tidsrace i `ärliga fel` fixad. Inget workerbyte. Kandidat, ej canonical.
+
 ## jamfor-v1z – gratis → betald jämförelse: upptäckbar övergång + lokal engångshandoff (isolerad KANDIDAT ovanpå b4eb02a5; ROOT_FREE_TO_PAID_UX_20261011)
 
 - **Gratissidan (`/`)**, bara för rollen "Jag har fått en offert" och bara när serverns `GET /compare/config` säger `enabled && accepting` (annars helt oförändrad, 0 jämförelselänkar): (1) diskret erbjudande på startsidan, (2) CTA efter resultatet (efter "Skicka frågorna"/"Kopiera"/alla fynd, före "Granska en till"): "Har du fler offerter för samma jobb?" / "Jämför vad som ingår, pris och villkor sida vid sida." / knapp "Jämför 2–4 offerter – 49 kr" (pris ur config), "Betalas en gång: 49 kr inkl. moms. Ingen prenumeration, ingen automatisk dragning." Hantverkarrollen får ingen mottagaruppmaning. Exempelresultatet visar CTA men låter exemplet inte följa med.

@@ -595,7 +595,7 @@ function cmpCtaHtml(isDemo){
   return `<aside class="cmpcta" id="cmpcta" aria-labelledby="cmpr-h">
     <p class="cmph" id="cmpr-h" role="heading" aria-level="2">Har du fler offerter för samma jobb?</p>
     <p>Jämför vad som ingår, pris och villkor sida vid sida.</p>
-    <p class="cmpmeta">Betalas en gång: <span data-cmp-price>${cmpPrice}</span> inkl. moms. Ingen prenumeration, ingen automatisk dragning. ${isDemo?'Det här är en exempeloffert och följer inte med.':'Din offert här följer med när du klickar – du behöver inte ladda upp den igen.'}</p>
+    <p class="cmpmeta">Betalas en gång: <span data-cmp-price>${cmpPrice}</span> inkl. moms. Ingen prenumeration, ingen automatisk dragning. ${isDemo?'Det här är en exempeloffert och följer inte med.':'Din offert här följer med när du klickar i den här fliken – du behöver inte ladda upp den igen. Öppnar du länken i en ny flik följer den inte med.'}</p>
     <a class="btn acc" id="cmpr-go" href="/jamfor/" data-cmp="result">Jämför 2–4 offerter – <span data-cmp-price>${cmpPrice}</span></a>
   </aside>`;
 }
