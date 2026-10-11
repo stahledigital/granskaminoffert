@@ -815,9 +815,9 @@ function srcFirmCard(f,mode){
     var g=el('div',{class:'srcrow','data-src':'google'},el('b',{text:'Google'}),el('div',{class:'st',text:f.google.text}));
     if(f.google.confirmed){
       var box=el('div',{class:'gmpbox hidden','data-gmp':f.id});
-      var open=el('button',{type:'button',class:'btn ghost',text:'Visa Googles senaste omdömen'});
+      var open=el('button',{type:'button',class:'btn ghost',text:'Visa Googles omdömen'});
       open.addEventListener('click',function(){
-        if(SRC.mounted[f.id]){gmpUnmount(f.id);box.classList.add('hidden');open.textContent='Visa Googles senaste omdömen';return}
+        if(SRC.mounted[f.id]){gmpUnmount(f.id);box.classList.add('hidden');open.textContent='Visa Googles omdömen';return}
         box.classList.remove('hidden');open.textContent='Dölj Googles omdömen';gmpMount(f,box);
       });
       g.appendChild(open);

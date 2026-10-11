@@ -444,10 +444,10 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       await page.evaluate(() => document.querySelector("gmp-advanced-place-details").dispatchEvent(new Event("gmp-load")));
       await page.waitForFunction(() => !document.querySelector('[data-src="google"] [data-confirm="native"]').disabled);
       await f0.locator('[data-src="google"] [data-confirm="native"]').click();
-      await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles omdömen")');
       assert.equal(await page.locator("gmp-place-search").count(), 0, "söklementet avmonteras efter bekräftelse");
       await page.evaluate(() => { window.__GMP_MODE = "ok"; });
-      await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      await page.click('[data-src="google"] button:has-text("Visa Googles omdömen")');
       await page.waitForSelector("gmp-advanced-place-details", { state: "attached" });
       const cfg = await page.evaluate(() => {
         const d = document.querySelector("gmp-advanced-place-details"); const rv = d.querySelector("gmp-place-reviews");
@@ -465,7 +465,7 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       await page.click('[data-src="google"] button:has-text("Dölj Googles omdömen")');
       assert.equal(await page.locator("gmp-advanced-place-details").count(), 0);
       // öppna igen, byt firma => inget kvar
-      await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")'); await page.waitForSelector("gmp-advanced-place-details", { state: "attached" });
+      await page.click('[data-src="google"] button:has-text("Visa Googles omdömen")'); await page.waitForSelector("gmp-advanced-place-details", { state: "attached" });
       await f0.locator('[data-src="google"] button:has-text("Fel firma")').click();
       await page.waitForSelector('[data-src="google"] button:has-text("Sök firman hos Google")');
       assert.equal(await page.locator("gmp-advanced-place-details").count(), 0, "gammal firmas Googlekort lämnas inte kvar");
@@ -560,7 +560,7 @@ async function confirmNative(page, h, f0) {
   await gmpSelect(page, PID);
   await page.waitForFunction(() => !document.querySelector('[data-src="google"] [data-confirm="native"]').disabled);
   await f0.locator('[data-src="google"] [data-confirm="native"]').click();
-  await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+  await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles omdömen")');
 }
 async function toFirms(page, h) { await toOfferStep(page, h); await page.fill("#sc0", "Malmö"); await page.click("#srcgo"); await page.waitForSelector(".srcfirm[data-firm]"); return page.locator(".srcfirm[data-firm]").nth(0); }
 
@@ -573,7 +573,7 @@ test("Googles egna händelser: gmp-error och tystnad (timeout) ger källfel i vy
     await confirmNative(page, h, f0);
     // 1) gmp-error (icke-bubblande, på elementet)
     await page.evaluate(() => { window.__GMP_MODE = "error"; });
-    await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+    await page.click('[data-src="google"] button:has-text("Visa Googles omdömen")');
     await page.waitForSelector("text=kunde inte visas just nu");
     assert.equal(await page.locator("gmp-advanced-place-details").count(), 0);
     await page.waitForFunction(() => /Google – källan svarade inte \(det betyder inte att omdömen saknas\)/.test(document.getElementById("srccov").textContent));
@@ -591,7 +591,7 @@ test("Googles egna händelser: gmp-error och tystnad (timeout) ger källfel i vy
     // 4) avmontering medan laddning pågår (tyst läge): inget kvar, ingen sen händelse återuppstår
     await page.click('[data-src="google"] button:has-text("Dölj Googles omdömen")');
     await page.evaluate(() => { window.__GMP_MODE = "silent"; });
-    await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")'); await page.waitForSelector("gmp-advanced-place-details", { state: "attached" });
+    await page.click('[data-src="google"] button:has-text("Visa Googles omdömen")'); await page.waitForSelector("gmp-advanced-place-details", { state: "attached" });
     await page.click('[data-src="google"] button:has-text("Dölj Googles omdömen")');
     await page.waitForTimeout(900);
     assert.equal(await page.locator("gmp-advanced-place-details").count(), 0);
@@ -627,7 +627,7 @@ test("servermässig Text Search (endast med extra mänsklig flagga): kandidater 
     assert.equal(await f0.locator('[data-src="google"] .btn.acc').isDisabled(), true);
     assert.equal(await page.locator("gmp-place-search").count(), 0);
     await f0.locator('[data-src="google"] input[type=radio]').first().check(); await f0.locator('[data-src="google"] .btn.acc').click();
-    await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+    await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles omdömen")');
     assert.equal(h.stats.google, 1);
   } finally { await ctx.close(); await h.close(); }
 });
@@ -696,14 +696,14 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       assert.equal(new Set(mountReqs.map((r) => r.mountId)).size, 3, "nytt mountId för varje instans");
       await page.waitForFunction(() => !document.querySelector('[data-src="google"] [data-confirm="native"]').disabled);
       await f0.locator('[data-src="google"] [data-confirm="native"]').click();
-      await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles omdömen")');
       // visa omdömen = tredje detaljinstansen (taket 3 nås)
-      await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      await page.click('[data-src="google"] button:has-text("Visa Googles omdömen")');
       await page.waitForFunction(() => window.__inst === 4);
       assert.equal(mountReqs.length, 4);
       // stäng och öppna igen = fjärde detaljinstans: nekas av servern (tak 3), ingen instans skapas
       await page.click('[data-src="google"] button:has-text("Dölj Googles omdömen")');
-      await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+      await page.click('[data-src="google"] button:has-text("Visa Googles omdömen")');
       await page.waitForSelector('[data-gmp-stop="kostnadsstopp"]');
       assert.equal(mountReqs.length, 5); assert.equal(await inst(), 4, "ingen ny billbar instans efter nekad reservation");
       assert.equal(await page.locator("gmp-advanced-place-details").count(), 0);
@@ -730,9 +730,9 @@ test("Googlereservation: retry efter gmp-error är en NY reservation (nytt mount
     await page.waitForSelector("gmp-place-search", { state: "attached" });
     await gmpSelect(page, PID); await page.waitForFunction(() => !document.querySelector('[data-src="google"] [data-confirm="native"]').disabled);
     await f0.locator('[data-src="google"] [data-confirm="native"]').click();
-    await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+    await page.waitForSelector('[data-src="google"] button:has-text("Visa Googles omdömen")');
     await page.evaluate(() => { window.__GMP_MODE = "error"; });
-    await page.click('[data-src="google"] button:has-text("Visa Googles senaste omdömen")');
+    await page.click('[data-src="google"] button:has-text("Visa Googles omdömen")');
     await page.waitForSelector('button:has-text("Försök igen")');
     const before = reqs.length;
     await page.click('button:has-text("Försök igen")');
@@ -824,7 +824,7 @@ test("Newest: attribut OCH property sätts före montering och verifieras; ignor
     try {
       const f0 = await toFirms(page, h);
       await confirmNative(page, h, f0);
-      await f0.locator('[data-src="google"] button:has-text("Visa Googles senaste omdömen")').click();
+      await f0.locator('[data-src="google"] button:has-text("Visa Googles omdömen")').click();
       await page.waitForSelector("gmp-advanced-place-details", { state: "attached" });
       await page.waitForSelector('[data-gmp-order]');
       const r = await page.evaluate(() => { const b = document.querySelector("[data-gmp-order]"); return { ord: b.getAttribute("data-gmp-order"), note: !!b.querySelector("[data-gmp-order-note]"), attr: document.querySelector("gmp-place-reviews").getAttribute("rank-preference") }; });

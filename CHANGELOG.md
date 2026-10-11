@@ -1,5 +1,8 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v1r – neutral Google-knapp "Visa Googles omdömen" (root-fynd 23:04; KANDIDAT; ovanpå e00fe23a)
+- `jamfor/index.html` rad 818/820: knappen lovade alltid "Visa Googles senaste omdömen"; konfigurationen `rank-preference="newest"` är inte faktisk levererad ordning. Nu neutral text "Visa Googles omdömen" (även när widgeten stängs). Försöket med newest och ärlig täckningsstatus är oförändrade; Trustpilot-knappen ("senaste") är kvar eftersom serverns ordning verifieras. Inget Googleprov/ingen nyckel/ingen providerkostnad. UI-testerna uppdaterade till ny knapptext.
+
 ## jamfor-v1q-fix1 – säljarinfo: no-echo även via VAT/andra fält; docs-synk footerlänk (root-QA P1; KANDIDAT – AV; ovanpå a6a98a08)
 - Rotorsak (reproducerad av root): ENSKILD med förbjudet 12-siffrigt org.nr + VAT = SE+samma siffror + `COMPARE_CONFIRM_SHOW_VAT=1` ⇒ `sellerInfo` saniterade org.nr men lämnade VAT ⇒ identifieraren syntes i `terms.seller.vat` och säljarsektionen trots köpstopp.
 - Nu: vid konfigfel släpps VAT-raden helt och varje fält som innehåller värdet eller dess sifferföljd redigeras till platshållare (bara fältnamn i `missing`). Giltig ENSKILD med tillåten, osammanfallande VAT fungerar oförändrat. Nytt negativt test (rött mot a6a98a08) + positivt kontrollfall.
