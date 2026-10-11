@@ -57,6 +57,7 @@ h1 em{font-style:normal;color:var(--acc-text)}
 .cmpoffer[hidden],.cmpcta[hidden]{display:none}
 .cmph{font:700 18px Barlow,sans-serif;margin:0 0 6px}
 .cmpoffer p,.cmpcta p{margin:0 0 10px;font-size:15px;max-width:52ch}
+.cmpreviews{color:var(--ink)}
 .cmpmeta{color:var(--ink2);font-size:14px!important}
 .cmpfail{margin-top:12px;border:1px solid var(--bad);background:var(--badsoft);border-radius:8px;padding:12px 14px;font-size:15px}
 .cmpfail .alt{margin-top:10px}
@@ -191,6 +192,7 @@ details.gmo-all{margin-top:12px}
 <aside class="cmpoffer" id="cmpoffer" hidden aria-labelledby="cmpo-h">
   <p class="cmph" id="cmpo-h" role="heading" aria-level="2">Har du fler offerter för samma jobb?</p>
   <p>Här granskas en offert i taget, gratis. Vill du i stället jämföra 2–4 offerter för samma jobb sida vid sida – vad som ingår, pris och villkor – finns Jämför mina offerter.</p>
+  <p class="cmpreviews" id="cmpo-rev"><b>Jämför också företagens omdömen, betyg och antal recensioner sida vid sida när källor finns.</b> Vilka källor som finns för just dina firmor visas innan du betalar.</p>
   <p class="cmpmeta">Betalas en gång: <span data-cmp-price>49 kr</span> inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
   <a class="btn" id="cmpo-go" href="/jamfor/" data-cmp="start">Jämför 2–4 offerter – <span data-cmp-price>49 kr</span></a>
 </aside>
@@ -595,6 +597,7 @@ function cmpCtaHtml(isDemo){
   return `<aside class="cmpcta" id="cmpcta" aria-labelledby="cmpr-h">
     <p class="cmph" id="cmpr-h" role="heading" aria-level="2">Har du fler offerter för samma jobb?</p>
     <p>Jämför vad som ingår, pris och villkor sida vid sida.</p>
+    <p class="cmpreviews" id="cmpr-rev"><b>Jämför också företagens omdömen, betyg och antal recensioner sida vid sida när källor finns.</b> Vilka källor som finns för just dina firmor visas innan du betalar.</p>
     <p class="cmpmeta">Betalas en gång: <span data-cmp-price>${cmpPrice}</span> inkl. moms. Ingen prenumeration, ingen automatisk dragning. ${isDemo?'Det här är en exempeloffert och följer inte med.':'Din offert här följer med när du klickar i den här fliken – du behöver inte ladda upp den igen. Öppnar du länken i en ny flik följer den inte med.'}</p>
     <a class="btn acc" id="cmpr-go" href="/jamfor/" data-cmp="result">Jämför 2–4 offerter – <span data-cmp-price>${cmpPrice}</span></a>
   </aside>`;

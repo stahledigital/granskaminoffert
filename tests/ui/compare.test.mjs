@@ -1399,7 +1399,8 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       await page.goto(h.base + "/"); await page.waitForSelector("#cmpoffer:not([hidden])");
       const t = await page.textContent("#cmpoffer");
       assert.match(t, /Har du fler offerter för samma jobb\?/); assert.match(t, /49 kr/); assert.match(t, /inkl\. moms/); assert.match(t, /Ingen prenumeration/); assert.match(t, /1 offert|en offert i taget|jämföra 2–4 offerter/);
-      assert.equal((await page.textContent("#cmpo-go")).replace(/\s+/g, " ").trim(), "Jämför 2–4 offerter – 49 kr"); assert.equal(await page.getAttribute("#cmpo-go", "href"), "/jamfor/");
+      assert.equal((await page.textContent("#cmpo-go")).replace(/\s+/g, " ").trim(), "Jämför 2–4 offerter – 49 kr");
+      { const rv = (await page.textContent("#cmpo-rev")).replace(/\s+/g, " "); assert.ok(rv.includes("Jämför också företagens omdömen, betyg och antal recensioner sida vid sida när källor finns."), "föreslagen omdömesmening"); assert.match(rv, /Vilka källor som finns för just dina firmor visas innan du betalar\./); assert.doesNotMatch(rv, /senaste|exakt 5|alla firmor|poäng|kreditvärd|garanter|live/i, "inga överlöften/egen syntes"); assert.equal(await page.locator("#cmpo-rev").isVisible(), true); } assert.equal(await page.getAttribute("#cmpo-go", "href"), "/jamfor/");
       assert.ok(await noSideScroll(page));
       await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_1_start_erbjudande.png`), fullPage: true });
       await page.click('.pathcard[data-path="hantverkare"]'); assert.equal(await page.isVisible("#cmpoffer"), false, "ingen mottagaruppmaning till hantverkaren");
@@ -1411,6 +1412,8 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       const r = (await page.textContent("#cmpcta")).replace(/\s+/g, " ");
       assert.match(r, /Har du fler offerter för samma jobb\?/); assert.match(r, /Jämför vad som ingår, pris och villkor sida vid sida\./); assert.match(r, /49 kr inkl\. moms/); assert.match(r, /Ingen prenumeration, ingen automatisk dragning/); assert.match(r, /följer med/);
       assert.equal((await page.textContent("#cmpr-go")).replace(/\s+/g, " ").trim(), "Jämför 2–4 offerter – 49 kr");
+      { const rv = (await page.textContent("#cmpr-rev")).replace(/\s+/g, " "); assert.ok(rv.includes("Jämför också företagens omdömen, betyg och antal recensioner sida vid sida när källor finns."), "föreslagen omdömesmening"); assert.match(rv, /Vilka källor som finns för just dina firmor visas innan du betalar\./); assert.doesNotMatch(rv, /senaste|exakt 5|alla firmor|poäng|kreditvärd|garanter|live/i, "inga överlöften/egen syntes"); assert.equal(await page.locator("#cmpr-rev").isVisible(), true); }
+      assert.equal(await page.locator("#cmpcta .cmpreviews").count(), 1, "ingen dubblering i CTA");
       // gratisfrågorna finns kvar och CTA ligger efter dem
       assert.ok(await page.isVisible("#sendmail")); assert.ok(await page.isVisible("#copybtn"));
       const order = await page.evaluate(() => { const a = document.getElementById("sendmail").getBoundingClientRect().top, b = document.getElementById("cmpr-go").getBoundingClientRect().top; return a < b; });

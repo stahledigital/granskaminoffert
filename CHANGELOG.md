@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## jamfor-v2e – gratis→betald: skylta företagens omdömen i erbjudandet (copy, ovanpå 5eadff47)
+
+- `index.html`: en kompakt rad i `#cmpoffer` och i resultat-CTA (`#cmpr-rev`/`#cmpo-rev`): ”**Jämför också företagens omdömen, betyg och antal recensioner sida vid sida när källor finns.** Vilka källor som finns för just dina firmor visas innan du betalar.” Inga löften om senaste/exakt antal/alla firmor, ingen egen syntes/ryktespoäng/kreditvärdighet, inga liveprovider-påståenden (omdömen visas först där faktisk källtäckning verifierats; offline är attrapper/EXEMPEL). 49 kr inkl. moms, 2–4/en offert gratis, CTA, handoff, en-ruta och backend oförändrade. Test: gratis-UI-testen asserterar texten (båda platser, 390/1280), ingen dubblering.
+
 ## jamfor-v2d – policy P: EN kärnsammanfattning i förköpet (minimering ovanpå 4c91944e)
 
 - **Flyttat bakom Läs mer (P):** listan ”Det här får du” (+ dubblerad täckningsrad `#coverage`), begränsningstexten, ”får inte” och ”så går det till” ligger nu i det märkta avsnittet ”Läs mer: vad som ingår, vad som inte ingår, begränsningar och hur det går till”. I retry-vyn ligger begränsningar under ”Läs mer: begränsningar”.
