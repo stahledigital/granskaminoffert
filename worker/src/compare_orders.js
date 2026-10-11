@@ -17,7 +17,7 @@
 //   draft|ready|awaiting_payment → expired | cancelled(=ready igen vid avbruten kassa)
 //   delivered|failed|… → deleted (innehållet raderat på kundens begäran)
 
-import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy, mailerKind } from "./compare_config.js";
+import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy, mailerKind, FULFILMENT_POINTS } from "./compare_config.js";
 import { mailHttpConfig, mailIdemKey, buildMailRequest, requestHash, sendViaHttp, validMailTo, IDEM_WINDOW_MS, LEASE_MS } from "./compare_mailer.js";
 import { countToday, dayKey } from "./compare_budget.js";
 import { timingSafeEqual, sha256Hex } from "./compare_util.js";
@@ -30,7 +30,57 @@ import { PREID_MAX_ATTEMPTS } from "./compare_preid.js";
 const MAX_EVENTS = 64;
 
 // Start-/förlustsamtycke fullständigt för ordern: policy P kräver BÅDA rutorna (frusna värden med tid), policy Q den gamla rutan.
-const startAccepted = (a) => !!a && (a.policy === "P" ? a.startNow === true && a.loseRight === true && !!(a.consents && a.consents.startNow && a.consents.startNow.at && a.consents.loseRight && a.consents.loseRight.at && a.consents.terms && a.consents.terms.at) : a.immediateDelivery === true);
+const startAccepted = (a) => !!a && (a.policy === "P" ? a.startNow === true && a.loseRight === true && a.terms === true && !!(a.consents && ["terms", "startNow", "loseRight"].every((k) => a.consents[k] && a.consents[k].value === true && Number.isFinite(a.consents[k].at))) : a.immediateDelivery === true);
+
+// ---- Policy P: stark bevisprövning (servern litar aldrig på att fälten bara finns) ----
+const HEX64 = /^[0-9a-f]{64}$/;
+const jeq = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+// Samtyckena prövas mot den frusna snapshoten (text/version/hash), orderbindning, tider och avtalsposten i ledgern. Returnerar lista med motsägelser (tom = ok).
+async function consentProblems(o, ledger) {
+  const a = o.accept || {};
+  const bad = [];
+  const snap = a.snapshot;
+  if (a.policy !== "P" || !snap || typeof snap !== "object" || snap.policy !== "P") return ["policy"];
+  if (!startAccepted(a)) bad.push("varde");
+  if (!HEX64.test(String(a.consentHash || "")) || (await sha256Hex(JSON.stringify(snap))) !== a.consentHash) bad.push("snapshot_hash");
+  if (typeof a.consentVersion !== "string" || snap.consentVersion !== a.consentVersion) bad.push("version");
+  if (!FULFILMENT_POINTS.includes(a.fulfilmentPoint) || a.fulfilmentPoint !== snap.fulfilmentPoint) bad.push("fullgorandepunkt");
+  const cons = a.consents || {};
+  for (const k of ["terms", "startNow", "loseRight"]) {
+    const c = cons[k];
+    if (!c || c.value !== true) { bad.push(`${k}:varde`); continue; }
+    if (c.orderId !== o.id) bad.push(`${k}:order`);
+    if (c.textId !== `${k}@${snap.consentVersion}`) bad.push(`${k}:textId`);
+    if (typeof (snap.texts && snap.texts[k]) !== "string" || c.textHash !== (await sha256Hex(snap.texts[k]))) bad.push(`${k}:textHash`);
+    if (!Number.isFinite(c.at) || c.at !== a.acceptedAt || (o.paidAt && c.at > o.paidAt)) bad.push(`${k}:tid`);
+  }
+  // Avtalsposten (frusen vid betalning) måste visa exakt samma val, text-hashar, punkt och avtalad prestation.
+  const ag = ledger && ledger.agreement;
+  if (!ag || ag.orderId !== o.id || !ag.p || ag.p.policy !== "P") bad.push("ledger");
+  else {
+    const pr = (c) => ({ at: c && c.at, textId: c && c.textId, textHash: c && c.textHash });
+    for (const k of ["terms", "startNow", "loseRight"]) if (!jeq(pr(ag.p.consents && ag.p.consents[k]), pr(cons[k]))) bad.push(`ledger:${k}`);
+    if (ag.p.fulfilmentPoint !== a.fulfilmentPoint) bad.push("ledger:punkt");
+    if (ag.p.agreed !== undefined && !jeq(ag.p.agreed, a.agreed)) bad.push("ledger:avtalat");
+    if (ag.accepted && ag.accepted.hash !== undefined && ag.accepted.hash !== a.consentHash) bad.push("ledger:hash");
+  }
+  return bad;
+}
+// Bekräftelsen: rätt mejl-ID, transportkvittens "sent" med samma tid, före arbetsstart och före rapportens leverans.
+function confirmationProblems(o, mail) {
+  const a = o.accept || {}, c = a.confirmation, bad = [];
+  if (!c || typeof c !== "object") return ["saknas"];
+  if (c.mailId !== `mail_avtal_${o.id}`) bad.push("id");
+  if (!mail || mail.state !== "sent" || mail.id !== c.mailId) bad.push("ej_sent");
+  else if (!Number.isFinite(mail.sentAt) || mail.sentAt !== c.sentAt) bad.push("sentAt");
+  if (!Number.isFinite(c.sentAt) || !Number.isFinite(c.at) || c.sentAt > c.at) bad.push("tid");
+  const started = o.work && o.work.startedAt;
+  const rep = o.delivery && o.delivery.report;
+  if (rep && !Number.isFinite(started)) bad.push("start_saknas");
+  if (Number.isFinite(started) && !(c.sentAt <= started)) bad.push("efter_start");
+  if (rep && Number.isFinite(rep.at) && !(c.sentAt <= rep.at)) bad.push("efter_rapport");
+  return bad;
+}
 
 function publicView(o, now) {
   const steps = (o.work && o.work.steps) || {};
@@ -283,9 +333,10 @@ export class CompareOrders {
         // Policy P: varje val fryses som eget värde med tid, text-ID och text-hash; avtalad prestation (rapport + täckta källfirmor) fryses i samma steg.
         const ev = async (key) => ({ value: true, at: now, textId: `${key}@${snapshot.consentVersion}`, textHash: await sha256Hex(snapshot.texts[key]), orderId: o.id });
         const coveredIds = sv.active ? sv.firms.filter((f) => f.google.state === "tillganglig" || f.trustpilot.state === "tillganglig").map((f) => f.id) : [];
+        const providers = Object.fromEntries(sv.firms.filter((f) => coveredIds.includes(f.id)).map((f) => [f.id, ["google", "trustpilot"].filter((pv) => f[pv].state === "tillganglig")])); // exakt vilka källor som är avtalade per firma
         o.accept = { ...base, policy: "P", startNow: true, loseRight: true, fulfilmentPoint: snapshot.fulfilmentPoint,
           consents: { terms: await ev("terms"), startNow: await ev("startNow"), loseRight: await ev("loseRight") },
-          agreed: { report: true, sources: { required: coveredIds.length > 0, coveredIds, coverageHash: await sha256Hex(JSON.stringify(cv.lines || [])) } } };
+          agreed: { report: true, sources: { required: coveredIds.length > 0, coveredIds, providers, coverageHash: await sha256Hex(JSON.stringify(cv.lines || [])) } } };
       }
       await this._save(o);
       return { body: { ok: true } };
@@ -386,12 +437,18 @@ export class CompareOrders {
       if (!o || !["paid", "running"].includes(o.status)) return { open: true };
       if (o.work.lease && o.work.lease.until > now) return { open: true };
       // Policy P: ingen start utan båda frusna samtycken (stark kontroll mot manipulerad/ofullständig orderpost) – annars avbryts ordern och återbetalas, ingen generation.
-      if (o.accept && o.accept.policy === "P" && !startAccepted(o.accept)) return { fail: true, reason: "samtycke_saknas" };
+      if (o.accept && o.accept.policy === "P") {
+        const cp = await consentProblems(o, await this.state.storage.get("ledger"));
+        if (cp.length) return { fail: true, reason: "samtycke_saknas" };
+      }
       const m = await this.state.storage.get(`outbox:mail_avtal_${o.id}`);
       if (m && m.state === "sent") {
         let dirty = false;
         if (o.work.waiting) { o.work.waiting = null; dirty = true; }
-        if (o.accept && o.accept.policy === "P" && !o.accept.confirmation) { o.accept.confirmation = { mailId: m.id, sentAt: m.sentAt || now, at: now }; dirty = true; } // bekräftelse skickad FÖRE start
+        if (o.accept && o.accept.policy === "P") {
+          if (!o.accept.confirmation) { o.accept.confirmation = { mailId: m.id, sentAt: m.sentAt, at: Date.now() }; dirty = true; } // bekräftelse skickad FÖRE start
+          if (confirmationProblems(o, m).length) return { fail: true, reason: "bekraftelse_motstrider" }; // motstridig bekräftelse ⇒ ingen generation, återbetalning
+        }
         if (dirty) await this._save(o);
         return { open: true };
       }
@@ -410,6 +467,7 @@ export class CompareOrders {
       if (o.work.attempts >= LIMITS.maxOrderAttempts) { return { exhausted: true }; } // inget nytt försök, ingen ny generation
       const owner = `${now}-${Math.random().toString(36).slice(2, 10)}`;
       o.work.attempts += 1;
+      if (!o.work.startedAt) o.work.startedAt = Date.now(); // första generationens start (bekräftelsen måste vara skickad före denna tid)
       o.work.lease = { owner, until: now + LIMITS.leaseMs };
       o.status = "running";
       await this._save(o);
@@ -506,10 +564,14 @@ export class CompareOrders {
         o.status = "delivered";
         o.work.deliveredAt = Date.now();
         o.reportKey = r.reportKey;
-        if (o.accept && o.accept.policy === "P") o.delivery = { report: { at: o.work.deliveredAt, hash: r.reportHash || null, orderId: o.id }, sources: {} }; // leveranshändelse (tid + innehållshash) för fullgörandet
+        let proof = null;
+        if (o.accept && o.accept.policy === "P") {
+          o.delivery = { report: { at: o.work.deliveredAt, hash: r.reportHash || null, orderId: o.id }, sources: {} }; // leveranshändelse (tid + innehållshash) för fullgörandet
+          proof = { orderId: o.id, at: o.work.deliveredAt, hash: r.reportHash || null }; // andra, separat sparad kopia av leveransbeviset
+        }
         o.purgeKeys = [...new Set([...(o.purgeKeys || []), ...o.docs.map((d) => d.key).filter(Boolean)])];
         o.docs = o.docs.map((d) => ({ ...d, key: null }));
-        await this._save(o);
+        if (proof) await this._commit({ put: { order: o, deliveryproof: proof } }); else await this._save(o);
         return null;
       }
       if (r.state === "retry" && o.work.attempts < LIMITS.maxOrderAttempts) {
@@ -706,30 +768,69 @@ export class CompareOrders {
     const a = o.accept || {};
     if (a.policy !== "P") return { fulfilled: false, state: "q", missing: [], point: null };
     const missing = [];
-    if (!startAccepted(a) || !a.consentHash || !(a.consents.startNow.textHash && a.consents.loseRight.textHash)) missing.push("samtycke");
+    const ledger = await this.state.storage.get("ledger");
+    if ((await consentProblems(o, ledger)).length) missing.push("samtycke");
     const m = await this.state.storage.get(`outbox:mail_avtal_${o.id}`);
-    if (!(m && m.state === "sent") || !a.confirmation) missing.push("bekraftelse");
+    if (confirmationProblems(o, m).length) missing.push("bekraftelse");
     const d = o.delivery;
-    if (!d || !d.report || !d.report.at || !d.report.hash) missing.push("rapport");
-    const ids = (a.agreed && a.agreed.sources && a.agreed.sources.required && Array.isArray(a.agreed.sources.coveredIds)) ? a.agreed.sources.coveredIds : [];
-    for (const id of ids) if (!(d && d.sources && d.sources[id] && d.sources[id].at)) missing.push(`kalla:${id}`);
+    const rep = d && d.report;
+    if (!(await this._reportEvidenceOk(o, rep))) missing.push("rapport");
+    const sg = a.agreed && a.agreed.sources;
+    const ids = sg && sg.required && Array.isArray(sg.coveredIds) ? sg.coveredIds : [];
+    for (const id of ids) if (!this._sourceEvidenceOk(sg, id, d, rep)) missing.push(`kalla:${id}`);
+    if (sg && sg.required && !ids.length) missing.push("kalla:tom");
     const point = a.fulfilmentPoint === "fonster_slut" ? "fonster_slut" : a.fulfilmentPoint === "leverans" ? "leverans" : null;
     if (!point) missing.push("fullgorandepunkt");
     if (missing.length) return { fulfilled: false, state: "ej_fullgjord", missing, point };
-    const last = Math.max(d.report.at, ...ids.map((id) => d.sources[id].at));
-    const fulfilledAt = point === "fonster_slut" ? Math.max(last, d.report.at + OFFER.retentionHours * 3600_000) : last;
+    const last = Math.max(rep.at, ...ids.map((id) => d.sources[id].at));
+    const fulfilledAt = point === "fonster_slut" ? Math.max(last, rep.at + OFFER.retentionHours * 3600_000) : last;
     if (now < fulfilledAt) return { fulfilled: false, state: "vantar_fonster", missing: [], point, fulfilledAt };
     return { fulfilled: true, state: "fullgjord", missing: [], point, fulfilledAt };
   }
 
-  // Kvittens att avtalad källvisning gjorts tillgänglig (bara täckta firmor i den frusna täckningen, bara efter levererad rapport, en gång per firma).
+  // Rapportens leveransbevis: orderbindning, tid = faktisk leveranstid, 64-hex innehållshash, samma värden i den separat sparade kopian, och (så länge rapporten finns kvar) hash av den FAKTISKT lagrade rapporten.
+  async _reportEvidenceOk(o, rep) {
+    if (!rep || rep.orderId !== o.id || !HEX64.test(String(rep.hash || "")) || !Number.isFinite(rep.at) || o.status !== "delivered" || rep.at !== (o.work && o.work.deliveredAt)) return false;
+    const pr = await this.state.storage.get("deliveryproof");
+    if (!pr || pr.orderId !== o.id || pr.hash !== rep.hash || pr.at !== rep.at) return false;
+    if (o.reportKey) {
+      let txt = null;
+      try { txt = await this.env.REVIEWS_KV.get(o.reportKey); } catch { txt = null; }
+      if (typeof txt === "string" && (await sha256Hex(txt)) !== rep.hash) return false; // lagrad rapport matchar inte leveransbeviset
+    }
+    return true;
+  }
+
+  // Källbevis per täckt firma: varje frusen (avtalad) källa ska ha verifierad visning efter rapportleverans. "ingen_kalla" räknas aldrig för en täckt firma.
+  _sourceEvidenceOk(sg, id, d, rep) {
+    const want = sg && sg.providers && Array.isArray(sg.providers[id]) ? sg.providers[id] : null;
+    const e = d && d.sources && d.sources[id];
+    if (!want || !want.length || !e || e.state !== "visad" || !Number.isFinite(e.at) || !rep || e.at < rep.at) return false;
+    return want.every((pv) => e.providers && e.providers[pv] === "ok");
+  }
+
+  // Källkvittens (policy P). Klientens påstådda läge är aldrig bevis: servern prövar sin EGEN källstatus för firman mot den frusna täckningen.
+  // Google: bekräftad profil + visningen i webbläsaren rapporterad "ok" (REPORTED, kvitteras bara vid lyckad visning). Trustpilot: bekräftad firma + serverns egen hämtning "ok".
+  // Källfel/tomt/kostnadsstopp/ej bekräftad/delvis ⇒ ingen kvittens ⇒ rätten kvar. "ingen_kalla" för en täckt firma avvisas.
   async _sourceDelivered(o, b, now) {
     const a = o.accept || {};
+    const sg = a.agreed && a.agreed.sources;
     if (a.policy !== "P" || o.status !== "delivered" || !o.delivery || !o.delivery.report) return { status: 409, body: { ok: false, error: "status" } };
-    const ids = a.agreed && a.agreed.sources && a.agreed.sources.required ? a.agreed.sources.coveredIds : [];
-    if (!ids.includes(b.firmId) || !["visad", "ingen_kalla"].includes(b.state)) return { status: 409, body: { ok: false, error: "ogiltig" } };
+    const ids = sg && sg.required && Array.isArray(sg.coveredIds) ? sg.coveredIds : [];
+    const want = sg && sg.providers && Array.isArray(sg.providers[b.firmId]) ? sg.providers[b.firmId] : [];
+    if (!ids.includes(b.firmId) || b.state !== "visad" || !want.length) return { status: 409, body: { ok: false, error: "ogiltig" } };
+    const st = (await this.state.storage.get("sources")) || emptySources();
+    const f = (st.firms || []).find((x) => x.id === b.firmId);
+    if (!f) return { status: 409, body: { ok: false, error: "kalla_ej_verifierad" } };
+    const res = {};
+    for (const pv of want) {
+      if (pv === "google") res.google = f.google && f.google.placeId && f.google.renderOutcome === "ok" ? "ok" : "ej_ok";
+      else if (pv === "trustpilot") res.trustpilot = f.trustpilot && f.trustpilot.buId && f.trustpilot.lastOutcome === "ok" ? "ok" : "ej_ok";
+      else res[pv] = "ej_ok";
+    }
+    if (!want.every((pv) => res[pv] === "ok")) return { status: 409, body: { ok: false, error: "kalla_ej_verifierad" } };
     o.delivery.sources = o.delivery.sources || {};
-    if (!o.delivery.sources[b.firmId]) { o.delivery.sources[b.firmId] = { state: b.state, at: now }; await this._save(o); }
+    if (!o.delivery.sources[b.firmId]) { o.delivery.sources[b.firmId] = { state: "visad", at: Math.max(now, o.delivery.report.at), providers: res }; await this._save(o); }
     return { body: { ok: true } };
   }
 

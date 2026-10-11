@@ -725,7 +725,12 @@ function gmpFail(id,ver,box,retry,cb,renderFirm){
 }
 function gmpReport(f,outcome){
   if(!f||!f.google||!f.google.confirmed||!SRC.view)return;
-  srcApi('POST','/google/render',{firmId:f.id,outcome:outcome}).then(function(r){if(r&&r.status===200&&r.json&&r.json.sources){SRC.view=r.json.sources;srcCov(r.json.sources)}},function(){});
+  srcApi('POST','/google/render',{firmId:f.id,outcome:outcome}).then(function(r){if(r&&r.status===200&&r.json&&r.json.sources){SRC.view=r.json.sources;srcCov(r.json.sources);if(outcome==='ok')srcReceipt(f.id)}},function(){});
+}
+// Kvittens på avtalad källvisning (policy P): skickas bara efter LYCKAD visning i rapportläget. Servern prövar sin egen källstatus – klientens påstående räknas inte; fel/tomt/delvis ger ingen kvittens.
+function srcReceipt(firmId){
+  if(!state.order||SRC.mode!=='report')return;
+  api('POST','/compare/orders/'+state.order.id+'/source-delivered',{token:state.order.token,body:{firmId:firmId,state:'visad'}}).then(function(){},function(){});
 }
 // Serverreservation FÖRE varje billbar Googleinstans (Search/AdvancedDetails): preview, valbyte, återöppning och retry/remount ger ny reservation.
 // Varje instans får ett nytt mountId; servern ger aldrig ny tillåtelse på ett gammalt. Nekas/fel ⇒ ingen instans skapas (fail closed).
@@ -807,7 +812,7 @@ async function tpAuto(view,depth){
     if(!f.trustpilot||!f.trustpilot.confirmed||tpOfFirm(f)||(SRCTPTRY[f.id]&&SRCTPTRY[f.id].sig===sig))continue;
     SRCTPTRY[f.id]={sig:sig,state:1};
     var res=null;
-    try{var r=await srcApi('POST','/trustpilot/latest',{firmId:f.id});var cd=r&&r.status===200&&r.json&&r.json.card;if(cd&&cd.trustScore!==null&&cd.totalReviews!==null)res={score:cd.trustScore,count:cd.totalReviews}}catch(e){}
+    try{var r=await srcApi('POST','/trustpilot/latest',{firmId:f.id});var cd=r&&r.status===200&&r.json&&r.json.card;if(cd&&cd.trustScore!==null&&cd.totalReviews!==null){res={score:cd.trustScore,count:cd.totalReviews};if(r.json.outcome==='ok')srcReceipt(f.id)}}catch(e){}
     var cur=curFirm(f.id);
     if(!cur||firmSig(cur)!==sig){stale=true;continue} // identiteten/kopplingen ändrades under tiden: sent svar kastas
     if(res)SRCTPD[f.id]={sig:sig,score:res.score,count:res.count};else SRCTPTRY[f.id]={sig:sig,state:2};
@@ -897,7 +902,7 @@ function srcFirmCard(f,mode){
         lb.disabled=true;out.textContent='';out.appendChild(el('p',{class:'hint',text:'Hämtar…'}));
         var r=await srcApi('POST','/trustpilot/latest',{firmId:f.id});lb.disabled=false;out.textContent='';
         if(r.status!==200){out.appendChild(el('p',{class:'err',text:(r.json&&r.json.error)||'Gick inte.'}));return}
-        srcTp(out,f,r.json);
+        srcTp(out,f,r.json);if(r.json&&r.json.outcome==='ok')srcReceipt(f.id);
       });
       t.appendChild(lb);
       if(srcInter(mode)){var ct=el('button',{type:'button',class:'btn ghost',style:'margin-left:8px',text:'Fel firma? Byt'});ct.addEventListener('click',async function(){var r=await srcApi('POST','/unconfirm',{firmId:f.id,provider:'trustpilot'});if(r.status===200)srcRender(r.json.sources,mode)});t.appendChild(ct)}

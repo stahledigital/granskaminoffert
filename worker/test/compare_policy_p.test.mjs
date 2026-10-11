@@ -222,24 +222,18 @@ test("fonster_slut: levererad men fönstret ej slut ⇒ ångerrätt kvar (stopp 
   } finally { f.restore(); }
 });
 
-test("partiell prestation / källtäckning: saknad kvittens för täckt firma ⇒ ej fullgjord ⇒ ångerrätt kvar; fullgjord först när ALLA kvitterats; kvittensrutten skyddad och begränsad", async () => {
+test("källkvittens utan täckning/före leverans avvisas; den verkliga täckningskedjan (frusna källor, serververifierad visning, partiellt/källfel) testas i compare_policy_p_evidence.test.mjs", async () => {
   const f = installFetch();
   try {
     const env = makeEnv(PE); env.COMPARE_MAILER = mailer();
-    const mk = async () => { const o = await paidP(env, f, { run: false }); const s = st(env, o.orderId); const ord = s.get("order"); ord.accept.agreed.sources = { required: true, coveredIds: ["f_aaa", "f_bbb"], coverageHash: "x" }; s.set("order", ord); await env.COMPARE_ORDERS.runAlarms(); return o; }; // täckningen injiceras (D07-flödet testas separat)
-    const a = await mk(); let v = await view(env, a.orderId, a.token);
-    assert.equal(v.status, "delivered"); assert.equal(v.rights.angerratt, "kvar"); assert.equal(v.rights.state, "ej_fullgjord");
     const send = (o, body, token) => api(env, "POST", `/compare/orders/${o.orderId}/source-delivered`, { token: token ?? o.token, body });
-    assert.equal((await send(a, { firmId: "f_zzz", state: "visad" })).status, 409, "okänd firma");
+    const a = await paidP(env, f); let v = await view(env, a.orderId, a.token);
+    assert.equal(v.rights.angerratt, "upphord", "ingen avtalad källtäckning ⇒ rapporten är hela prestationen");
+    assert.equal((await send(a, { firmId: "f_aaa", state: "visad" })).status, 409, "firma utanför täckningen");
+    assert.equal((await send(a, { firmId: "f_aaa", state: "ingen_kalla" })).status, 409);
     assert.equal((await send(a, { firmId: "f_aaa", state: "kallfel" })).status, 400, "kallfel är ingen leverans");
     assert.equal((await send(a, { firmId: "f_aaa", state: "visad" }, "fel-token")).status, 404);
-    assert.equal((await send(a, { firmId: "f_aaa", state: "visad" })).status, 200); v = await view(env, a.orderId, a.token); assert.equal(v.rights.angerratt, "kvar", "en av två räcker inte");
-    assert.equal((await send(a, { firmId: "f_bbb", state: "ingen_kalla" })).status, 200); v = await view(env, a.orderId, a.token); assert.equal(v.rights.angerratt, "upphord");
-    // partiellt: ånger efter bara en kvittens ⇒ full refund
-    const b = await mk(); await send(b, { firmId: "f_aaa", state: "visad" });
-    const r = await withdraw(env, b.orderId, b.token); assert.equal(r.json.withdrawal.outcome, "angrat_fore_fullgoring"); assert.deepEqual(ledgerOf(env, b.orderId).withdrawal.fulfilment.missing, ["kalla:f_bbb"]); assert.equal(f.log.refunds.length, 1);
-    // kvittens före levererad rapport / för Q-order avvisas
-    const c = await paidP(env, f, { run: false }); assert.equal((await send(c, { firmId: "f_aaa", state: "visad" })).status, 409);
+    const c = await paidP(env, f, { run: false }); assert.equal((await send(c, { firmId: "f_aaa", state: "visad" })).status, 409, "före levererad rapport");
   } finally { f.restore(); }
 });
 

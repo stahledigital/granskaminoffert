@@ -8,6 +8,9 @@ import { signForTest } from "../../src/compare_stripe.js";
 import { sha256Hex } from "../../src/compare_util.js";
 import worker from "../../src/index.js";
 import { gateVars } from "./free_gate.mjs";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+const cbwLock = new AsyncLocalStorage();
 
 export function memoryKv() {
   const m = new Map();
@@ -25,6 +28,7 @@ function fakeNs(Cls, env) {
     if (!objs.has(name)) {
       const store = new Map();
       let alarm = null;
+      let cbwTail = Promise.resolve();
       const state = {
         storage: {
           async get(k) { const v = store.get(k); return v === undefined ? undefined : structuredClone(v); },
@@ -42,7 +46,13 @@ function fakeNs(Cls, env) {
           async setAlarm(t) { alarm = t; },
           async getAlarm() { return alarm; },
         },
-        async blockConcurrencyWhile(fn) { return fn(); },
+        // Som Cloudflare: blockConcurrencyWhile släpper inte in andra händelser (fetch/alarm) förrän återanropet är klart (här återinträdande, så inbäddade anrop i samma kedja inte låser sig).
+        async blockConcurrencyWhile(fn) {
+          if (cbwLock.getStore() === name) return fn();
+          const prev = cbwTail; let release; cbwTail = new Promise((r) => { release = r; });
+          await prev;
+          try { return await cbwLock.run(name, fn); } finally { release(); }
+        },
       };
       if (env.__noTxn) delete state.storage.transaction;
       const o = { obj: new Cls(state, env), tail: Promise.resolve(), store, get alarm() { return alarm; }, clearAlarm() { alarm = null; } };

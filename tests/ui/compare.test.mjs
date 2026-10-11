@@ -781,6 +781,47 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
   });
 }
 
+// Policy P + källor: täckningen (Trustpilot bekräftad före köp) fryses; i rapportläget kvitterar UI visningen först när servern fått en lyckad hämtning; källfel ⇒ ingen kvittens ⇒ ångerrätten kvar på köpsidan.
+for (const [label, tpFails] of [["lyckad visning ⇒ ångerrätten upphör", false], ["källfel ⇒ ångerrätten kvar", true]]) {
+  test(`policy P + källor (mobil390): ${label}`, async () => {
+    const h = await startHarness({ vars: { ...SRC_VARS, COMPARE_CONSENT_POLICY: "P" } }); seedSources(h);
+    const { ctx, page, errors } = await newPage(h, 390, 844);
+    await page.addInitScript(gmpDouble);
+    const receipts = [];
+    page.on("request", (r) => { if (/\/source-delivered$/.test(r.url()) && r.method() === "POST") receipts.push(JSON.parse(r.postData() || "{}")); });
+    try {
+      await toOfferStep(page, h);
+      await page.fill("#sc0", "Malmö"); await page.fill("#sd0", "byggfirma.se"); await page.click("#srcgo"); await page.waitForSelector(".srcfirm[data-firm]");
+      const f0 = page.locator(".srcfirm[data-firm]").nth(0);
+      await f0.locator('[data-src="trustpilot"] button:has-text("Sök firman hos Trustpilot")').click();
+      await page.waitForSelector('[data-src="trustpilot"] input[type=radio]');
+      await f0.locator('[data-src="trustpilot"] input[type=radio]').first().check();
+      await f0.locator('[data-src="trustpilot"] .btn.acc').click();
+      await page.waitForSelector('[data-src="trustpilot"] button:has-text("Visa Trustpilots senaste")');
+      if (tpFails) h.ctl.tpLatest = {}; // efter täckningen fryst: källan svarar inte
+      await payFlowP(page, h, OFFERS, { here: true });
+      await page.waitForSelector("#rep:not(.hidden)", { timeout: 30000 });
+      await page.waitForSelector("#rep .srcfirm[data-firm]", { state: "attached", timeout: 15000 });
+      await page.waitForTimeout(1500);
+      assert.equal(await page.locator("#rep #withdraw").count(), 0, "inget stort ångerblock i rapporten");
+      if (!tpFails) {
+        await page.waitForFunction(() => /Trustpilot/.test(document.getElementById("rep").textContent) && document.querySelectorAll(".tprev").length > 0, null, { timeout: 15000 }).catch(() => {});
+        if (!receipts.length) { const b = page.locator('#rep [data-src="trustpilot"] button:has-text("Visa Trustpilots senaste")'); if (await b.count()) await b.first().click(); await page.waitForTimeout(1500); }
+        assert.ok(receipts.length >= 1, "UI skickade kvittens efter lyckad visning"); assert.equal(receipts[0].state, "visad");
+      } else {
+        await page.waitForTimeout(1500);
+        assert.equal(receipts.length, 0, "ingen kvittens vid källfel");
+      }
+      await page.click("#rep a#buylink"); await page.waitForURL("**/jamfor/kop/**");
+      if (!tpFails) { await page.waitForSelector("#rightsend", { timeout: 15000 }); assert.equal(await page.locator("#withdraw").count(), 0); }
+      else { await page.waitForSelector("#rightskept", { timeout: 15000 }); assert.ok(await page.isVisible("#withdraw")); }
+      assert.ok(await noSideScroll(page));
+      await page.screenshot({ path: join(EVIDENCE, `jamfor_mobil390_P4_kallor_${tpFails ? "fel" : "ok"}.png`), fullPage: true });
+      assert.deepEqual(errors.filter((e) => !/Failed to load resource|status of 5|status of 4/.test(String(e))), []);
+    } finally { await ctx.close(); await h.close(); }
+  });
+}
+
 test("policy P, fonster_slut (mobil390): levererad men fönstret ej slut ⇒ köpsidan visar att ångerrätten finns och ångern ger full återbetalning", async () => {
   const h = await startHarness({ vars: { COMPARE_CONSENT_POLICY: "P", COMPARE_FULFILMENT_POINT: "fonster_slut" } });
   const { ctx, page, errors } = await newPage(h, 390, 844);
