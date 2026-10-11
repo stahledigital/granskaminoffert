@@ -86,7 +86,7 @@ export const DISCLAIMERS = Object.freeze([
   "Detta är inte juridisk rådgivning.",
 ]);
 
-export function assembleReport({ order, labels, compared, priority, now = Date.now() }) {
+export function assembleReport({ order, labels, compared, priority, now = Date.now(), sourceCards = null }) {
   const pr = applyPriority(compared.differences, priority);
   const report = {
     version: COMPARE_VERSION,
@@ -113,7 +113,8 @@ export function assembleReport({ order, labels, compared, priority, now = Date.n
       })(),
     },
     questions: compared.questions,
-    sourceCards: compared.offers.map((o) => ({ offerIndex: o.index, state: "ej_aktiverad" })),
+    sourceCards: Array.isArray(sourceCards) ? sourceCards : compared.offers.map((o) => ({ offerIndex: o.index, state: "ej_aktiverad" })), // faktisk källstatus per offert, frusen när rapporten byggs (före mejlet); aldrig omdömesinnehåll
+    sourcesFrozenAt: new Date(now).toISOString(),
     receipt: buildReceipt(order),
     disclaimers: DISCLAIMERS,
   };

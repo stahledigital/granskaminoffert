@@ -633,7 +633,12 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (o.status !== "delivered" || !o.reportKey) return reply({ error: "Rapporten är inte klar.", status: o.status }, 409);
     const rep = await env.REVIEWS_KV.get(o.reportKey, "json");
     if (!rep) return reply({ error: "Rapporten har gått ut och är raderad.", expired: true }, 410);
-    return reply({ ok: true, report: rep });
+    // Aktuell källstatus (offentliga kundbekräftade profiler) bredvid den frusna: samma rapportrutt, ingen ny åtkomst. PDF/mejl visar alltid den frusna revisionen.
+    let live = null;
+    try { const sc = await orderCall(env, id, "/source-cards", { offers: (rep.offers || []).map((x) => x.index), now: Date.now() }); if (sc.status === 200 && Array.isArray(sc.json.cards)) live = sc.json; } catch { /* frusna kortet gäller */ }
+    const key = (cards) => JSON.stringify((cards || []).map((c) => [c.offerIndex, c.state, c.google && c.google.state, c.google && c.google.profileUrl, c.google && c.google.confirmedAt, c.firm && c.firm.name]));
+    const changed = !!live && key(live.cards) !== key(rep.sourceCards);
+    return reply({ ok: true, report: rep, ...(live ? { sourceLive: { cards: live.cards, asOf: live.asOf, changedSinceDelivery: changed, frozenAt: rep.sourcesFrozenAt || rep.createdAt } } : {}) });
   }
 
   if (sub === "checkout" && request.method === "POST") {

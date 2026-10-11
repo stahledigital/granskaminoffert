@@ -25,7 +25,7 @@ import { agreementPdf, reportPdf, b64Bytes } from "./compare_docs.js";
 import { stripLedger, validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow, reportReadyMail } from "./compare_ledger.js";
 import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } from "./compare_stripe.js";
 import { runPipeline } from "./compare_run.js";
-import { sourcesConfig, applyOp, emptySources, sourcesView, LIM as SRC_LIM } from "./compare_sources.js";
+import { sourcesConfig, applyOp, emptySources, sourcesView, sourceCardsFor, LIM as SRC_LIM } from "./compare_sources.js";
 import { PREID_MAX_ATTEMPTS } from "./compare_preid.js";
 
 const MAX_EVENTS = 64;
@@ -255,6 +255,13 @@ export class CompareOrders {
       return { body: { ok: true } };
     }
     if (path === "/internal") return { body: { ok: true, order: o } };
+    // D07-rättelse: aktuell källstatus per offert (offentliga, kundbekräftade profiler) för den befintliga rapportrutten. Intern (anropas först efter /report-auth i rutten),
+    // ingen ny åtkomst och inget omdömesinnehåll. Efter 24 h/radering tomt.
+    if (path === "/source-cards") {
+      const gone = ["deleted", "expired"].includes(o.status) || o.contentDeleted || now > Math.max(o.expiresAt, ((o.work && o.work.deliveredAt) || 0) + OFFER.retentionHours * 3600_000);
+      if (gone || !Array.isArray(b.offers)) return { body: { ok: true, cards: null } };
+      return { body: { ok: true, cards: sourceCardsFor(sourcesConfig(this.env), (await this.state.storage.get("sources")) || emptySources(), b.offers.map((i) => ({ index: i }))), asOf: new Date(now).toISOString() } };
+    }
     if (path === "/refund-update") return this._refundUpdate(o, b, now);
     if (path === "/mail-event") return this._mailEvent(o, b, now);
     if (path === "/withdraw") return this._withdraw(o, b, now);
@@ -627,6 +634,7 @@ export class CompareOrders {
           return true;
         });
       },
+      async sources() { return (await self.state.storage.get("sources")) || null; },
       async getAux(name) { return (await self.state.storage.get(`aux:${name}`)) || null; },
       async putAux(name, value) {
         return self._tx(async () => {

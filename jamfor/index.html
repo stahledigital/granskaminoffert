@@ -342,7 +342,7 @@ async function showResultLink(id,tok){
   show('s1',false);show('s2',false);show('s3',true);
   var box=$('statusbox');box.textContent='';box.appendChild(el('p',{text:'Hämtar din jämförelse…'}));
   var rr;try{rr=await api('GET','/compare/orders/'+id+'/report',{token:tok})}catch(e){box.textContent='';box.appendChild(el('p',{text:'Kunde inte nå tjänsten just nu. Ladda om sidan om en stund.'}));return}
-  if(rr.status===200&&rr.json.report){show('s3',false);renderReport(rr.json.report,{id:id,readOnly:true});return}
+  if(rr.status===200&&rr.json.report){show('s3',false);renderReport(rr.json.report,{id:id,readOnly:true,sourceLive:rr.json.sourceLive});return}
   box.textContent='';
   box.appendChild(el('p',{text:rr.status===409?'Jämförelsen är inte klar än. Försök igen om en stund.':rr.status===410?'Rapporten har gått ut och är raderad (den sparas i 24 timmar).':'Länken är ogiltig eller har gått ut. Rapporten sparas i 24 timmar efter leverans.'}));
 }
@@ -552,7 +552,7 @@ async function tick(cancelled){
     next=(r.json.pollMs||2000)+500;
   }else if(o.status==='delivered'){
     var rr=await api('GET','/compare/orders/'+state.order.id+'/report',{token:state.order.token});
-    if(rr.status===200){show('s3',false);renderReport(rr.json.report,o);return}
+    if(rr.status===200){show('s3',false);o.sourceLive=rr.json.sourceLive;renderReport(rr.json.report,o);return}
     if(rr.status===410){box.appendChild(el('p',{text:'Rapporten har gått ut och är raderad.'}));}
     else{box.appendChild(el('p',{text:'Rapporten är klar men kunde inte hämtas just nu.'}));next=4000}
   }else if(o.status==='failed'){
@@ -755,6 +755,28 @@ function syncBuyLink(){
   if(!isP(state.cfg)||!state.order)return;
   api('GET','/compare/orders/'+state.order.id,{token:state.order.token}).then(function(r){var o=r.json&&r.json.order,old=$('buylinkp');if(!o||!old||!old.parentNode)return;lastOrderForLink=o;old.parentNode.replaceChild(buyLinkNode(o),old)},function(){});
 }
+// D07-rättelse: kundbekräftade OFFENTLIGA Google Maps-profiler per offert ur rapportens eget innehåll (frusen revision, ev. uppdaterad status). Inga omdömen, betyg eller antal.
+function srcCardsBlock(R,o){
+  var cards=R.sourceCards||[],live=o&&o.sourceLive&&Array.isArray(o.sourceLive.cards)?o.sourceLive:null;
+  var use=live?live.cards:cards;
+  if(!use.length||use.every(function(c){return c.state==='ej_aktiverad'}))return null;
+  var box=el('div',{id:'srcprofiles',class:'card'},el('b',{text:'Företagens offentliga profiler (bekräftade av dig)'}));
+  use.forEach(function(c){
+    var of=R.offers.filter(function(x){return x.index===c.offerIndex})[0],lab=(of&&of.label)||('Offert '+(c.offerIndex+1));
+    var row=el('div',{class:'scope','data-profile':String(c.offerIndex)});
+    row.appendChild(el('b',{text:lab+': '+(c.firm?[c.firm.name,c.firm.city,c.firm.domain].filter(Boolean).join(', '):'ingen firma bekräftad')}));
+    var g=c.google||{};
+    if(g.profileUrl&&/^https:\/\/www\.google\.com\/maps\//.test(g.profileUrl)){
+      var p=el('p',{style:'margin:4px 0'});p.appendChild(document.createTextNode('Google: kundbekräftad offentlig profil'+(g.confirmedAt?' (bekräftad '+new Date(g.confirmedAt).toLocaleString('sv-SE')+')':'')+'. '));
+      p.appendChild(el('a',{href:g.profileUrl,target:'_blank',rel:'noopener noreferrer',text:'Öppna profilen hos Google Maps'}));row.appendChild(p);
+    }else row.appendChild(el('p',{class:'hint',text:'Google: '+(g.text||'ingen bekräftad profil')+'.'}));
+    if(c.trustpilot&&c.trustpilot.state&&c.trustpilot.state!=='ej_aktiverad')row.appendChild(el('p',{class:'hint',text:'Trustpilot: '+(c.trustpilot.text||'okänt')+'.'}));
+    box.appendChild(row);
+  });
+  var fz=R.sourcesFrozenAt||R.createdAt;
+  box.appendChild(el('p',{class:'hint',text:'Länken öppnar företagets offentliga sida hos Google. Här visas inga omdömen, betyg eller antal. PDF:en i mejlet visar läget vid leverans ('+new Date(fz).toLocaleString('sv-SE')+')'+(live&&live.changedSinceDelivery?' och har inte uppdaterats. Den här visningen är uppdaterad '+new Date(live.asOf).toLocaleString('sv-SE')+'.':'.')}));
+  return box;
+}
 function renderReport(R,o){
   var host=$('rep');host.textContent='';show('rep',true);
   host.appendChild(el('h2',{id:'h-rep',text:'Din jämförelse'}));
@@ -824,7 +846,9 @@ function renderReport(R,o){
     var cells=el('div',{class:'cells'});m.cells.forEach(function(c,i){var cell=el('div',{class:'cell '+c.status},el('b',{text:L[i]}),el('span',{text:STATUS[c.status]}));var rf=ref(c);if(rf)cell.appendChild(el('small',{text:rf}));cells.appendChild(cell)});
     more.appendChild(el('div',{class:'scope'},el('b',{text:m.label+(m.kind==='skiljer'?'  · skiljer':m.kind==='oklart_for_nagon'?'  · oklart i någon':'')}),cells))})}
   more.appendChild(el('h3',{text:'Omdömen om företagen'}));
-  var srcrep=el('div',{id:'srcrepwrap'},el('p',{class:'hint',text:'Visas inte i den här versionen. Offertjämförelsen ovan är komplett utan dem.'}));more.appendChild(srcrep);
+  SRC.ro=!!(o&&o.readOnly);SRC.roId=SRC.ro?o.id:null;
+  var srcrep=el('div',{id:'srcrepwrap'},el('p',{class:'hint','data-srcmsg':'1',text:!srcOn()?'Visas inte i den här versionen. Offertjämförelsen ovan är komplett utan dem.':srcActive()?'Hämtar källstatus…':'Omdömen om företagen visas separat från rapporten, med källans eget urval, och bara i den webbläsare där du gjorde köpet (där bekräftar du rätt firma). De ingår inte i jämförelsen och är ingen bedömning av företaget. Öppna jämförelsen i den webbläsaren för att se dem.'}));more.appendChild(srcrep);
+  var spb=srcCardsBlock(R,o);if(spb)more.appendChild(spb);
   more.appendChild(el('h3',{text:'Gränser och metod'}));
   var dis=el('ul',{class:'tight'});R.disclaimers.forEach(function(t){dis.appendChild(el('li',{text:t}))});more.appendChild(dis);
   host.appendChild(more);
@@ -852,8 +876,11 @@ function renderReport(R,o){
 // ---------- D07: källor för senaste originalomdömen (Google UI Kit i webbläsaren, Trustpilot via servern) ----------
 var SRC={view:null,cands:{},mounted:{},gmp:null,ver:0};
 function srcCfg(){return (state.cfg&&state.cfg.sources)||null}
-function srcActive(){var c=srcCfg();return !!(c&&c.active&&(c.google.state!=='ej_aktiverad'||c.trustpilot.state!=='ej_aktiverad')&&state.order)}
-function srcApi(method,sub,body){return api(method,'/compare/orders/'+state.order.id+'/sources'+(sub||''),{token:state.order.token,body:body})}
+function srcOn(){var c=srcCfg();return !!(c&&c.active&&(c.google.state!=='ej_aktiverad'||c.trustpilot.state!=='ej_aktiverad'))}
+// Orderkontext för källor: aktiv order, eller (skrivskyddad resultatvy) samma orders sparade nyckel i DEN HÄR webbläsaren. Resultatlänkens token ger ALDRIG källåtkomst.
+function srcCtx(){if(state.order)return state.order;if(!SRC.roId)return null;try{var v=JSON.parse(store('jamfor_order')||'null');if(v&&v.id===SRC.roId&&v.token)return v}catch(e){}return null}
+function srcActive(){return srcOn()&&!!srcCtx()}
+function srcApi(method,sub,body){var cx=srcCtx();return api(method,'/compare/orders/'+cx.id+'/sources'+(sub||''),{token:cx.token,body:body})}
 // Google: skriptet laddas FÖRST när kunden uttryckligen öppnar omdömena. __GMP_LOADER__ finns bara för offlineprov (attrapp).
 // D11-P1: EN enda SDK-laddning per sida (singleflight) med Googles callback-parameter. Skriptets onload är inte beredskapen (importLibrary kan saknas då);
 // beredskap = Googles callback, därefter importLibrary('places'). Timeout avbryter bara VÄNTAN, inte laddningen: ett nytt försök väntar in samma laddning och
@@ -933,7 +960,7 @@ function gmpReport(f,outcome){
 }
 // Kvittens på avtalad källvisning (policy P): skickas bara efter LYCKAD visning i rapportläget. Servern prövar sin egen källstatus – klientens påstående räknas inte; fel/tomt/delvis ger ingen kvittens.
 function srcReceipt(firmId){
-  if(!state.order||SRC.mode!=='report')return;
+  if(!state.order||SRC.ro||SRC.mode!=='report')return;
   api('POST','/compare/orders/'+state.order.id+'/source-delivered',{token:state.order.token,body:{firmId:firmId,state:'visad'}}).then(function(){syncBuyLink()},function(){});
 }
 // Serverreservation FÖRE varje billbar Googleinstans (Search/AdvancedDetails): preview, valbyte, återöppning och retry/remount ger ny reservation.
@@ -1025,14 +1052,17 @@ async function tpAuto(view,depth){
   if(stale&&(depth||0)<2)tpAuto(SRC.view,(depth||0)+1);
 }
 function srcCov(view){var cv=$('srccov');if(cv&&view&&view.coverage){cv.textContent='';(view.coverage.lines||[]).forEach(function(l){cv.appendChild(el('li',{text:l}))})}}
-function srcInter(m){return m==='offer'||m==='report'}
+function srcInter(m){return !SRC.ro&&(m==='offer'||m==='report')}
 function srcFirmCard(f,mode){
   var c=srcCfg();
   var card=el('div',{class:'srcfirm','data-firm':f.id});
   card.appendChild(el('h4',{text:f.name+(f.city?' ('+f.city+')':'')}));
+  // Rätt firma: visa vad OFFERTEN uppger bredvid källans träff, så kunden själv kan jämföra (organisationsnummer och adress ur offerten lämnar aldrig oss och används inte som förslag).
+  var qid=[f.name,f.city,f.domain?'webbplats '+f.domain:''].filter(Boolean).join(' · ');
+  card.appendChild(el('p',{class:'hint','data-quote-id':'1',text:(f.origin==='kund'?'Firma enligt dig: ':'Firma enligt offerten: ')+qid+'. Bekräfta bara en källträff som stämmer med detta.'}));
   if(f.conflict)card.appendChild(el('p',{class:'warnbox',text:'Samma namn och ort men olika webbplatser ('+(f.domain||'ingen angiven')+'). Bekräfta källorna för just den här firman.'}));
   card.appendChild(el('p',{class:'hint',text:'Gäller '+f.offers.map(function(i){return 'offert '+(i+1)}).join(' och ')+(mode==='report'&&f.origin==='dokument'?' · läst ur offerten':'')}));
-  if(mode==='report'){var chg=el('button',{type:'button',class:'linkbtn',text:'Ändra företag'});chg.addEventListener('click',function(){srcEditForm(card,f.offers[0],{name:f.name,city:f.city,domain:f.domain})});card.appendChild(chg)}
+  if(mode==='report'&&!SRC.ro){var chg=el('button',{type:'button',class:'linkbtn',text:'Ändra företag'});chg.addEventListener('click',function(){srcEditForm(card,f.offers[0],{name:f.name,city:f.city,domain:f.domain})});card.appendChild(chg)}
   // ---- Google ----
   if(c.google.state!=='ej_aktiverad'){
     var g=el('div',{class:'srcrow','data-src':'google'},el('b',{text:'Google'}),el('div',{class:'st',text:f.google.text}));
@@ -1275,14 +1305,16 @@ function preidBlock(){
 async function srcStart(host,mode){
   if(!srcActive())return;
   try{
-    var r=await srcApi('GET','');if(r.status!==200)return;
+    var r=await srcApi('GET','');
+    if(r.status!==200){if(mode!=='offer'){host.textContent='';host.appendChild(el('p',{class:'hint','data-srcmsg':'1',text:'Källstatus kunde inte hämtas just nu. Det betyder inte att omdömen saknas. Ladda om sidan om en stund.'}))}return}
     if(mode==='offer'){show('srcbox',true);if(state.slots&&state.slots.length)srcForm();srcRender(r.json.sources,'offer');preidBlock()}
     else{host.textContent='';host.appendChild(el('p',{class:'hint',text:'Omdömen visas separat från rapporten, med källans eget urval. De ingår inte i jämförelsen och är ingen bedömning av företaget.'}));
       host.appendChild(el('div',{id:'srcprop','aria-live':'polite'}));
+      var props=[];if(!SRC.ro){var ir=await srcApi('GET','/identity');props=(ir.status===200&&ir.json.proposals)||[];SRCPROP=props}
       var inner=el('div',{id:'srcrep'});host.appendChild(inner);srcRender(r.json.sources,'report');
-      var ir=await srcApi('GET','/identity');await srcApplyProposals(r.json.sources,(ir.status===200&&ir.json.proposals)||[]);
+      if(!SRC.ro)await srcApplyProposals(r.json.sources,props);
     }
-  }catch(e){}
+  }catch(e){if(mode!=='offer'&&host){host.textContent='';host.appendChild(el('p',{class:'hint','data-srcmsg':'1',text:'Källstatus kunde inte hämtas just nu. Det betyder inte att omdömen saknas. Ladda om sidan om en stund.'}))}}
 }
 
 init();

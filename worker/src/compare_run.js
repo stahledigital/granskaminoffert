@@ -12,6 +12,7 @@
 import { DEFAULT_MODEL, worstCaseUsd, computeCost, modelInfo, ratesFor } from "./models.js";
 import { ANTHROPIC_URL, ANTHROPIC_VERSION } from "./provider.js";
 import { LIMITS, OFFER, budgetConfig } from "./compare_config.js";
+import { sourcesConfig, sourceCardsFor } from "./compare_sources.js";
 import { sha256Hex } from "./compare_util.js";
 import { buildExtractRequest, readOffer, sanitizeOffer, EXTRACT_VERSION } from "./compare_extract.js";
 import { compareOffers, offerLabels } from "./compare_engine.js";
@@ -170,7 +171,7 @@ async function run({ env, io, store, model: modelOverride }) {
   const now = io.now();
   const fresh = await store.order();
   if (!fresh) return { state: "lost" };
-  const report = assembleReport({ order: fresh, labels, compared, priority: Array.isArray(priority) ? priority : null, now });
+  const report = assembleReport({ order: fresh, labels, compared, priority: Array.isArray(priority) ? priority : null, now, sourceCards: sourceCardsFor(sourcesConfig(env), store.sources ? await store.sources() : null, compared.offers) });
   const reportKey = `cmprep:${order.id}`;
   const reportJson = JSON.stringify(report);
   try {

@@ -105,10 +105,23 @@ export function reportBlocks(R) {
   if (R.differences.length) { B.push({ t: "h3", text: "Skillnader, viktigast först" }); for (const d of R.differences) B.push({ t: "li", text: d.text }); }
   const open = R.offers.filter((of) => of.open && of.open.items && of.open.items.length);
   if (open.length) { B.push({ t: "h3", text: "Uppgifter att reda ut per offert" }); for (const of of open) B.push({ t: "li", text: `${of.label}: ${of.open.items.map((i) => i.label).join(", ")}` }); }
-  B.push({ t: "h2", text: "Omdömen om företagen" });
+  B.push({ t: "h2", text: "Företagens offentliga profiler" });
   const srcs = R.sourceCards || [];
-  if (!srcs.length || srcs.every((c) => c.state === "ej_aktiverad")) B.push({ t: "p", text: "Visas inte i den här versionen. Offertjämförelsen ovan är komplett utan dem." });
-  else for (const c of srcs) B.push({ t: "li", text: `${L[c.offerIndex] != null ? L[c.offerIndex] : `Offert ${c.offerIndex + 1}`}: källstatus ${c.state}. Omdömen visas separat i webbläsaren och ingår aldrig i den här PDF:en.` });
+  const stamp = (iso) => (iso ? String(iso).slice(0, 16).replace("T", " ") + " UTC" : "okänd tid");
+  if (!srcs.length || srcs.every((c) => c.state === "ej_aktiverad")) B.push({ t: "p", text: "Företagsprofiler och omdömen visas inte i den här versionen. Offertjämförelsen ovan är komplett utan dem." });
+  else {
+    // Bara faktisk, kundbekräftad källstatus per offert och offentliga profillänkar. Aldrig omdömestext, betyg, antal eller Googles visning (licens/villkor).
+    for (const c of srcs) {
+      const of = (R.offers || []).find((x) => x.index === c.offerIndex), lab = (of && of.label) || `Offert ${c.offerIndex + 1}`;
+      const f = c.firm ? [c.firm.name, c.firm.city, c.firm.domain].filter(Boolean).join(", ") : "ingen firma bekräftad";
+      B.push({ t: "h3", text: `${lab}: ${f}` });
+      const g = c.google || {};
+      if (g.profileUrl) { B.push({ t: "li", text: `Google: kundbekräftad offentlig profil (bekräftad ${stamp(g.confirmedAt ? new Date(g.confirmedAt).toISOString() : null)}).` }); B.push({ t: "small", text: g.profileUrl }); }
+      else B.push({ t: "li", text: `Google: ${g.text || "ingen bekräftad profil"}.` });
+      if (c.trustpilot && c.trustpilot.state && c.trustpilot.state !== "ej_aktiverad") B.push({ t: "li", text: `Trustpilot: ${c.trustpilot.text || "okänt"}.` });
+    }
+    B.push({ t: "p", text: `Profillänken öppnar företagets offentliga sida hos Google. Den här PDF:en innehåller inga omdömen, betyg eller antal. Uppgifterna är kundens egen bekräftelse och gäller ${stamp(R.sourcesFrozenAt || R.createdAt)}; om du ändrar något efteråt visas det på resultatsidan, inte i den här PDF:en. Det är ingen bedömning av företaget.` });
+  }
   B.push({ t: "h2", text: "Gränser och metod" });
   for (const t of R.disclaimers) B.push({ t: "li", text: t });
   B.push({ t: "h2", text: "Kvitto" });

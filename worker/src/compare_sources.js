@@ -146,6 +146,33 @@ export function sourcesView(cfg, st) {
   }));
   return { active: cfg.active, firms, coverage: coverageSummary(cfg, firms) };
 }
+// Rapportkort per offert (D07-rättelse): FAKTISK källstatus per firma ur serverns egna firma-/bekräftelsetillstånd – aldrig ur en envflagga.
+// Innehåller bara firmauppgifter, kundens bekräftelse (tid, väg) och en offentlig Google Maps-profillänk (officiell place_id-länk). Aldrig omdömestext,
+// betyg, antal eller widget. Okänt förblir okänt: ingen bekräftad firma ⇒ "ej_bekraftad", källa av ⇒ "ej_aktiverad".
+export function googleProfileUrl(placeId, name, city) {
+  if (typeof placeId !== "string" || !PLACE_ID_RE.test(placeId)) return null;
+  const q = cleanText(`${name || ""} ${city || ""}`, 120) || "foretag";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}&query_place_id=${encodeURIComponent(placeId)}`;
+}
+export function sourceCardsFor(cfg, st, offers) {
+  const firms = (st && Array.isArray(st.firms)) ? st.firms : [];
+  return (offers || []).map((of) => {
+    const idx = of.index;
+    const f = firms.find((x) => Array.isArray(x.offers) && x.offers.includes(idx)) || null;
+    const gOn = !!(cfg && cfg.active && cfg.google && cfg.google.on), tOn = !!(cfg && cfg.active && cfg.trustpilot && cfg.trustpilot.on);
+    if (!gOn && !tOn) return { offerIndex: idx, state: "ej_aktiverad", firm: null, google: { state: STATUS.OFF, text: stateText(STATUS.OFF), profileUrl: null, confirmedAt: null, via: null }, trustpilot: { state: STATUS.OFF, text: stateText(STATUS.OFF) } };
+    const firm = f ? { name: f.name, city: f.city || "", domain: f.domain || "", origin: f.origin || "kund", conflict: !!f.conflict } : null;
+    let g = { state: gOn ? STATUS.WAIT : STATUS.OFF, text: "", profileUrl: null, confirmedAt: null, via: null };
+    if (f && gOn) {
+      const ps = providerState(cfg, f, "google");
+      const url = f.google && f.google.placeId ? googleProfileUrl(f.google.placeId, f.name, f.city) : null;
+      g = { state: url && ps === STATUS.OK ? "bekraftad_profil" : ps, text: "", profileUrl: url, confirmedAt: f.google.confirmedAt || null, via: f.google.via || null };
+    }
+    g.text = g.state === "bekraftad_profil" ? "kundbekräftad offentlig profil" : g.state === STATUS.WAIT && !f ? "ingen firma bekräftad för den här offerten" : stateText(g.state);
+    const ts = f && tOn ? providerState(cfg, f, "trustpilot") : STATUS.OFF;
+    return { offerIndex: idx, state: g.state === "bekraftad_profil" ? "bekraftad" : "ej_bekraftad", firm, google: g, trustpilot: { state: ts, text: stateText(ts) } };
+  });
+}
 // Täckning före köp: vilka firmor/källor som faktiskt kan visas. Ingen omdömesdata, bara lägen.
 export function coverageSummary(cfg, viewFirms) {
   const firms = viewFirms || [];

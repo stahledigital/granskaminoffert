@@ -1,5 +1,13 @@
 # Granska min offert – ändringslogg
 
+## d07-rattelse – D07 recensionsdelta, rättelse ovanpå 8bb1b03 (root-review: 3 brister), auth oförändrad
+- Brist 1: PDF nämner aldrig en inaktiv källa. Texten byggs ur faktisk per-offert-status; Trustpilot nämns bara om den är på.
+- Brist 2: `sourceCards` kommer inte längre ur envflaggan utan ur serverns egna firma-/bekräftelsetillstånd (`sourceCardsFor`, compare_sources.js), frusna när rapporten byggs (före rapportmejlet): `ej_aktiverad` / `ej_bekraftad` / `bekraftad`, firma (namn, ort, webbplats, ursprung), Google-status, bekräftelsetid, `sourcesFrozenAt`. Okänt förblir okänt.
+- Brist 3: kundbekräftad OFFENTLIG Google Maps-profil (officiell `query_place_id`-länk) i rapport, resultatsida och PDF – ingen rå recension/text/betyg/antal/widget, inget omdömesinnehåll lagras. Fungerar på annan enhet via befintlig rapportrutt.
+- Efterhandsomval: `GET /report` lägger `sourceLive {cards, asOf, changedSinceDelivery, frozenAt}` bredvid den frusna revisionen (ny INTERN DO-väg `/source-cards`, anropas först efter befintlig `/report-auth`). Lagrad rapport/hash/PDF ändras aldrig; UI säger att PDF:en från mejlet inte uppdaterats. Ingen ändring av autentisering; resultattoken når fortfarande inte `/sources`.
+- Tester: worker `compare_reviews_delta` 4 (nya: faktisk status/inaktiv TP/profil efter bekräftelse; efterhandsomval; r-token negativt), UI `compare_reviews_view` 6 (nya: profilvy 390 px, osäker länk blir ingen href), övriga compare_* gröna.
+
+
 ## 2026-10-11 – fullständig rapport som PDF och återhämtning
 
 - fix3 (root 20:32, efter Anders Stripe-TEST-betalning): (1) checkout-retur `?order=NY` ≠ sparad order ⇒ tydlig mismatch-vy (båda ordernummer, ingen tyst adoption, ingen tokenbypass; återställningslänk `#o=&t=` för NY slås upp med NYs egen token; sparad order rörs aldrig); resultatlänk `#o=&r=` (read-only, 24 h) öppnar bara rapporten, ogiltig/utgången ⇒ tydligt besked, token tas bort ur adressen och sparas aldrig. (2) `_finish(delivered)` köar idempotent rapport-mejl (`outbox:mail_rapport_<id>`, EN per order, i samma commit som leveransen) till orderns frusna kontakt (testorder: bara hej@stahledigital.se) via befintlig Resend/mail-events/dygnstak; 24 h-resultattoken (endast hash lagras, `/report-auth` ger bara rapportläsning); adminrutt `POST /compare/admin/test-order/:id/report-mail` återhämtar en redan levererad testorder utan ny order (409/410/503 vid ej levererad/utgången/ingen transport). (3) testorder i exporten har explicit `source:"stripe_test_adminorder"` och `test:true`, aldrig `stripe_live`; ordinarie bokföringsexport utesluter dem (`?test=only` för diagnos).
