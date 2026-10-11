@@ -55,6 +55,8 @@ export const CONSENT = Object.freeze({
 // COMPARE_CONSENT_POLICY=P: två SEPARATA, aktivt valda (ej förkryssade) rutor före betalning – (1) start direkt inom ångerfristen, (2) godtar att ångerrätten upphör först när tjänsten är fullt utförd.
 // Policyn fryses per order vid /accept; redan skapade Q-ordrar ändras aldrig (ingen retroaktiv Q→P). Ingen live-aktivering: CONSENT.draft stänger live fortfarande.
 export const consentPolicy = (env) => (env && env.COMPARE_CONSENT_POLICY === "P" ? "P" : "Q");
+// D15 (Anders bekräftelse 2026-10-11 18:38): P-villkoren (villkor-p-1) är fastställda utan platshållare; policy Q förblir utkast och kan inte gå live.
+export const consentDraft = (env) => (consentPolicy(env) === "P" ? false : CONSENT.draft);
 export const FULFILMENT_POINTS = Object.freeze(["leverans", "fonster_slut"]);
 // FULFILMENT_POINT: explicit konfigurerbar. leverans = rapport (och avtalad källtäckning) levererad; fonster_slut = dessutom 24 h-fönstret för att spara rapporten slut.
 // Vilken som gäller i live är en rättslig bedömning (U2), inte en kundpreferens. Ogiltigt värde ⇒ P stänger beställning (fail closed).
@@ -63,7 +65,7 @@ export function fulfilmentPoint(env) {
   if (v === undefined || v === "") return { ok: true, point: "leverans", explicit: false };
   return FULFILMENT_POINTS.includes(v) ? { ok: true, point: v, explicit: true } : { ok: false, point: null, explicit: true };
 }
-export const CONSENT_P_VERSION = "samtycke-p-utkast-2"; // utkast-1 (tre rutor) lever kvar i redan frusna ordrar; ny text = ny hash = nytt aktivt val
+export const CONSENT_P_VERSION = "samtycke-p-1"; // utkast-1 (tre rutor) lever kvar i redan frusna ordrar; ny text = ny hash = nytt aktivt val
 export function consentTexts(env) {
   if (consentPolicy(env) !== "P") return CONSENT.texts;
   const rev = reviewsActive(env), win = fulfilmentPoint(env).point === "fonster_slut";
@@ -178,7 +180,7 @@ const krText = (ore) => `${(ore / 100).toFixed(2).replace(".", ",")} kr`;
 // Ingen slutlig juridisk text: öppna beslut står som [hakparentes]-platshållare och live är stängt (CONSENT.draft) tills människa fastställt dem.
 export const SWISH_NOTE = "Du kan betala med kort eller Swish. Betalar du med Swish går betalningen via Stripe: i Swish kan Stripe visas som mottagare och Ståhle Digital i meddelandet. Du köper av Ståhle Digital. Beloppet är samma 49 kr inklusive moms.";
 export const TERMS_VERSION = "villkor-utkast-1";
-export const TERMS_P_VERSION = "villkor-p-utkast-1";
+export const TERMS_P_VERSION = "villkor-p-1";
 export function termsSnapshot(env) {
   if (consentPolicy(env) === "P") return termsSnapshotP(env);
   const seller = sellerInfo(env), pol = retentionPolicy(env), copy = offerCopy(env);
@@ -206,14 +208,14 @@ function termsSnapshotP(env) {
     { id: "tjansten", title: "Vad som ingår", text: [`${OFFER.product} jämför innehåll i ${OFFER.minDocs}–${OFFER.maxDocs} offerter som du själv laddar upp.`, "Det här ingår:", ...copy.gets.map((t) => `- ${t}`), ...(rev ? ["- Källans egna omdömen visas separat bara för de företag där täckning visas före köp. Vi lovar inte omdömen för företag som inte står i täckningen."] : []), "Det här ingår inte:", ...copy.getsNot.map((t) => `- ${t}`), "Så går det till:", ...copy.how.map((t) => `- ${t}`)].join("\n") },
     { id: "pris", title: "Pris och betalning", text: `Pris: ${krText(OFFER.priceOre)} inklusive moms (varav moms ${krText(vatOre)}, ${OFFER.vatPct} %). Engångsköp. Betalningen sker hos betalleverantören Stripe; kvittot därifrån är en separat handling.${paymentMethods(env).swish ? ` ${SWISH_NOTE}` : ""}` },
     { id: "avtal", title: "Avtalsbekräftelse", text: "När betalningen är genomförd skickas en avtalsbekräftelse med de här villkoren, dina val och en länk till Ditt köp och villkor (avtal, hjälp och reklamation samt ånger när ångerrätt finns) till den e-postadress du angav. Analysen startar först när bekräftelsen har skickats." },
-    { id: "angerratt", title: "Ångerrätt", text: `[UTKAST – klassificering och fullgörandepunkt är inte rättsligt fastställda.] Du har som utgångspunkt 14 dagars ångerrätt från den dag du beställer. Om du väljer att analysen ska starta direkt och godtar att ångerrätten upphör när tjänsten är fullt utförd, har du ingen ångerrätt efter det. Tjänsten är fullt utförd ${done}. Ångrar du dig innan dess får du hela beloppet tillbaka och du betalar ingenting för det som hunnit utföras. Ångra avtalet på sidan Ditt köp och villkor (/jamfor/kop/) eller på /jamfor/angra/. Standardformulär för ångerrätt bifogas avtalsbekräftelsen.` },
+    { id: "angerratt", title: "Ångerrätt", text: `Du har som utgångspunkt 14 dagars ångerrätt från den dag du beställer. Om du väljer att analysen ska starta direkt och godtar att ångerrätten upphör när tjänsten är fullt utförd, har du ingen ångerrätt efter det. Tjänsten är fullt utförd ${done}. Ångrar du dig innan dess får du hela beloppet tillbaka och du betalar ingenting för det som hunnit utföras. Ångra avtalet på sidan Ditt köp och villkor (/jamfor/kop/) eller på /jamfor/angra/. Standardformulär för ångerrätt bifogas avtalsbekräftelsen.` },
     { id: "efterleverans", title: "Efter fullständig leverans", text: "Du har inte längre ångerrätt, men din rätt att reklamera, rätt till rättelse vid fel och övriga rättigheter enligt lag gäller som vanligt, och du kan alltid kontakta oss." },
     { id: "ofullstandig", title: "Om leveransen är ofullständig eller fel", text: "Om något som ingår i din order inte levereras, eller rapporten har ett fel, behåller du dina rättigheter. Vi åtgärdar felet eller återbetalar enligt lag." },
     { id: "aterbetalning", title: "Återbetalning", text: "Om du ångrar dig innan tjänsten är fullt utförd, om något som ingår i din order inte levereras, eller om du har rätt till återbetalning enligt lag på grund av fel, återbetalas beloppet via samma betalsätt utan onödigt dröjsmål och senast inom 14 dagar från att vi tog emot din begäran. Efter fullständig leverans enligt ditt samtycke ges ingen återbetalning på grund av ångerrätt; reklamation och övriga lagstadgade rättigheter påverkas inte." },
     { id: "personuppgifter", title: "Personuppgifter och lagring", text: `Offerterna skickas till Anthropic för avläsning. Filer, avläsning och rapport raderas efter ${OFFER.retentionHours} timmar eller direkt när du raderar. Order-, betal- och samtyckespost sparas utan offerttext: avtalspost ${days(pol.avtalDays, "avtalspost")}, bokföringsunderlag ${days(pol.bokforingDays, "bokföringsunderlag")}. Betaluppgifter hanteras av Stripe och lagras inte av oss.` },
-    { id: "kontakt", title: "Kontakt, reklamation och klagomål", text: `Kontakta ${seller.email} om du har frågor, reklamation, klagomål eller vill ha hjälp med återbetalning. Det gäller även efter att tjänsten är fullt utförd. [Information om tvistlösning fastställs av det kommersiella spåret.]` },
+    { id: "kontakt", title: "Kontakt, reklamation och klagomål", text: `Kontakta ${seller.email} om du har frågor, reklamation, klagomål eller vill ha hjälp med återbetalning. Det gäller även efter att tjänsten är fullt utförd. Tvistlösning: Allmänna reklamationsnämnden (ARN) har som regel en lägsta värdegräns (750 kr för många områden) och en tvist om 49 kr ligger under den. ARN får ändå pröva en tvist under gränsen om den är av principiellt intresse eller det finns andra särskilda skäl; det avgör ARN.` },
   ];
-  return { version: TERMS_P_VERSION, draft: true, seller, sections };
+  return { version: TERMS_P_VERSION, draft: false, seller, sections };
 }
 export function termsPlain(t) { return t.sections.map((x) => `${x.title}\n${x.text}`).join("\n\n"); }
 export const DATA_COVERAGE = Object.freeze({ reviews: false, text: "Omdömen om företagen ingår inte i den här versionen." });
@@ -238,7 +240,7 @@ export function dataCoverage(env) {
 // Det kunden accepterar: pris, produkt, erbjudandetext och samtyckestexter. Hashen bindes till ordern.
 export function consentSnapshot(env) {
   const base = {
-    consentVersion: consentVersion(env), draft: CONSENT.draft,
+    consentVersion: consentVersion(env), draft: consentDraft(env),
     offerVersion: OFFER.version, priceOre: OFFER.priceOre, currency: OFFER.currency, vatPct: OFFER.vatPct,
     copy: offerCopy(env), texts: consentTexts(env), dataCoverage: dataCoverage(env), terms: termsSnapshot(env),
   };
@@ -341,7 +343,7 @@ export function mailerKind(env) {
 export function acceptingOrders(env, allowedOrigins) {
   const mode = compareEnabled(env) ? paymentsMode(env) : null;
   if (mode === null) return false;
-  if (mode === "live" && CONSENT.draft) return false; // utkasttext: ingen skarp betalning
+  if (mode === "live" && consentDraft(env)) return false; // utkasttext (policy Q): ingen skarp betalning
   if (sellerInfo(env).errors.length > 0) return false; // konfigfel i säljaruppgifter (t.ex. förbjudet org.nr för enskild firma) stänger i ALLA lägen
   if (mode === "live" && (!retentionPolicy(env).ok || sellerInfo(env).placeholder)) return false; // retention och säljare måste vara satta
   if (consentPolicy(env) === "P" && !fulfilmentPoint(env).ok) return false; // ogiltig fullgörandepunkt: fail closed

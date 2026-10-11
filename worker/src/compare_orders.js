@@ -204,7 +204,7 @@ export class CompareOrders {
         events: [], contentDeleted: false, reportKey: null, lastReconcileAt: 0, lastRefundCheckAt: 0, checkout: { attempt: 0, intent: null }, purgeKeys: [],
       };
       await this._save(o);
-      return { body: { ok: true, order: publicView(o, now) } };
+      return { body: { ok: true, order: publicView(o, now) }, after: async () => { if (this.state.storage.setAlarm) await this.state.storage.setAlarm(o.expiresAt + 65 * 60_000 + 10); } }; // D15: rensningslarm för obetalda ordrar
     }
     const o = await this._load();
     if (!o) {
@@ -445,6 +445,34 @@ export class CompareOrders {
     return { body: { ok: true, status: "paid" }, after: async () => { await this._ensureAlarm(o, now, true); await this._indexLedger(o.id, now); } };
   }
 
+  // D15 – automatisk fysisk rensning av OBETALDA ordrar (löftet "raderas efter 24 timmar" ska inte bero på att någon råkar läsa ordern).
+  // Fas 1 vid expiresAt + 65 min: filer, extraktioner, förköpsidentitet och källuppgifter raderas. Fas 2 vid expiresAt + 72 h (Stripe-sessionen kan som mest leva 24 h efter att ordern
+  // skapades senast och Stripes webhookomförsök når 3 dygn): hela orderposten (inkl. e-post och villkorssnapshot) raderas om ingen betalning/avtalspost finns.
+  // Betalda ordrar och ordrar med avtalspost berörs aldrig (de följer terminalrensningen och retentionsklasserna).
+  async _unpaidLifecycle(now) {
+    const st = this.state.storage;
+    // HELA kontroll + plan + lokal radering sker i ETT serialiserat steg (samma blockConcurrencyWhile som varje fetch, inkl. /paid): ingen betalning kan hinna in mellan kontroll och städning.
+    return this._tx(async () => {
+      const unpaid = async (c) => !!c && !c.paidAt && !["paid", "running", "delivered", "failed"].includes(c.status) && !(await st.get("ledger"));
+      const o = await this._load();
+      if (!(await unpaid(o))) return false;
+      const P1 = o.expiresAt + 65 * 60_000, WIPE = o.expiresAt + 72 * 3600_000; // en öppen Stripe-session lever högst 60 min efter försöksstart
+      if (now < P1) { if (st.setAlarm) await st.setAlarm(P1 + 10); return true; }
+      if (!o.contentDeleted) {
+        const failed = [];
+        for (const k of new Set([...(o.purgeKeys || []), ...o.docs.map((d) => d.key).filter(Boolean)])) { try { await this.env.REVIEWS_KV.delete(k); } catch { failed.push(k); } }
+        for (const k of (await st.list({ prefix: "ext:" })).keys()) await st.delete(k);
+        for (const k of ["aux:priority", "preid", "sources"]) await st.delete(k);
+        o.docs = []; o.purgeKeys = failed; o.contentDeleted = true; o.estimate = null; await this._save(o); // misslyckade KV-nycklar: TTL 24 h är reservvägen
+      }
+      if (now < WIPE) { if (st.setAlarm) await st.setAlarm(WIPE + 10); return true; }
+      // Återkontroll av AKTUELL post omedelbart före fullwipe: betald order eller avtalspost raderas aldrig av detta svep.
+      if (!(await unpaid(await this._load()))) return false;
+      for (const k of (await st.list()).keys()) await st.delete(k);
+      return true;
+    });
+  }
+
   async _ensureAlarm(o, now, force = false) {
     if (!this.state.storage.setAlarm) return;
     const cur = this.state.storage.getAlarm ? await this.state.storage.getAlarm() : null;
@@ -455,6 +483,7 @@ export class CompareOrders {
   // ---- Arbetet ----
   async alarm() {
     const now = Date.now();
+    if (await this._unpaidLifecycle(now)) return; // D15: obetalda ordrar har inget arbete – bara rensning
     await this._tx(async () => { const cur = await this._load(); if (cur) await this._repairWithdrawal(cur, now); });
     if (this._afterTx) { const a = this._afterTx; this._afterTx = null; await a(); }
     await this._drainOutbox(now);
@@ -696,7 +725,7 @@ export class CompareOrders {
     }
     return {
       rights,
-      agreement: { id: ledger.agreementId, hash: ledger.agreementHash, paidAt: ledger.agreement.payment.paidAt, contact: maskEmail(ledger.agreement.contact.email), draft: true, mails },
+      agreement: { id: ledger.agreementId, hash: ledger.agreementHash, paidAt: ledger.agreement.payment.paidAt, contact: maskEmail(ledger.agreement.contact.email), draft: !!ledger.agreement.draft, mails },
       withdrawal: w ? { requested: true, requestId: w.requestId, at: w.at, outcome: w.outcome, via: w.via } : { requested: false },
     };
   }

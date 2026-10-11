@@ -527,7 +527,7 @@ function withdrawBlock(o){
   if(!o.agreement)return null;
   box.appendChild(el('h3',{style:'margin-top:0',text:'Ditt avtal'}));
   var conf=(o.agreement.mails||[]).filter(function(m){return m.kind==='avtalsbekraftelse'})[0];
-  box.appendChild(el('p',{class:'hint',text:'Avtals-ID '+o.agreement.id+'. Avtalsbekräftelse till '+o.agreement.contact+': '+(conf?mailText(conf.state):'köad')+'. Utkast: villkoren är inte slutgiltiga.'}));
+  box.appendChild(el('p',{class:'hint',text:'Avtals-ID '+o.agreement.id+'. Avtalsbekräftelse till '+o.agreement.contact+': '+(conf?mailText(conf.state):'köad')+'.'+(o.agreement.draft?' Utkast: villkoren är inte slutgiltiga.':'')}));
   var w=o.withdrawal;
   if(w&&w.requested){
     var txt=w.outcome==='angrat_fore_fullgoring'?'Köpet är ångrat. Tjänsten var inte fullt utförd, så din ångerrätt gällde; hela beloppet ska betalas tillbaka.':w.outcome==='angerratt_upphord'?'Din begäran är mottagen. Enligt de val du gjorde vid köpet upphörde ångerrätten när tjänsten var fullt utförd; någon återbetalning på grund av ångerrätt görs därför inte. Reklamation och dina övriga rättigheter påverkas inte.':w.outcome==='avbrutet_fore_leverans'?'Köpet är ångrat och jämförelsen stoppad. Hela beloppet ska betalas tillbaka.':w.outcome==='redan_avslutad'?'Din ånger är mottagen. Jämförelsen kunde redan inte slutföras; återbetalningen hanteras separat.':'Din ånger är mottagen och sparad med tidpunkten nedan. Den prövas manuellt – det här är ingen bekräftelse på att ångerrätten gäller eller inte gäller.';

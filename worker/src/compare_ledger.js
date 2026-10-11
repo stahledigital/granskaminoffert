@@ -41,7 +41,7 @@ export async function buildAgreement(order, { env, now, session }) {
   if (!snap || typeof snap !== "object") throw new Error("ledger: accepterad text saknas");
   const price = { ore: snap.priceOre, currency: snap.currency, vatPct: snap.vatPct, vatOre: vatPart(snap.priceOre, snap.vatPct) };
   const agreement = {
-    version: "avtal-utkast-1", draft: true,
+    version: a.draft ? "avtal-utkast-1" : "avtal-1", draft: !!a.draft,
     orderId: order.id,
     seller: (snap.terms && snap.terms.seller) || sellerInfo(env), // säljaren som kunden accepterade (frusen), inte dagens konfiguration
     price,
@@ -145,7 +145,7 @@ export function confirmationMail(ledger) {
   const ag = ledger.agreement;
   const body = [
     `Avtalsbekräftelse – ${ag.product}`,
-    `Utkast: villkoren är inte slutgiltiga.`,
+    ...(ag.draft ? [`Utkast: villkoren är inte slutgiltiga.`] : []),
     ``,
     ...sellerLines(ag.seller),
     `Avtals-ID: ${ledger.agreementId}   Ordernummer: ${ag.orderId}`,
@@ -179,7 +179,7 @@ export function receiptMail(ledger, wd) {
   const ag = ledger.agreement;
   const body = [
     `Mottagningsbevis – ångerbegäran`,
-    `Utkast: hanteringen är inte slutgiltigt fastställd.`,
+    ...(ag.draft ? [`Utkast: hanteringen är inte slutgiltigt fastställd.`] : []),
     ``,
     `Vi har tagit emot din begäran att ångra köpet.`,
     `Begäran-ID: ${wd.requestId}   Avtals-ID: ${ledger.agreementId}   Ordernummer: ${ag.orderId}`,

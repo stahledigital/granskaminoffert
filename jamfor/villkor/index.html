@@ -1,10 +1,8 @@
 <!doctype html>
-<html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>Villkor – Jämför mina offerter (UTKAST)</title>
+<html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>Villkor – Jämför mina offerter</title>
 <style>body{font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px 16px;line-height:1.5;background:#f6f5f1;color:#161616}.sec h2{font-size:18px;margin:18px 0 4px}.sec p{white-space:pre-line;margin:0}.d{background:#fbf0d2;border:1px solid #b8860b66;border-radius:8px;padding:12px}</style></head>
 <body><h1>Villkor och integritet – Jämför mina offerter</h1>
-<p class="d"><b>UTKAST – inte juridiskt granskat och inte publicerat.</b> Texten nedan är platshållare för bygget. Före skarp start ska köpvillkor, ångerrätt/omedelbar leverans, återbetalning och integritetsinformation fastställas i kommersiella spåret. Tjänsten är avstängd tills dess.</p>
-<h2>Det här ska texten täcka (checklista, inte villkor)</h2>
-<ul><li>Vad tjänsten är och inte är (jämför innehåll i uppladdade dokument; ingen bedömning av hantverkare, kvalitet eller pris; inte juridisk rådgivning).</li><li>Pris 49 kr inklusive moms, engångsköp, betalning via Stripe.</li><li>Omedelbar leverans och ångerrätt (klassificering enligt konsumentlagstiftning – ej avgjord).</li><li>Återbetalning om leverans misslyckas.</li><li>Personuppgifter: offerterna skickas till Anthropic för avläsning; filer och resultat raderas efter 24 timmar eller på begäran; betaluppgifter hanteras av Stripe; ordernummer och betalreferens sparas för bokföring.</li><li>Kontaktväg för support och återbetalning.</li></ul>
+<p id="draftbox" class="d" hidden><b>UTKAST – inte slutgiltigt.</b> Villkorstexten nedan är inte fastställd.</p>
 <div id="terms" class="sec" aria-live="polite"></div>
 <p><a href="/jamfor/">← Tillbaka</a></p>
 <footer><p>Jämför mina offerter är en tjänst från Ståhle Digital. <a class="fu" href="/foretagsuppgifter">Företagsuppgifter</a></p></footer>
@@ -16,6 +14,7 @@
   function p(t,c){var e=document.createElement(c||'p');e.textContent=t;return e}
   fetch(API.replace(/\/$/,'')+'/compare/config').then(function(r){return r.json()}).then(function(c){
     var t=c&&c.terms;if(!t||!Array.isArray(t.sections))throw new Error('x');
+    if(t.draft)document.getElementById('draftbox').hidden=false;
     box.appendChild(p('Villkorstext (version '+t.version+(t.draft?', UTKAST':'')+') – det här är exakt den text du godkänner vid köp.','h2'));
     var iu=t.seller&&t.seller.infoUrl;try{var xu=new URL(String(iu||''));if(xu.protocol==='https:'&&!xu.username&&!xu.password){document.querySelectorAll('a.fu').forEach(function(a){a.href=xu.href})}}catch(e){}
     t.sections.forEach(function(s){var d=document.createElement('div');d.appendChild(p(s.title,'h2'));d.appendChild(p(s.text));box.appendChild(d)});

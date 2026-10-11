@@ -75,7 +75,7 @@ footer{margin-top:36px;font-size:13px;color:var(--ink2)}
 <main class="wrap" id="app">
 <header><span>Jämför mina offerter</span><a href="/jamfor/" id="back">Till jämförelsen</a></header>
 <h1>Ditt köp<br><em>och villkor.</em></h1>
-<p class="lead">Här finns ditt avtal, villkoren och hjälp med frågor eller reklamation – och möjligheten att ångra avtalet när ångerrätt finns. Du behöver inte logga in; sidan känner igen ditt köp från samma enhet eller din recovery-länk. Utkast: villkoren är inte slutgiltiga.</p>
+<p class="lead">Här finns ditt avtal, villkoren och hjälp med frågor eller reklamation – och möjligheten att ångra avtalet när ångerrätt finns. Du behöver inte logga in; sidan känner igen ditt köp från samma enhet eller din recovery-länk.</p>
 <div id="err" class="err hidden" role="alert"></div>
 <section id="loading" class="card" aria-live="polite"><p>Hämtar ditt köp …</p></section>
 <section id="agreement" class="card acc hidden"></section>
@@ -120,7 +120,7 @@ function render(o){
   if(!o.agreement){ag.appendChild(el('h2',{text:'Inget avtal hittades'}));ag.appendChild(el('p',{text:'Köpet är inte slutfört, så det finns inget avtal eller någon ånger att visa här.'}));wc.classList.add('hidden');return}
   ag.appendChild(el('h2',{text:'Ditt avtal'}));
   var conf=(o.agreement.mails||[]).filter(function(m){return m.kind==='avtalsbekraftelse'})[0];
-  ag.appendChild(el('p',{class:'hint',id:'agtext',text:'Avtals-ID '+o.agreement.id+'. Ordernummer '+o.id.slice(2,10).toUpperCase()+'. Avtalsbekräftelse till '+o.agreement.contact+': '+(conf?mailText(conf.state):'köad')+'. Utkast: villkoren är inte slutgiltiga.'}));
+  ag.appendChild(el('p',{class:'hint',id:'agtext',text:'Avtals-ID '+o.agreement.id+'. Ordernummer '+o.id.slice(2,10).toUpperCase()+'. Avtalsbekräftelse till '+o.agreement.contact+': '+(conf?mailText(conf.state):'köad')+'.'+(o.agreement.draft?' Utkast: villkoren är inte slutgiltiga.':'')}));
   wc.appendChild(el('h2',{text:'Ångra köpet'}));
   var w=o.withdrawal;
   if(w&&w.requested){
@@ -134,7 +134,7 @@ function render(o){
     var al=$('angali');if(al)al.classList.add('hidden');
   }else{
     if(o.rights&&o.rights.angerratt==='kvar')wc.appendChild(el('p',{id:'rightskept',text:'Tjänsten är inte fullt utförd enligt ditt avtal, så du kan ångra avtalet här och få hela beloppet tillbaka. Du betalar inget för det som hunnit utföras.'}));
-    else wc.appendChild(el('p',{text:'Du kan begära att ångra köpet. Begäran sparas med tidpunkt och prövas utifrån vad som gäller för ditt köp; att du har sett resultatet innebär inte att den nekas automatiskt. [UTKAST – hur ångerrätt och start direkt bedöms är inte slutligt fastställt.]'}));
+    else wc.appendChild(el('p',{text:'Du kan begära att ångra köpet. Begäran sparas med tidpunkt och prövas utifrån vad som gäller för ditt köp; att du har sett resultatet innebär inte att den nekas automatiskt.'}));
     var b=el('button',{type:'button',class:'btn ghost',id:'withdraw',text:'Ångra köpet'});
     b.addEventListener('click',async function(){
       if(!confirm('Vill du ångra köpet?'))return;
