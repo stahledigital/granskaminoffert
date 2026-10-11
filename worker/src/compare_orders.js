@@ -17,7 +17,7 @@
 //   draft|ready|awaiting_payment → expired | cancelled(=ready igen vid avbruten kassa)
 //   delivered|failed|… → deleted (innehållet raderat på kundens begäran)
 
-import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy, mailerKind, FULFILMENT_POINTS } from "./compare_config.js";
+import { OFFER, LIMITS, refundMode, budgetConfig, consentSnapshot, retentionPolicy, mailerKind, FULFILMENT_POINTS, TEST_CHAIN_TO, stripeEnvFor } from "./compare_config.js";
 import { mailHttpConfig, mailIdemKey, buildMailRequest, requestHash, sendViaHttp, validMailTo, IDEM_WINDOW_MS, LEASE_MS, parseMailId, applyMailEvent, deliveryOk, NEGATIVE_DELIVERY } from "./compare_mailer.js";
 import { countToday, dayKey } from "./compare_budget.js";
 import { timingSafeEqual, sha256Hex } from "./compare_util.js";
@@ -198,7 +198,7 @@ export class CompareOrders {
       if (!Number.isInteger(docCount) || docCount < OFFER.minDocs || docCount > OFFER.maxDocs || !Array.isArray(labels) || labels.length !== docCount) return { status: 400, body: { ok: false, error: "antal" } };
       const o = {
         id, tokenHash, createdAt: now, expiresAt: now + OFFER.retentionHours * 3600_000, status: "draft",
-        docCount, labels, docs: [], accept: accept || null, estimate: null, stripe: null, paidAt: null,
+        docCount, labels, docs: [], ...(b.test === true ? { test: true } : {}), accept: accept || null, estimate: null, stripe: null, paidAt: null,
         work: { attempts: 0, lease: null, steps: { ext: {}, synth: { state: "pending", attempts: 0 } }, deliveredAt: null, error: null },
         refund: { mode: refundMode(this.env), state: "none", id: null, at: null },
         events: [], contentDeleted: false, reportKey: null, lastReconcileAt: 0, lastRefundCheckAt: 0, checkout: { attempt: 0, intent: null }, purgeKeys: [],
@@ -224,6 +224,9 @@ export class CompareOrders {
     if (["draft", "ready", "awaiting_payment"].includes(o.status) && now > o.expiresAt) { o.status = "expired"; await this._save(o); }
 
     // ---- Interna (Worker→DO) ----
+    // D16-R2: testordrar och riktiga ordrar hålls isär i båda riktningar (test betalas bara via testhooken, riktiga aldrig via den).
+    if ((path === "/paid" || path === "/checkout-expired") && !!o.test !== !!b.viaTestHook) return { status: 422, body: { ok: false, error: "betalning_ogiltig", reason: "testorder" } };
+    if (["/accept", "/checkout-begin", "/checkout-set"].includes(path) && !!o.test !== !!b.testAdmin) return { status: 403, body: { ok: false, error: "testorder" } };
     if (path === "/paid") return this._paid(o, b, now);
     if (path === "/checkout-expired") {
       if (b.eventId && o.events.includes(b.eventId)) return { body: { ok: true, dup: true } };
@@ -239,6 +242,7 @@ export class CompareOrders {
     if (path === "/ledger-export") {
       const l = await this.state.storage.get("ledger");
       if (!l) return NOT_FOUND;
+      if (!!(l.test || o.test) !== (b.testOnly === true)) return { body: { ok: true, skipped: "test" } }; // ordinarie bokföringsexport utesluter testordrar; test-only-diagnostik visar bara dem
       const row = exportRow(o, l, b.mode);
       const cm = await this.state.storage.get(`outbox:mail_avtal_${o.id}`);
       row.confirmationMail = cm ? { transport: cm.transport || null, accepted: cm.state === "sent", delivery: cm.delivery ? cm.delivery.state : "none", inboxProof: false } : null; // D14: inboxProof är alltid false – leverans till mailserver ≠ inkorg
@@ -318,7 +322,7 @@ export class CompareOrders {
     if (path === "/get") {
       const after = (o.status === "paid" || o.status === "running") ? async () => this._ensureAlarm(o, now) : undefined;
       const extras = await this._extras();
-      return { body: { ok: true, order: { ...publicView(o, now), ...extras }, reconcile: this._shouldReconcile(o, now), refundCheck: this._shouldRefundCheck(o, now) ? { refundId: o.refund.id } : null }, after };
+      return { body: { ok: true, order: { ...publicView(o, now), ...extras }, testOrder: !!o.test, reconcile: this._shouldReconcile(o, now), refundCheck: this._shouldRefundCheck(o, now) ? { refundId: o.refund.id } : null }, after };
     }
     if (path === "/doc") {
       // Manifest-commit: enda stället som avgör vilken fil som hör till ordern. Avslag returnerar `keep` =
@@ -346,7 +350,7 @@ export class CompareOrders {
       const snapshot = consentSnapshot(this.env); // policyn (P/Q) avgörs av servern ur snapshoten, aldrig av klienten
       const P = snapshot.policy === "P";
       if (!a || a.terms !== true || (P ? a.declaration !== true : a.immediateDelivery !== true) || typeof a.consentHash !== "string" || a.consentHash.length !== 64 || typeof a.consentVersion !== "string") return { status: 400, body: { ok: false, error: "ogiltig" } };
-      if (!validEmail(a.contactEmail)) return { status: 400, body: { ok: false, error: "epost" } };
+      if (!validEmail(a.contactEmail) || (o.test && a.contactEmail !== TEST_CHAIN_TO)) return { status: 400, body: { ok: false, error: "epost" } };
       // De FAKTISKT visade texterna fryses här: hashen måste stämma mot texten som sparas (inte bara en hash som senare saknar text).
       if ((await sha256Hex(JSON.stringify(snapshot))) !== a.consentHash) return { status: 409, body: { ok: false, error: "samtycke_andrat" } };
       // Vad kunden accepterade: version + hash av exakt de texter/priser som visades, när, och för hur många offerter.
@@ -437,7 +441,7 @@ export class CompareOrders {
     // Avtalsposten fryses ur orderns snapshot och bevaras skild från dokument/rapport. Misslyckas den fryses ordern inte som betald utan avtal.
     const { agreement, agreementHash } = await buildAgreement(o, { env: this.env, now, session: { sessionId: o.stripe.sessionId, paymentIntentId: ev.paymentIntentId, amountTotal: ev.amountTotal } });
     const wt = await newWithdrawToken(o.id);
-    const ledger = newLedger({ agreement, agreementHash, withdrawTokenHash: wt.secretHash, env: this.env, now });
+    const ledger = newLedger({ agreement, agreementHash, withdrawTokenHash: wt.secretHash, env: this.env, now, test: !!o.test });
     const origin = (() => { try { return new URL(this.env.COMPARE_RETURN_URL).origin; } catch { return ""; } })();
     const mail = confirmationMail(ledger);
     const entry = await outboxEntry(mail, { to: o.accept.contactEmail, now, secrets: { ANGERLANK: `${origin}/jamfor/angra/#t=${wt.token}`, KOPLANK: `${origin}/jamfor/kop/` } });
@@ -666,12 +670,14 @@ export class CompareOrders {
 
   _planRefund(o) {
     if (o.refund.state === "none") o.refund.state = o.refund.mode === "auto" && o.stripe && o.stripe.paymentIntentId ? "requested" : "needed";
-    return o.refund.state === "requested" ? { paymentIntentId: o.stripe.paymentIntentId, orderId: o.id } : null;
+    return o.refund.state === "requested" ? { paymentIntentId: o.stripe.paymentIntentId, orderId: o.id, test: !!o.test } : null;
   }
   async _runRefund(refundCall) {
     if (!refundCall) return;
     let res = null;
-    try { res = await refundPayment(this.env, { ...refundCall, fetchImpl: (u, i) => fetch(u, i) }); } catch { res = null; }
+    const E = stripeEnvFor(this.env, refundCall.test); // testorder ⇒ testnyckel; saknas den ⇒ ingen återbetalning (okänt utfall ⇒ "needed"), aldrig livenyckel
+    const { test: _t, ...rc } = refundCall;
+    try { res = E ? await refundPayment(E, { ...rc, fetchImpl: (u, i) => fetch(u, i) }) : null; } catch { res = null; }
     await this._tx(async () => {
       const o = await this._load();
       if (!o) return;

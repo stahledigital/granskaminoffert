@@ -7,7 +7,7 @@
 // Betalningsbevis kommer bara från signerad webhook eller serveravstämning mot Stripe – returadressen
 // (success_url) bevisar ingenting.
 
-import { OFFER, LIMITS, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, consentDraft, consentPolicy, consentTexts, consentVersion, fulfilmentPoint, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
+import { OFFER, LIMITS, testChain, TEST_CHAIN_TO, testStripeEnv, stripeEnvFor, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, consentDraft, consentPolicy, consentTexts, consentVersion, fulfilmentPoint, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
@@ -162,6 +162,34 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     return reply({ ok: true, ignored: "typ" });
   }
 
+  // ---- D16-R2: Stripe TEST-webhook (separat hemlighet). Hanterar ENDAST testordrar (DO nekar annat); live-webhooken kan aldrig betala en testorder. STÄNGD utan testChain. ----
+  if (path === "/compare/webhook-test") {
+    if (request.method !== "POST") return reply({ error: "Not found" }, 404);
+    if (!compareEnabled(env) || !bindingsOk(env) || !testChain(env).on) return reply({ error: "stängd" }, 503);
+    const raw = await request.text();
+    if (raw.length > 512_000) return reply({ error: "för stor" }, 413);
+    const v = await verifyWebhook(raw, request.headers.get("stripe-signature") || "", env.STRIPE_TEST_WEBHOOK_SECRET);
+    if (!v.ok) return reply({ error: "ogiltig signatur" }, 400);
+    const ev = v.event, obj = ev.data && ev.data.object;
+    const orderId = obj && typeof obj.client_reference_id === "string" ? obj.client_reference_id : "";
+    if (!ORDER_ID_RE.test(orderId)) return reply({ ok: true, ignored: "ingen_order" });
+    try {
+      if (ev.type === "checkout.session.completed" || ev.type === "checkout.session.async_payment_succeeded") {
+        const r = await orderCall(env, orderId, "/paid", { session: obj, eventId: ev.id, mode: "test", viaTestHook: true, now: Date.now() });
+        if (r.status === 404) return reply({ ok: true, ignored: "okand_order" });
+        if (r.status === 422) return reply({ ok: false, error: "betalning_ogiltig", reason: r.json.reason }, 400);
+        if (r.status >= 500) return reply({ ok: false }, 500);
+        return reply({ ok: true, dup: !!r.json.dup });
+      }
+      if (ev.type === "checkout.session.expired" || ev.type === "checkout.session.async_payment_failed") {
+        const r = await orderCall(env, orderId, "/checkout-expired", { sessionId: obj.id, eventId: ev.id, viaTestHook: true, now: Date.now() });
+        if (r.status >= 500) return reply({ ok: false }, 500);
+        return reply({ ok: true });
+      }
+    } catch { return reply({ ok: false }, 500); }
+    return reply({ ok: true, ignored: "typ" });
+  }
+
   // ---- D14: Resend-leveranshändelser (server→server, Svix-signerad, ingen Origin). STÄNGD utan COMPARE_MAIL_WEBHOOK_SECRET. ----
   // Svaret 2xx betyder bara "mottagen/bearbetad"; leveransbevis ligger i orderns utkorg. Tillfälliga fel ⇒ 5xx så att Resend återför; permanenta ⇒ 4xx/200 utan ändring.
   if (path === "/compare/mail-events") {
@@ -202,13 +230,14 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     try { ids = await budget.ledgerList(env, { month }); } catch { return reply({ error: "Tillfälligt fel." }, 503); }
     const rows = [];
     const mode = paymentsMode(env);
+    const testOnly = url.searchParams.get("test") === "only"; // ordinarie export utesluter testordrar; ?test=only = explicit test-diagnostik
     for (const oid of ids) {
       if (!ORDER_ID_RE.test(oid)) continue;
-      const r = await orderCall(env, oid, "/ledger-export", { mode, now: Date.now() });
+      const r = await orderCall(env, oid, "/ledger-export", { mode, testOnly, now: Date.now() });
       if (r.status === 200 && r.json.row) rows.push(r.json.row);
     }
     if (url.searchParams.get("format") === "csv") {
-      const cols = ["orderId", "agreementId", "paidAt", "amountOre", "currency", "vatPct", "vatOre", "stripeSessionId", "stripePaymentIntentId", "orderStatus", "refundState", "refundId", "refundProviderStatus", "withdrawalAt", "withdrawalOutcome", "source", "retentionClass"];
+      const cols = [...(testOnly ? ["test"] : []),"orderId", "agreementId", "paidAt", "amountOre", "currency", "vatPct", "vatOre", "stripeSessionId", "stripePaymentIntentId", "orderStatus", "refundState", "refundId", "refundProviderStatus", "withdrawalAt", "withdrawalOutcome", "source", "retentionClass"];
       const esc = (v) => { const t = v === null || v === undefined ? "" : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
       const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
       return new Response(csv, { status: 200, headers: { ...headers, "content-type": "text/csv; charset=utf-8" } });
@@ -219,6 +248,44 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   // ---- Retention-svep (skyddad): kör den verkliga rensningen för en månads (eller ett begränsat månadsintervalls) poster. Utan fullständig policy görs ingenting. ----
   // Detta ÄR schemaläggningen inom befintliga bindningar: en människa/befintlig rutin anropar rutten (+ lazy rensning vid åtkomst). Ingen cron/ny resurs.
   const adminOk = () => { const tok = String(env.COMPARE_ADMIN_TOKEN || ""); const given = (request.headers.get("authorization") || "").replace(/^Bearer /, ""); return !(tok.length < 24 || !compareEnabled(env) || !bindingsOk(env) || !timingSafeEqual(tok, given)); };
+  // ---- D16-R2: admin-testorder (samma DO/pott som skarp trafik; ADMIN_TOKEN + testChain krävs; högst 2 per 48 h). Betalning enbart via Stripe TEST-adaptern. ----
+  if (path === "/compare/admin/test-order" && request.method === "POST") {
+    if (!adminOk() || !testChain(env).on) return reply({ error: "Not found" }, 404);
+    const cfg = budgetConfig(env);
+    const cap = await budget.capacity(env, { caps: { joint: cfg.month, scope: cfg.paid }, scope: "paid" });
+    if (!cap.ok || cap.halted || cap.remaining <= 0) return reply({ error: "Potten är full." }, 503);
+    const ck = "cmptest:count"; const n = Number(await env.REVIEWS_KV.get(ck)) || 0;
+    if (n >= 2) return reply({ error: "Testtaket (2 per 48 h) är nått." }, 429);
+    await env.REVIEWS_KV.put(ck, String(n + 1), { expirationTtl: 172800 });
+    const id = newOrderId(), token = newAccessToken();
+    const r = await orderCall(env, id, "/create", { id, tokenHash: await sha256Hex(token), labels: offerLabels(["Testbygg Ett", "Testbygg Två"], 2), docCount: 2, test: true, accept: { sameJob: true, at: Date.now(), offer: OFFER.version }, now: Date.now() });
+    if (r.status !== 200 || !r.json.ok) return reply({ error: "Kunde inte skapa testorder." }, 503);
+    return reply({ ok: true, orderId: id, token, test: true, to: TEST_CHAIN_TO }, 201);
+  }
+  const tcm = path.match(/^\/compare\/admin\/test-order\/([^/]+)\/checkout$/);
+  if (tcm && request.method === "POST") {
+    if (!adminOk() || !testChain(env).on || !ORDER_ID_RE.test(tcm[1])) return reply({ error: "Not found" }, 404);
+    const id = tcm[1];
+    const body = await readJson(request, 2_000);
+    const token = body.value && body.value.token;
+    if (typeof token !== "string" || token.length < 16) return reply({ error: "Ogiltig begäran." }, 400);
+    const tokenHash = await sha256Hex(token);
+    const snap = consentSnapshot(env), hash = await consentHash(env);
+    const acc = snap.policy === "P" ? { terms: true, declaration: true } : { terms: true, immediateDelivery: true };
+    const ac = await orderCall(env, id, "/accept", { tokenHash, testAdmin: true, accept: { ...acc, consentHash: hash, consentVersion: snap.consentVersion, contactEmail: TEST_CHAIN_TO, draft: snap.draft, offerVersion: snap.offerVersion, priceOre: snap.priceOre, currency: snap.currency }, now: Date.now() });
+    if (ac.status !== 200) return reply({ error: "Testordern kan inte betalas i det här läget.", reason: ac.json && ac.json.error }, ac.status === 404 ? 404 : 409);
+    const begin = await orderCall(env, id, "/checkout-begin", { tokenHash, consentHash: hash, testAdmin: true, now: Date.now() });
+    if (begin.status !== 200) return reply({ error: "Testordern kan inte betalas i det här läget.", reason: begin.json && begin.json.error }, 409);
+    if (begin.json.reuse) return reply({ ok: true, url: begin.json.reuse.url, test: true });
+    const cfg = budgetConfig(env);
+    const cap = await budget.capacity(env, { caps: { joint: cfg.month, scope: cfg.paid }, scope: "paid" });
+    const need = begin.json.order && begin.json.order.estimateMicro;
+    if (!cap.ok || cap.halted || cap.remaining <= 0 || (Number.isFinite(need) && cap.remaining < need)) return reply({ error: "Potten räcker inte." }, 503);
+    let sess; try { sess = await createCheckoutSession(testStripeEnv(env), begin.json.snapshot, { returnUrl: returnUrl(env, allowedOrigins) }); } catch { return reply({ error: "Teststripe kunde inte starta." }, 502); }
+    const set = await orderCall(env, id, "/checkout-set", { tokenHash, testAdmin: true, session: sess, now: Date.now() });
+    if (set.status !== 200 || !set.json.ok) return reply({ error: "Teststripe kunde inte sparas." }, 502);
+    return reply({ ok: true, url: set.json.url, test: true });
+  }
   if (path === "/compare/admin/retention-sweep" && request.method === "POST") {
     if (!adminOk()) return reply({ error: "Not found" }, 404);
     if (!retentionPolicy(env).ok) return reply({ ok: true, ran: false, reason: "policy_saknas", note: "Retention-längder för avtal och bokföring är inte fastställda; inget raderas." });
@@ -489,17 +556,20 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (g.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
     if (g.status !== 200) return reply({ error: "Tillfälligt fel." }, 503);
     let order = g.json.order;
-    const mode = paymentsMode(env);
+    // D16-R2: testorder avstäms/återbetalas ALLTID mot Stripe TEST (testnyckel, testläge); saknas testnyckeln nekas läsningen – aldrig fallback till live.
+    const isTest = g.json.testOrder === true;
+    const SE = stripeEnvFor(env, isTest);
+    const mode = isTest ? (SE ? "test" : null) : paymentsMode(env);
     if (g.json.reconcile && mode) {
       const mk = await orderCall(env, id, "/reconcile-mark", { tokenHash, now: Date.now() });
       const sessionId = mk.json && mk.json.sessionId;
       if (sessionId) {
         try {
-          const s = await retrieveSession(env, sessionId);
+          const s = await retrieveSession(SE, sessionId);
           if (s && s.status === "complete" && s.payment_status === "paid") {
-            await orderCall(env, id, "/paid", { session: s, eventId: `recon:${sessionId}`, mode, now: Date.now() });
+            await orderCall(env, id, "/paid", { session: s, eventId: `recon:${sessionId}`, mode, ...(isTest ? { viaTestHook: true } : {}), now: Date.now() });
           } else if (s && s.status === "expired") {
-            await orderCall(env, id, "/checkout-expired", { sessionId, eventId: `recon-exp:${sessionId}`, now: Date.now() });
+            await orderCall(env, id, "/checkout-expired", { sessionId, eventId: `recon-exp:${sessionId}`, ...(isTest ? { viaTestHook: true } : {}), now: Date.now() });
           }
         } catch { /* nästa avläsning försöker igen */ }
         const g2 = await orderCall(env, id, "/get", { tokenHash, now: Date.now() });
@@ -509,7 +579,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (g.json.refundCheck && g.json.refundCheck.refundId && mode) {
       await orderCall(env, id, "/refund-update", { mark: true, now: Date.now() });
       try {
-        const rf = await retrieveRefund(env, g.json.refundCheck.refundId);
+        const rf = await retrieveRefund(SE, g.json.refundCheck.refundId);
         await orderCall(env, id, "/refund-update", { refund: rf, now: Date.now() });
       } catch { /* nästa avläsning försöker igen */ }
       const g3 = await orderCall(env, id, "/get", { tokenHash, now: Date.now() });

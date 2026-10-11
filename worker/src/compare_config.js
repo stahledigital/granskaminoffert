@@ -340,6 +340,24 @@ export function mailerKind(env) {
   if (env && env.COMPARE_MAILER_MODE === "mock" && env.COMPARE_PAYMENTS !== "live") return "mock";
   return null;
 }
+// D16-R2: administrativt spärrad TESTKEDJA på samma Worker. Av som standard. Kräver ALLA av: COMPARE_TEST_CHAIN=1, COMPARE_TEST_CHAIN_UNTIL (ISO, i framtiden, högst 48 h framåt),
+// två krypterade testsecrets (STRIPE_TEST_SECRET_KEY sk_/rk_test_, STRIPE_TEST_WEBHOOK_SECRET whsec_), COMPARE_ADMIN_TOKEN (>=24) och riktig HTTP-mejltransport.
+// Testordrar skapas ENDAST via admin-rutten, betalas ENDAST via testadaptern (aldrig användarpublik checkout) och mejlas ENDAST till TEST_CHAIN_TO. Live-secrets/FREE-pilot rörs inte.
+export const TEST_CHAIN_TO = "hej@stahledigital.se";
+export function testChain(env, now = Date.now()) {
+  if (!env || env.COMPARE_TEST_CHAIN !== "1") return { on: false };
+  const until = Date.parse(String(env.COMPARE_TEST_CHAIN_UNTIL || ""));
+  const ok = Number.isFinite(until) && until > now && until <= now + 48 * 3600_000
+    && /^(sk|rk)_test_[A-Za-z0-9]{8,}$/.test(String(env.STRIPE_TEST_SECRET_KEY || "")) && /^whsec_[A-Za-z0-9]{8,}$/.test(String(env.STRIPE_TEST_WEBHOOK_SECRET || ""))
+    && String(env.COMPARE_ADMIN_TOKEN || "").length >= 24 && mailerKind(env) === "http";
+  return { on: ok, until: ok ? until : null };
+}
+// Stripe-anrop för testordrar går med testnyckeln i TESTLÄGE (livemode=false); live-nyckeln används aldrig här.
+export const testStripeEnv = (env) => ({ ...env, STRIPE_SECRET_KEY: env.STRIPE_TEST_SECRET_KEY, COMPARE_PAYMENTS: "test" });
+export const testKeyOk = (env) => /^(sk|rk)_test_[A-Za-z0-9]{8,}$/.test(String((env && env.STRIPE_TEST_SECRET_KEY) || ""));
+// Stripe-miljö per order: testorder ⇒ ALLTID testnyckel/testläge (checkout, statusavstämning, återbetalning, avläsning); saknas giltig testnyckel ⇒ null = NEKA (även efter att testfönstret gått ut). Aldrig fallback till live.
+export const stripeEnvFor = (env, isTest) => (isTest ? (testKeyOk(env) ? testStripeEnv(env) : null) : env);
+
 export function acceptingOrders(env, allowedOrigins) {
   const mode = compareEnabled(env) ? paymentsMode(env) : null;
   if (mode === null) return false;

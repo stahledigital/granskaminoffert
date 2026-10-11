@@ -57,10 +57,10 @@ export async function buildAgreement(order, { env, now, session }) {
   return { agreement, agreementHash: await sha256Hex(JSON.stringify(agreement)) };
 }
 
-export function newLedger({ agreement, agreementHash, withdrawTokenHash, env, now }) {
+export function newLedger({ agreement, agreementHash, withdrawTokenHash, env, now, test }) {
   const pol = retentionPolicy(env);
   return {
-    v: 1, orderId: agreement.orderId, agreementId: `avt_${agreement.orderId.slice(2, 18)}`, createdAt: now,
+    v: 1, ...(test ? { test: true } : {}), orderId: agreement.orderId, agreementId: `avt_${agreement.orderId.slice(2, 18)}`, createdAt: now,
     agreement, agreementHash, withdrawTokenHash, withdrawal: null,
     retention: { class: "avtal", policyDays: pol.avtalDays, bookkeepingClass: "bokforing", bookkeepingDays: pol.bokforingDays, classes: Object.keys(RETENTION_CLASSES) },
     events: [{ at: now, type: "avtal_skapat" }],
@@ -209,7 +209,7 @@ export async function outboxEntry(mail, { to, now, secrets = null }) {
 export function exportRow(order, ledger, mode) {
   const ag = ledger.agreement;
   return {
-    orderId: ledger.orderId, agreementId: ledger.agreementId, paidAt: iso(ag.payment.paidAt),
+    orderId: ledger.orderId, agreementId: ledger.agreementId, test: !!(ledger.test || order.test), paidAt: iso(ag.payment.paidAt),
     amountOre: ag.price.ore, currency: ag.price.currency, vatPct: ag.price.vatPct, vatOre: ag.price.vatOre,
     stripeSessionId: ag.payment.sessionId, stripePaymentIntentId: ag.payment.paymentIntentId,
     orderStatus: order.status, refundState: order.refund.state, refundId: order.refund.id || null, refundProviderStatus: order.refund.providerStatus || null,
