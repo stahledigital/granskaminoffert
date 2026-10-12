@@ -137,7 +137,7 @@ export function pLines(ag) {
       `1. ${t.startNow} ${f("startNow")}`,
       `2. ${t.loseRight} ${f("loseRight")}`,
     ]),
-    `Analysen startar först när den här bekräftelsen har skickats. Fullgörandepunkt: ${ag.p.fulfilmentPoint === "fonster_slut" ? "leveransen plus att 24 h-fönstret för att spara rapporten gått ut" : "när rapporten (och ingående omdömesvisningar) har levererats"}.`,
+    `${ag.product === OFFER.product ? "Analysen" : "Förkontrollen"} startar först när den här bekräftelsen har skickats. Fullgörandepunkt: ${ag.product === OFFER.product ? (ag.p.fulfilmentPoint === "fonster_slut" ? "leveransen plus att 24 h-fönstret för att spara rapporten gått ut" : "när rapporten (och ingående omdömesvisningar) har levererats") : (ag.p.fulfilmentPoint === "fonster_slut" ? "leveransen av förkontrollen plus att 24 h-fönstret för att spara resultatet gått ut" : "när förkontrollen (rapporten och de tilläggstexter och den PDF-bilaga du själv bekräftar) har levererats") + ". Inga omdömesvisningar ingår i förkontrollen"}.`,
     `Innan tjänsten är fullt utförd kan du ångra avtalet och få hela beloppet tillbaka. När den är fullt utförd upphör ångerrätten, men reklamation och övriga rättigheter gäller. Du kan alltid kontakta oss: ${ag.seller.email}.`,
   ];
 }
@@ -181,12 +181,14 @@ export function receiptMail(ledger, wd) {
 }
 // Rapport-mejl (kort): fullständig rapport som PDF + samma avtals-PDF + personlig 24 h-länk ({{RAPPORTLANK}} fylls i vid sändning och töms efteråt). Ingen rapport-/offerttext i brödtexten.
 export const REPORT_PDF_PREFIX = "Jamforelse-";
-export function reportReadyMail(orderId, sellerEmail, kind) {
+export const CHECK_PDF_PREFIX = "Forkontroll-";
+export function reportReadyMail(orderId, sellerEmail, kind, rev = 0) {
   const no = orderId.slice(2, 10).toUpperCase();
   const chk = kind === "check";
   const body = [
     `Tack för ditt köp!`,
     ``,
+    ...(rev ? [`Reviderat testresultat (R${rev}): ny avläsning av samma testorder efter rättning. Köp och samtycken är oförändrade.`, ``] : []),
     chk ? `Här är din förkontroll – rapporten finns bifogad som PDF.` : `Här är din jämförelse – rapporten finns bifogad som PDF.`,
     chk ? `Du kan öppna den online som skrivskyddad vy (länken gäller i 24 timmar): {{RAPPORTLANK}}\nFör att bekräfta uppgifter och få tilläggstexter och PDF-bilaga till din kund, öppna förkontrollen i webbläsaren där du köpte den.` : `Du kan också öppna den online (länken gäller i 24 timmar): {{RAPPORTLANK}}`,
     ``,
@@ -194,7 +196,7 @@ export function reportReadyMail(orderId, sellerEmail, kind) {
     ``,
     `Frågor? ${sellerEmail}`,
   ].join("\n");
-  return { id: `mail_rapport_${orderId}`, kind: "rapport", subject: chk ? `Din förkontroll är klar – ordernummer ${no}` : `Din jämförelse är klar – ordernummer ${no}`, body, attachments: [{ filename: `${REPORT_PDF_PREFIX}${no}.pdf`, contentType: "application/pdf", gen: "report" }, { filename: AGREEMENT_PDF, contentType: "application/pdf", gen: "agreement" }] };
+  return { id: `mail_rapport${rev ? `_r${rev}` : ""}_${orderId}`, kind: "rapport", subject: (chk ? `Din förkontroll är klar – ordernummer ${no}` : `Din jämförelse är klar – ordernummer ${no}`) + (rev ? ` (reviderat testresultat R${rev})` : ""), body, attachments: [{ filename: `${chk ? CHECK_PDF_PREFIX : REPORT_PDF_PREFIX}${no}.pdf`, contentType: "application/pdf", gen: "report" }, { filename: AGREEMENT_PDF, contentType: "application/pdf", gen: "agreement" }] };
 }
 // Utkorgsposten fryser meddelandet (ämne, brödtext med platshållare, typade bilagor) vid köandet. Bilagor lagras som base64 (typad nyttolast, inte parsad ur brödtext).
 export async function outboxEntry(mail, { to, now, secrets = null }) {

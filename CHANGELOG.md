@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## 2026-10-12 – förkontrollens moms, tid och rapportbilagor rättade (D17-R2 steg A)
+- Radbeloppens momsbas hålls skild från totalens; okänd bas ger inget tvärsäkert ROT-belopp. Start utan slut ger en kundfråga. Förkontrollens avtalsbilaga beskriver dess egen prestation och rapportfilen heter Forkontroll.
+- Avgränsat admin-POST kan återläsa exakt samma dokumentdigest på en redan betald TEST-förkontroll inom ursprunglig retention och befintliga tak. Bevarar tidigare rapport, köp och samtycken; ett reviderat testmejl.
+- Exakt Don-patch0933869295: root133 riktade offlineprov, 5 oberoende innehållsprov och canonical26 PASS. Riktig återläsning/mejl/kundbilaga/mobil och öppning redovisas separat i ägarfilen.
+
 ## 2026-10-12 – förkontroll av hantverkarens egen offert (D17)
 - Samma Donatellos granskade slutpatch52995768: en egen offert, fel/oklarheter och kundfrågor, egna bekräftelser, tilläggstext och kund-PDF med samma revision; 49 kr inklusive moms.
 - Sparad order skyddas vid osäker nätverkskontroll, tomma belopp förblir okända, delvis komplettering märks utkast. Adminskyddad Stripe TEST-väg för en offert; auth, kostnadstak, befintliga D07-rättelser och test/livedelning bevarade.

@@ -277,6 +277,29 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (r.status !== 200 || !r.json.ok) return reply({ error: "Kunde inte köa mejlet." }, 503);
     return reply({ ok: true, queued: !!r.json.queued, state: r.json.state || null, to: TEST_CHAIN_TO });
   }
+  // ---- D17-R2: ny avläsning på SAMMA redan betalda TEST-förkontrollorder (ADMIN + fullständig orderkey). Ingen ny order/betalning/capreset. ----
+  const trc = path.match(/^\/compare\/admin\/test-order\/([^/]+)\/recheck$/);
+  if (trc && request.method === "POST") {
+    if (!adminOk() || !testChain(env).on || !ORDER_ID_RE.test(trc[1])) return reply({ error: "Not found" }, 404);
+    const rb = await readJson(request, LIMITS.maxTextChars + 2_000);
+    const rtok = rb.value && rb.value.token;
+    if (rb.tooLarge || typeof rtok !== "string" || !TOKEN_RE.test(rtok)) return reply({ error: "Ogiltig begäran." }, 400);
+    // text (valfri): strikt återinläggning av EXAKT samma ursprungstext för en ny AI-avläsning; DO jämför mot orderns bevarade digest (ingen annan fil släpps in).
+    const rtext = rb.value.text;
+    if (rtext !== undefined && (typeof rtext !== "string" || !rtext.trim() || rtext.length > LIMITS.maxTextChars)) return reply({ error: "Ogiltig begäran." }, 400);
+    const rcfg = budgetConfig(env);
+    const rcap = await budget.capacity(env, { caps: { joint: rcfg.month, scope: rcfg.paid }, scope: "paid" });
+    if (!rcfg.ok || !rcap.ok || rcap.halted || rcap.remaining <= 0) return reply({ error: "Potten räcker inte." }, 503);
+    const rr = await orderCall(env, trc[1], "/recheck", { tokenHash: await sha256Hex(rtok), testAdmin: true, ...(rtext !== undefined ? { text: rtext } : {}), now: Date.now() });
+    if (rr.status === 404) return reply({ error: "Not found" }, 404);
+    if (rr.status === 403) return reply({ error: "Bara testorder." }, 403);
+    if (rr.status === 409) return reply({ error: rr.json && rr.json.error === "pagar" ? "Ny avläsning pågår redan." : rr.json && /^digest/.test(rr.json.error || "") ? "Texten är inte exakt den ursprungliga (digest)." : "Testordern är inte en levererad förkontroll.", reason: rr.json && rr.json.error }, 409);
+    if (rr.status === 410) return reply({ error: "Rapporten har gått ut." }, 410);
+    if (rr.status === 429) return reply({ error: "Gränsen för ny avläsning är nådd." }, 429);
+    if (rr.status === 503) return reply({ error: "Ny avläsning är inte tillgänglig." }, 503);
+    if (rr.status !== 200 || !rr.json.ok) return reply({ error: "Kunde inte starta ny avläsning." }, 502);
+    return reply({ ok: true, already: !!rr.json.already, revision: rr.json.revision || 1, aiRead: !!rr.json.aiRead, queued: !!rr.json.queued, mail: rr.json.mail || null, to: TEST_CHAIN_TO, test: true });
+  }
   const tcm = path.match(/^\/compare\/admin\/test-order\/([^/]+)\/checkout$/);
   if (tcm && request.method === "POST") {
     if (!adminOk() || !testChain(env).on || !ORDER_ID_RE.test(tcm[1])) return reply({ error: "Not found" }, 404);

@@ -14,7 +14,7 @@ import { buildAnthropicRequest } from "./models.js";
 import { buildUserContent } from "./user_content.js";
 import { ISSUER_SCHEMA, sanitizeIssuer } from "./compare_identity.js";
 
-export const EXTRACT_VERSION = "avlasning-2"; // 2: + utställaridentitet (issuer)
+export const EXTRACT_VERSION = "avlasning-3"; // 2: + utställaridentitet (issuer); 3: vatMode = radbeloppens momsbas, skild från totalVatBasis (aldrig "blandat" bara för att totalen har annan bas)
 
 // Stängd lista. `group` styr om en skillnad gäller omfattning (påverkar prisjämförbarhet) eller villkor.
 export const SCOPE_CATALOG = Object.freeze([
@@ -99,7 +99,7 @@ export function extractSystemPrompt() {
 
 Du bedömer inte hantverkaren, företaget eller kvaliteten, och du jämför inte med andra offerter eller marknadspriser. Du läser bara vad dokumentet säger.
 
-1) extracted (OBLIGATORISKT, alla fält, null när uppgiften inte står): skriv siffror och uppgifter exakt som i offerten. Räkna aldrig fram, gissa aldrig, anta aldrig. Skilj på totalBeforeRotSek (uttryckligen före ROT), amountToPaySek (uttryckligen att betala efter ROT) och totalSumSek (omärkt total). Gissa aldrig momsbasen: totalVatBasis är null om offerten inte uttryckligen anger den. workDescription högst 15 ord utan namn, adress eller företagsnamn.
+1) extracted (OBLIGATORISKT, alla fält, null när uppgiften inte står): skriv siffror och uppgifter exakt som i offerten. Räkna aldrig fram, gissa aldrig, anta aldrig. Skilj på totalBeforeRotSek (uttryckligen före ROT), amountToPaySek (uttryckligen att betala efter ROT) och totalSumSek (omärkt total). Gissa aldrig momsbasen: totalVatBasis är null om offerten inte uttryckligen anger den. vatMode gäller ENBART radbeloppen (arbete, material, resor, övrigt, timpris) och totalVatBasis ENBART totalsummorna – de är olika fält. Står raderna uttryckligen exkl. moms och totalen inkl. moms är vatMode "exkl" och totalVatBasis "inkl" (INTE "blandat"). "blandat" bara när själva radbeloppen blandar inkl. och exkl. Räkna aldrig om belopp mellan inkl. och exkl. workDescription högst 15 ord utan namn, adress eller företagsnamn.
 
 2) scope: för VARJE omfattnings-ID, ange om offerten UTTRYCKLIGEN säger att det ingår (ingar), UTTRYCKLIGEN säger att det inte ingår eller är undantaget (ingar_inte), eller inte säger något (framgar_inte). Att något inte nämns betyder framgar_inte – aldrig ingar_inte. Ange page och en kort ref (högst 100 tecken, som en hänvisning till raden eller stycket) för ingar och ingar_inte.
 

@@ -16,7 +16,7 @@ test("schema och prompt: issuer är obligatoriskt, strikt och skiljer utförare 
   for (const f of ["name", "orgnr", "address", "city", "phone", "web"]) assert.deepEqual(s.properties.issuer.properties[f].properties.status.enum, ["framgar", "framgar_inte", "ej_lasbar"]);
   const p = extractSystemPrompt();
   assert.match(p, /FÖRETAGET SOM GER OFFERTEN/); assert.match(p, /betalningsförmedlare/); assert.match(p, /kundens namn/);
-  assert.equal(EXTRACT_VERSION, "avlasning-2");
+  assert.equal(EXTRACT_VERSION, "avlasning-3");
 });
 
 test("komplett identitet (även när uppgifterna står i sidfot på sista sidan): komplett, belagd, ingen saknad; webb/omdömen saknas ≠ saknad uppgift", () => {

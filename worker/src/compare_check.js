@@ -36,6 +36,8 @@ export function buildCheckReport({ order, offer, label, now = Date.now(), receip
   if (unknownScope.length) addOwn("fk_omfattning", "fraga", "Omfattning", `Offerten anger inte om följande ingår: ${unknownScope.map((c) => SCOPE_LABEL[c.id].toLowerCase()).join(", ")}. Det du inte skriver kan kunden anta ingår.`);
   const lacks = (id) => (sc[id] || {}).status !== "ingar" && (sc[id] || {}).status !== "ingar_inte";
   if (lacks("startdatum") && lacks("tidplan")) addOwn("fk_tid", "fraga", "Tid", "Varken startdatum eller tidplan framgår. Ange planerad start och planerat slut, eller att de är preliminära.");
+  else if (lacks("tidplan")) addOwn("fk_tid", "fraga", "Tid", "Start framgår men inte planerat slut eller tidplan. Ange planerat slutdatum eller ungefärlig tidsram (eller att de är preliminära), annars kan kunden anta ett annat slut.");
+  else if (lacks("startdatum")) addOwn("fk_tid", "fraga", "Tid", "Tidplan eller slut framgår men inte startdatum. Ange planerad start (eller att den är preliminär).");
   if (lacks("garanti")) addOwn("fk_garanti", "flagga", "Garanti", "Garanti framgår inte. Skriv bara en garanti du faktiskt lämnar. Anger du ingen förblir den okänd och ingen garanti läggs till här.");
   const findings = [...own, ...rules].sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
   const needs = [];

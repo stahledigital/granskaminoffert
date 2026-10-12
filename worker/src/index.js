@@ -227,7 +227,7 @@ vatMode). Skilj på tre sorters totaler: totalBeforeRotSek (uttryckligen före
 ROT-avdrag), amountToPaySek (uttryckligen att betala efter ROT) och, bara om
 offerten inte märker sin total, totalSumSek. Gissa aldrig om en omärkt total
 är före eller efter ROT, och gissa aldrig momsbasen: totalVatBasis är null
-om offerten inte uttryckligen anger den. propertyType fylls bara i om
+om offerten inte uttryckligen anger den. vatMode gäller bara radbeloppen och totalVatBasis bara totalerna: rader exkl. + total inkl. ger vatMode "exkl" och totalVatBasis "inkl", aldrig "blandat" (det är bara när radbeloppen själva blandar). Räkna aldrig om mellan inkl. och exkl. propertyType fylls bara i om
 bostadstypen står, och då alltid: bostadsrätt/BRF/lägenhet i förening = bostadsratt, villa/småhus/egnahem = smahus,
 hyreshus/flerbostadshus = flerbostadshus. totalContract fylls i bara om offerten uttryckligen säger totalentreprenad. Ett omärkt "totalt" eller "summa" är totalSumSek, aldrig totalBeforeRotSek. Datum som ÅÅÅÅ-MM-DD.
 workDescription är högst 15 ord utan namn, adress eller företagsnamn.

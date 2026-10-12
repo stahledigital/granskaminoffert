@@ -95,16 +95,17 @@ export function runRules(x, ref) {
   }
 
   // Ett datum för ROT-satsen: 50 % gällde bara betalning inom fönstret.
-  const oldRateText = (usedRate, expectedAmt) => {
+  const oldRateText = (usedRate, expectedAmt, altAmt = null) => { // altAmt: andra tolkningen när momsbasen för arbetskostnaden är okänd – då anges båda, aldrig ett tvärsäkert belopp
     const hasPay = Boolean(x.plannedPaymentDate);
     const pay2025 = hasPay && inRange(x.plannedPaymentDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
     const quote2025 = !hasPay && x.quoteDate && inRange(x.quoteDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
     const status = pay2025 ? (vatUnknown ? "fraga" : "ok") : quote2025 ? "fraga" : "fel";
+    const amtTxt = altAmt !== null ? `${kr(expectedAmt)} om arbetskostnaden är inklusive moms eller ${kr(altAmt)} om den är exklusive moms (offerten anger inte vilket)` : kr(expectedAmt);
     const text = pay2025
       ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %, vilket gällde för betalningar ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}. Betalningsdatumet i offerten ligger i det fönstret.${vatUnknown ? " Momsläget anges inte, så beloppet går inte att räkna efter." : ""}`
       : quote2025
-      ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. Det gällde bara arbete som betalades ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}, och offerten anger inte när betalningen sker. Betalas arbetet 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${kr(expectedAmt)} i stället för ${kr(rotAmt)}.`
-      : `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. ${rot.quote} För betalning 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${kr(expectedAmt)} i stället för ${kr(rotAmt)}.`;
+      ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. Det gällde bara arbete som betalades ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}, och offerten anger inte när betalningen sker. Betalas arbetet 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${amtTxt} i stället för ${kr(rotAmt)}.`
+      : `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. ${rot.quote} För betalning 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${amtTxt} i stället för ${kr(rotAmt)}.`;
     return { status, text };
   };
 
@@ -140,8 +141,8 @@ export function runRules(x, ref) {
         add("rot_belopp", "fraga", "ROT-belopp",
           `ROT-avdraget ${kr(rotAmt)} stämmer om arbetskostnaden ${kr(labor)} är angiven inklusive moms, men inte om den är exklusive moms. Offerten anger inte vilket – fråga efter det, så går beloppet att kontrollera.`,
           src(ref, "skatteverket_rot"));
-      } else if (Math.abs(usedRate - rot.oldRate) < 0.02) {
-        const r = oldRateText(usedRate, labor * rot.rate);
+      } else if (rotRate !== null && Math.abs(usedRate - rot.oldRate) < 0.02) { // okänd momsbas: en härledd andel (belopp/arbete) är ingen angiven sats ⇒ bara en uttryckligen angiven sats får tolkas som gamla 50 %
+        const r = oldRateText(usedRate, labor * rot.rate, labor * (1 + VAT_RATE) * rot.rate);
         add("rot_belopp", r.status, "ROT-sats", r.text, src(ref, "skatteverket_rot"));
       } else {
         add("rot_belopp", "fel", "ROT-belopp",

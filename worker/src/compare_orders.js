@@ -22,7 +22,7 @@ import { mailHttpConfig, mailIdemKey, buildMailRequest, requestHash, sendViaHttp
 import { countToday, dayKey } from "./compare_budget.js";
 import { timingSafeEqual, sha256Hex, newAccessToken } from "./compare_util.js";
 import { agreementPdf, reportPdf, b64Bytes } from "./compare_docs.js";
-import { checkOutputs, validateConfirmation, customerAttachmentPdf, checkReportPdf, CHECK_LIMITS } from "./compare_check.js";
+import { buildCheckReport, checkOutputs, validateConfirmation, customerAttachmentPdf, checkReportPdf, CHECK_LIMITS } from "./compare_check.js";
 import { stripLedger, validEmail, maskEmail, newWithdrawToken, withdrawSecretMatches, buildAgreement, newLedger, addEvent, confirmationMail, receiptMail, outboxEntry, exportRow, reportReadyMail } from "./compare_ledger.js";
 import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } from "./compare_stripe.js";
 import { runPipeline } from "./compare_run.js";
@@ -135,8 +135,8 @@ export class CompareOrders {
   async _save(o) { await this.state.storage.put("order", o); }
   // Rapport-klart-mejl (idempotent, EN post per order: outbox:mail_rapport_<id>). Innehåller ingen rapport/offerttext – bara en personlig länk (resultattoken, endast hash lagras på ordern) som gäller tills rapporten raderas (24 h).
   // Mottagaren är alltid orderns frusna kontakt (testorder: bara TEST_CHAIN_TO). Returnerar put-objekt att committa ihop med ordern, eller {} (redan köad / ingen transport / ingen giltig mottagare).
-  async _reportMailPut(o, now) {
-    const key = `outbox:mail_rapport_${o.id}`;
+  async _reportMailPut(o, now, rev = 0) {
+    const key = `outbox:mail_rapport${rev ? `_r${rev}` : ""}_${o.id}`;
     if (await this.state.storage.get(key)) return {};
     const to = o.accept && o.accept.contactEmail;
     if (!to || !validEmail(to) || !o.reportKey || mailerKind(this.env) === null) return {};
@@ -148,7 +148,7 @@ export class CompareOrders {
     o.resultExpiresAt = ((o.work && o.work.deliveredAt) || now) + OFFER.retentionHours * 3600_000;
     const ledger = await this.state.storage.get("ledger");
     if (!ledger || !ledger.agreement || !ledger.agreement.seller) return {}; // avtals-PDF:en byggs ur den frusna ledgern; saknas den köas inget halvt mejl
-    const mail = reportReadyMail(o.id, ledger.agreement.seller.email, o.kind);
+    const mail = reportReadyMail(o.id, ledger.agreement.seller.email, o.kind, rev);
     return { [key]: await outboxEntry(mail, { to, now, secrets: { RAPPORTLANK: `${origin}/jamfor/#o=${o.id}&r=${token}`, KOPLANK: `${origin}/jamfor/kop/` } }) };
   }
   // Flernyckelskrivning som hör ihop (order + ledger + utkorg + radering) ska gå in ATOMISKT. Med lagrets explicita transaktion
@@ -200,8 +200,8 @@ export class CompareOrders {
     const path = new URL(request.url).pathname;
     const now = Number.isFinite(b && b.now) ? b.now : Date.now();
     try {
-      const out = await this._tx(() => this._handle(path, b || {}, now));
-      if (out.after) await out.after();
+      let out = await this._tx(() => this._handle(path, b || {}, now));
+      if (out.after) { const ar = await out.after(); if (ar && ar.body) out = { ...out, ...ar }; } // after() kan ersätta svaret (TEST-recheck: själva arbetet körs utanför transaktionen)
       if (this._afterTx) { const a = this._afterTx; this._afterTx = null; await a(); }
       return Response.json(out.body, { status: out.status || 200 });
     } catch (e) {
@@ -297,6 +297,8 @@ export class CompareOrders {
     // ---- Publika (kräver åtkomstnyckel) ----
     if (!this._auth(o, b.tokenHash)) return NOT_FOUND;
     if (path === "/source-delivered") return this._sourceDelivered(o, b, now);
+    // ---- D17-R2: TEST-recheck av SAMMA redan betalda och levererade testorder (admin + full orderåtkomst; ingen ny order/betalning/resurs). ----
+    if (path === "/recheck") return this._recheckClaim(o, b, now);
 
     // ---- D07 källor (omdömen): firmaidentitet, kandidat-ID och bekräftelse. Ingen omdömesdata lagras här. ----
     // Källuppgifter (firmanamn/ort/ID) följer ordervärdet: oåtkomliga och raderade efter 24 h (lazy – ingen schemalagd rensning, se COMPARE.md).
@@ -1016,6 +1018,115 @@ export class CompareOrders {
   // bevisar inte att det tidigare mejlet inte skickades ⇒ "avstamning"/utfall_okant (avslagskoden sparas som senare observation). Första säkra stopp utan tidigare osäkerhet ⇒ "failed".
   _stopMail(m, code) {
     if (m.unknownOutcome) { m.state = "avstamning"; m.lastError = "utfall_okant"; m.laterStop = code; } else { m.state = "failed"; m.lastError = code; }
+  }
+
+  // TEST-recheck (D17-R2). Villkor: testorder, kind=check, betald och levererad, inom 24 h-retentionen från ORIGINALLEVERANSEN (deliveredAt ändras aldrig), högst 2 försök och ett genomfört
+  // recheck per order, single-flight via lease. Det frusna köpet (accept/ledger/leveransbevis/samtycken/deliveredAt) rörs aldrig; bara rapportinnehållet byts mot en reviderad version
+  // (revision 1) och ett nytt rapport-klart-mejl (id mail_rapport_r1_<id>, enbart till TEST_CHAIN_TO) köas. Den ursprungliga rapporten sparas som cmprep:<id>:r0 (samma utgångstid).
+  // Läge A "reread" (b.text är en sträng): STRIKT återinläggning av EXAKT samma ursprungstext (sha256 måste vara lika med orderns bevarade dokument-digest; saknas digest eller avviker texten ⇒ nej, aldrig en ny kundfil).
+  // Texten läggs under orderns befintliga dokumentnyckel med återstående retention, en verklig AI-avläsning körs (samma pott/tak) och dokumentet + avläsningen raderas direkt efter. Revision 2, egen gate/mejl (mail_rapport_r2_<id>).
+  async _recheckClaim(o, b, now) {
+    if (!o.test || b.testAdmin !== true) return { status: 403, body: { ok: false, error: "testorder" } };
+    if (o.kind !== "check") return { status: 409, body: { ok: false, error: "ej_check" } };
+    if (o.status !== "delivered" || !o.reportKey || !o.paidAt) return { status: 409, body: { ok: false, error: "ej_levererad" } };
+    const until = ((o.work && o.work.deliveredAt) || 0) + OFFER.retentionHours * 3600_000;
+    if (o.contentDeleted || now >= until) return { status: 410, body: { ok: false, error: "utgangen" } };
+    const reread = b.text !== undefined, slot = reread ? "reread" : "recheck", rev = reread ? 2 : 1;
+    if (reread) {
+      const d = Array.isArray(o.docs) ? o.docs.find((x) => x.idx === 0) : null;
+      if (typeof b.text !== "string" || !b.text.trim() || b.text.length > LIMITS.maxTextChars) return { status: 400, body: { ok: false, error: "ogiltig_text" } };
+      if (!d || d.kind !== "text" || typeof d.sha256 !== "string" || d.sha256.length !== 64) return { status: 409, body: { ok: false, error: "digest_saknas" } };
+      if ((await sha256Hex(b.text)) !== d.sha256) return { status: 409, body: { ok: false, error: "digest_matchar_inte" } };
+    }
+    const rc = o[slot] || { state: "none", attempts: 0 };
+    if (rc.state === "done") return { body: { ok: true, already: true, revision: rc.revision, mail: await this._recheckMailState(o, rev) } };
+    if (rc.state === "running" && rc.leaseUntil > now) return { status: 409, body: { ok: false, error: "pagar" } };
+    if ([o.recheck, o.reread].some((x) => x && x.state === "running" && x.leaseUntil > now)) return { status: 409, body: { ok: false, error: "pagar" } };
+    if ((rc.attempts || 0) >= 2) return { status: 429, body: { ok: false, error: "for_manga_forsok" } };
+    if (reread) {
+      if (!this.env.ANTHROPIC_API_KEY) return { status: 503, body: { ok: false, error: "ingen_modellnyckel" } };
+      const d = o.docs.find((x) => x.idx === 0);
+      try { await this.env.REVIEWS_KV.put(`cmpdoc:${o.id}:0:${d.sha256.slice(0, 40)}`, JSON.stringify({ kind: "text", text: b.text, mediaType: undefined, dataBase64: undefined }), { expirationTtl: Math.max(60, Math.floor((until - now) / 1000)) }); } catch { return { status: 502, body: { ok: false, error: "lagring" } }; }
+    }
+    o[slot] = { state: "running", attempts: (rc.attempts || 0) + 1, startedAt: now, leaseUntil: now + LIMITS.leaseMs, revision: rev };
+    await this._save(o);
+    const self = this;
+    return { body: { ok: true, started: true }, after: async () => ({ body: await (reread ? self._rereadRun(now, until) : self._recheckRun(now, until)) }) };
+  }
+  async _recheckMailState(o, rev = 1) { const m = await this.state.storage.get(`outbox:mail_rapport_r${rev}_${o.id}`); return m ? m.state : null; }
+  // D17-R2: omräkning av SAMMA levererade TEST-rapport ur dess egna frusna avlästa värden (report.original + report.scope). Offertfilen och avläsningen raderas vid leverans (_purgeDocs),
+  // så en NY AI-avläsning av originalet är inte möjlig här utan att dokumentet läggs in igen (en ny effekt som inte görs i den här vägen). Inget leverantörsanrop, ingen budget, ingen ny order.
+  // Bara regelutfall som beror på bevarade värden räknas om (moms/ROT/summa, tidsfråga); övriga fynd, frågor och kvitto behålls oförändrade.
+  async _recheckRun(now, until) {
+    const kv = this.env.REVIEWS_KV;
+    const fail = async (reason, status = 502) => { const o = await this._tx(async () => { const c = await this._load(); if (c && c.recheck) { c.recheck.state = "failed"; c.recheck.error = reason; c.recheck.leaseUntil = 0; await this._save(c); } return c; }); return { status, body: { ok: false, error: reason, attempts: o && o.recheck && o.recheck.attempts } }; };
+    const o0 = await this._load(); if (!o0 || !o0.reportKey) return fail("rapport_saknas");
+    const oldTxt = await kv.get(o0.reportKey); if (typeof oldTxt !== "string") return fail("rapport_saknas");
+    let old; try { old = JSON.parse(oldTxt); } catch { return fail("rapport_ogiltig"); }
+    if (!old || old.kind !== "check" || !old.original || !Array.isArray(old.scope)) return fail("rapport_ogiltig");
+    const ttl = Math.max(60, Math.floor((until - Date.now()) / 1000));
+    const scope = {}; for (const r of old.scope) scope[r.id] = { status: r.status, page: r.page, ref: r.ref };
+    const fresh = buildCheckReport({ order: o0, offer: { extracted: { ...old.original, vatMode: old.original.vatMode || "ej_angivet" }, scope, readability: old.readability, instructionsInDocument: !!old.instructionsInDocument }, label: old.label, now: Date.parse(old.createdAt) || Date.now(), receipt: old.receipt });
+    const DERIVED = new Set(["moms", "rot_belopp", "summa", "fk_tid"]), NEED = new Set(["amounts", "dates"]), QN = new Set(["moms", "rot"]);
+    const byId = new Map(fresh.findings.map((f) => [f.id, f]));
+    const findings = []; const seen = new Set();
+    for (const f of old.findings || []) { if (DERIVED.has(f.id)) { const n = byId.get(f.id); if (n) { findings.push(n); seen.add(f.id); } } else { findings.push(f); seen.add(f.id); } }
+    for (const f of fresh.findings) if (DERIVED.has(f.id) && !seen.has(f.id)) findings.push(f);
+    const rep = { ...old, findings,
+      needs: [...(old.needs || []).filter((n) => !NEED.has(n.id)), ...(fresh.needs || []).filter((n) => NEED.has(n.id))],
+      questions: [...(old.questions || []).filter((q) => !QN.has(q.id)), ...(fresh.questions || []).filter((q) => QN.has(q.id))],
+      testRecheck: { revision: 1, at: new Date().toISOString(), method: "omrakning_ur_frusna_varden", aiRead: false, previousReportHash: await sha256Hex(oldTxt), note: "Reviderat TEST-resultat: omräknat ur den sparade rapportens egna avlästa värden efter rättning (ingen ny AI-avläsning: offertfilen raderas vid leverans). Köp och samtycken är oförändrade." } };
+    const json = JSON.stringify(rep);
+    try { await kv.put(`${o0.reportKey}:r0`, oldTxt, { expirationTtl: ttl }); await kv.put(o0.reportKey, json, { expirationTtl: ttl }); } catch { return fail("lagring"); }
+    return this._tx(async () => {
+      const o = await this._load();
+      o.recheck = { ...o.recheck, state: "done", revision: 1, at: Date.now(), leaseUntil: 0, method: "omrakning", previousReportHash: rep.testRecheck.previousReportHash, reportHash: await sha256Hex(json) };
+      const rm = await this._reportMailPut(o, Date.now(), 1);
+      await this._commit({ put: { order: o, ...rm } });
+      if (Object.keys(rm).length && this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + 10);
+      return { ok: true, revision: 1, aiRead: false, queued: Object.keys(rm).length > 0, previousReportHash: o.recheck.previousReportHash, reportHash: o.recheck.reportHash };
+    });
+  }
+
+  async _rereadRun(now, until) {
+    const st = this.state.storage, kv = this.env.REVIEWS_KV, self = this;
+    const o0 = await this._load();
+    const dkey = o0 && o0.docs && o0.docs[0] && `cmpdoc:${o0.id}:0:${o0.docs[0].sha256.slice(0, 40)}`; // nyckeln är härledd ur innehållshashen (manifestets key nollas vid rensning)
+    const cleanup = async () => { try { if (dkey) await kv.delete(dkey); } catch { /* TTL = återstående retention */ } try { await st.delete("ext:0"); } catch { /* */ } };
+    const fail = async (reason, status = 502) => { await cleanup(); const o = await this._tx(async () => { const c = await this._load(); if (c && c.reread) { c.reread.state = "failed"; c.reread.error = reason; c.reread.leaseUntil = 0; await this._save(c); } return c; }); return { status, body: { ok: false, error: reason, attempts: o && o.reread && o.reread.attempts } }; };
+    if (!o0 || !o0.reportKey) return fail("rapport_saknas");
+    const prevTxt = await kv.get(o0.reportKey); if (typeof prevTxt !== "string") return fail("rapport_saknas");
+    const ttl = Math.max(60, Math.floor((until - Date.now()) / 1000));
+    const store = {
+      order: async () => { const o = await self._load(); return o && { ...o, docs: (o.docs || []).map((d) => (d.idx === 0 ? { ...d, key: dkey } : d)) }; }, // pipelinen läser dokumentet via manifestets key
+      heartbeat: async () => true,
+      getExt: async (idx) => (await st.get(`ext:${idx}`)) || null,
+      putExt: async (idx, value, patch) => self._tx(async () => { const o = await self._load(); await st.put(`ext:${idx}`, value); o.work.steps.ext[idx] = { ...(o.work.steps.ext[idx] || {}), state: "done", ...patch }; await self._save(o); return true; }),
+      sources: async () => (await st.get("sources")) || null,
+      getAux: async () => null, putAux: async () => true, markSynth: async () => true,
+      stepAttempt: async (kind, idx) => self._tx(async () => { const o = await self._load(); const s = (o.work.steps.ext[idx] = o.work.steps.ext[idx] || { state: "pending", attempts: 0 }); s.attempts = (s.attempts || 0) + 1; await self._save(o); return s.attempts; }),
+    };
+    await st.delete("ext:0"); // alltid ny avläsning
+    let result;
+    try { result = await runPipeline({ env: this.env, io: { fetch: (u, i) => fetch(u, i), now: () => Date.now(), kv }, store }); } catch { result = { state: "retry", reason: "internt" }; }
+    if (result.state !== "delivered") return fail(result.reason || result.state);
+    const newTxt = await kv.get(result.reportKey); if (typeof newTxt !== "string") return fail("rapport_saknas");
+    let rep; try { rep = JSON.parse(newTxt); } catch { return fail("rapport_ogiltig"); }
+    let prev = null; try { prev = JSON.parse(prevTxt); } catch { /* */ }
+    const prevHash = await sha256Hex(prevTxt);
+    rep.createdAt = (prev && prev.createdAt) || rep.createdAt; rep.expiresAt = (prev && prev.expiresAt) || rep.expiresAt;
+    rep.testRecheck = { revision: 2, at: new Date().toISOString(), method: "ny_ai_avlasning_samma_syntetiska_text", aiRead: true, originalDigest: o0.docs[0].sha256, previousReportHash: prevHash, note: "Reviderat TEST-resultat: ny AI-avläsning av exakt samma syntetiska originaltext på samma betalda testorder. Köp och samtycken är oförändrade. Inget har fyllts i ur minnet." };
+    const json = JSON.stringify(rep);
+    try { await kv.put(`${o0.reportKey}:r1`, prevTxt, { expirationTtl: ttl }); await kv.put(o0.reportKey, json, { expirationTtl: ttl }); } catch { return fail("lagring"); }
+    await cleanup();
+    return this._tx(async () => {
+      const o = await this._load();
+      o.reread = { ...o.reread, state: "done", revision: 2, at: Date.now(), leaseUntil: 0, method: "ai", originalDigest: o0.docs[0].sha256, previousReportHash: prevHash, reportHash: await sha256Hex(json) };
+      const rm = await this._reportMailPut(o, Date.now(), 2);
+      await this._commit({ put: { order: o, ...rm } });
+      if (Object.keys(rm).length && this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + 10);
+      return { ok: true, revision: 2, aiRead: true, queued: Object.keys(rm).length > 0, previousReportHash: prevHash, reportHash: o.reread.reportHash };
+    });
   }
 
   // Bilagor med {gen} byggs HÄR (vid sändning), deterministiskt: "agreement" ur den frusna ledgern (personlig ångerlänk bara om den finns som hemlighet i mejlet), "report" ur den lagrade rapporten.
