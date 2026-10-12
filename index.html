@@ -51,7 +51,11 @@ h1 em{font-style:normal;color:var(--acc-text)}
 #res:focus{outline:none}
 .chk li>div,.qs li,.calcnote,.price>div{min-width:0;overflow-wrap:anywhere}
 @media (max-width:480px){.pathsel{grid-template-columns:1fr}}
-.pathnote{margin:-8px 0 20px;font-size:15px;color:var(--ink2);max-width:52ch}
+.pathnote{margin:-8px 0 12px;font-size:15px;color:var(--ink2);max-width:52ch}
+.pathalt{margin:0 0 20px;font-size:15px;color:var(--ink2);max-width:52ch}
+.pathalt[hidden]{display:none}
+.pathalt a{color:var(--acc-text);font-weight:600;text-decoration:underline;text-underline-offset:2px}
+.freetag{display:inline-block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--acc-text);margin-bottom:8px}
 .fromsd{margin-top:28px;border:1px solid var(--line);border-left:6px solid var(--acc);border-radius:10px;padding:16px 18px;background:var(--paper)}
 .cmpoffer,.cmpcta{margin-top:24px;border:1px solid var(--line);border-radius:10px;padding:16px 18px;background:var(--paper)}
 .cmpoffer[hidden],.cmpcta[hidden]{display:none}
@@ -168,8 +172,9 @@ details.gmo-all{margin-top:12px}
   <button type="button" class="pathcard" data-path="hantverkare" aria-pressed="false"><b>Jag ska skicka en offert</b><span>Se vad kunden kommer att fråga om – innan du skickar.</span></button>
 </div>
 <p class="pathnote" id="pathnote" aria-live="polite">Du får en lista med det som är otydligt – och kan skicka frågorna direkt till hantverkaren.</p>
+<p class="pathalt" id="pathalt" hidden><span id="pathalt-txt"></span> <a id="pathalt-go" href="/jamfor/"></a></p>
 
-<div class="drop" id="drop"><b>Släpp din hantverkaroffert här</b><span>PDF, foto eller text</span>
+<div class="drop" id="drop"><span class="freetag">Gratis · en offert i taget</span><b>Släpp din hantverkaroffert här</b><span>PDF, foto eller text</span>
   <div class="alt" style="justify-content:center;margin-top:16px">
     <button type="button" class="btn acc" id="pickfile">Välj fil</button>
     <button type="button" class="btn" id="pickcam">Ta foto</button>
@@ -611,6 +616,15 @@ function cmpCtaHtml(isDemo){
     <a class="btn acc" id="cmpr-go" href="/jamfor/" data-cmp="result">Jämför 2–4 offerter – <span data-cmp-price>${cmpPrice}</span></a>
   </aside>`;
 }
+// UX 2026-10-12 (Fable): hantverkaren som fått gratislistan erbjuds förkontrollen (samma produkt/pris som kortet på startsidan).
+function fkCtaHtml(){
+  return `<aside class="cmpcta" id="fkcta" aria-labelledby="fkr-h">
+    <p class="cmph" id="fkr-h" role="heading" aria-level="2">Ska du skicka den här offerten?</p>
+    <p>Förkontrollen går igenom moms, ROT-underlag, pristyp, omfattning och tid. När du bekräftat uppgifterna får du färdiga tilläggstexter och en PDF-bilaga till kunden.</p>
+    <p class="cmpmeta">Betalas en gång: 49 kr inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
+    <a class="btn acc" id="fkr-go" href="/forkontroll/">Förkontrollera min offert – 49 kr</a>
+  </aside>`;
+}
 function cmpFail(host){
   const old=host.parentNode.querySelector('.cmpfail');if(old)old.remove();
   const b=document.createElement('div');b.className='cmpfail';b.setAttribute('role','alert');b.tabIndex=-1;
@@ -633,6 +647,11 @@ function syncCmp(){
   const mott=chosenPath==='mottagare',shown=$('res').classList.contains('on');
   const o=$('cmpoffer');if(o)o.hidden=!(cmpOpen&&mott&&!shown);
   const fk=$('fkoffer');if(fk)fk.hidden=!(fkOpen&&chosenPath==='hantverkare');
+  // UX 2026-10-12 (Fable): det betalda alternativet för vald väg syns redan vid vägvalet, ovanför den fria uppladdningen. Pris/text oförändrade mot korten nedan.
+  const pa=$('pathalt'),pt=$('pathalt-txt'),pg=$('pathalt-go');
+  if(pa&&pt&&pg){if(mott&&cmpOpen&&!shown){pt.textContent='Har du fått 2–4 offerter på samma jobb?';pg.textContent='Jämför dem sida vid sida – '+cmpPrice;pg.href='/jamfor/';pg.setAttribute('data-cmp','start');pa.hidden=false;}
+    else if(chosenPath==='hantverkare'&&fkOpen&&!shown){pt.textContent='Vill du ha färdiga tilläggstexter och en PDF-bilaga till kunden?';pg.textContent='Förkontrollera offerten – 49 kr';pg.href='/forkontroll/';pg.removeAttribute('data-cmp');pa.hidden=false;}
+    else pa.hidden=true;}
   const c=$('cmpcta');if(c)c.hidden=!(cmpOpen&&mott);
   if(cmpOpen&&mott&&shown&&!c){const alt=$('res').querySelector(':scope > .alt');if(alt){alt.insertAdjacentHTML('beforebegin',cmpCtaHtml(lastIsDemo));bindCmp();const n=$('cmpcta');if(n)n.hidden=false;}}
 }
@@ -642,7 +661,7 @@ function syncCmp(){
     const local=/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
     const base=local?(new URLSearchParams(location.search).get('api')||location.origin):API_BASE;
     fetch(base.replace(/\/$/,'')+'/compare/config',{headers:{accept:'application/json'}}).then(r=>r.ok?r.json():null).then(c=>{
-      if(c&&c.enabled===true&&c.accepting===true&&c.offer&&Number.isFinite(c.offer.priceOre)){cmpOpen=true;cmpPrice=Math.round(c.offer.priceOre/100)+' kr';syncCmp();} if(c&&c.check&&c.check.available===true){fkOpen=true;syncCmp();} if(c&&c.consent&&c.consent.policy==='P'){const fb=document.getElementById('ftbuy');if(fb){fb.href='/jamfor/kop/';fb.textContent='Köp, villkor och hjälp';}}
+      if(c&&c.enabled===true&&c.accepting===true&&c.offer&&Number.isFinite(c.offer.priceOre)){cmpOpen=true;cmpPrice=Math.round(c.offer.priceOre/100)+' kr';syncCmp();bindCmp();} if(c&&c.check&&c.check.available===true){fkOpen=true;syncCmp();} if(c&&c.consent&&c.consent.policy==='P'){const fb=document.getElementById('ftbuy');if(fb){fb.href='/jamfor/kop/';fb.textContent='Köp, villkor och hjälp';}}
     }).catch(()=>{});
   }catch(e){}
 })();
@@ -672,6 +691,7 @@ function render(result,isDemo){
   <h3>Uppgifter som framgår (${statedN})</h3>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}
   </details>
   ${chosenPath==='hantverkare'||!cmpOpen?'':cmpCtaHtml(isDemo)}
+  ${chosenPath==='hantverkare'&&fkOpen?fkCtaHtml():''}
   <div class="alt">
     <button class="btn ghost" onclick="location.reload()">Granska en till</button>
   </div>

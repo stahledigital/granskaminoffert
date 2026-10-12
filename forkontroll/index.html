@@ -220,7 +220,7 @@ async function init(){
   var wantPay=/(^|[#&])betala(&|$)/.test(location.hash);
   var g=await guardStored();
   if(wantPay&&g.ok&&g.order&&['draft','ready','awaiting_payment'].indexOf(g.order.status)>=0&&g.order.kind==='check'){state.order=g.rec;toPay(true);return}
-  if(!g.ok){showGuard(g)}
+  if(!g.ok){showGuard(g);$('go').setAttribute('aria-describedby','guard');}
   show('s1',true);
 }
 function toPay(resumed){
@@ -246,7 +246,9 @@ $('go').addEventListener('click',async function(){
   if(!$('samejob').checked){err('Bekräfta först att offerten är din egen.');$('samejob').focus();return}
   var p=await payload();if(!p){err('Välj en fil eller klistra in offertens text.');return}
   if(p.bad){err('Filtypen går inte att läsa. Använd PDF, foto eller textfil.');return}
-  var gs=await guardStored();if(gs.ok&&gs.order&&gs.order.status==='awaiting_payment')gs={ok:false,why:'pagaende'};if(!gs.ok){showGuard(gs);$('guard').scrollIntoView({block:'nearest'});return}
+  var gs=await guardStored();if(gs.ok&&gs.order&&gs.order.status==='awaiting_payment')gs={ok:false,why:'pagaende'};
+  // UX 2026-10-12 (Fable): tyst stopp ersatt med tydligt besked vid knappen + rutan i bild. Samma spärr, ingen ny order.
+  if(!gs.ok){showGuard(gs);err('Förkontrollen kan inte startas i den här webbläsaren just nu – se rutan ovanför formuläret.');$('guard').scrollIntoView({block:'start'});return}
   var b=$('go');b.disabled=true;b.textContent='Läser in…';
   try{
     var c=await api('POST','/compare/orders',{body:{kind:'check',docCount:1,labels:['Din offert'],accept:{sameJob:true}}});
