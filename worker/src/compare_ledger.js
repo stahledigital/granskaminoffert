@@ -45,7 +45,7 @@ export async function buildAgreement(order, { env, now, session }) {
     orderId: order.id,
     seller: (snap.terms && snap.terms.seller) || sellerInfo(env), // säljaren som kunden accepterade (frusen), inte dagens konfiguration
     price,
-    product: OFFER.product,
+    product: snap.product || OFFER.product,
     docCount: order.docCount,
     scope: { gets: snap.copy.gets, getsNot: snap.copy.getsNot, how: snap.copy.how },
     accepted: { at: a.acceptedAt, version: a.consentVersion, hash: a.consentHash, draft: !!a.draft, texts: snap.texts, fullTerms: snap.terms || null, dataCoverage: snap.dataCoverage, coverage: a.coverage || null, offerVersion: snap.offerVersion },
@@ -126,7 +126,7 @@ export function pLines(ag) {
   const cov = ag.p.agreed && ag.p.agreed.sources && ag.p.agreed.sources.required;
   return [
     ``,
-    `Vad du köpt: jämförelserapport för ${ag.docCount} offerter${cov ? `, samt källans egna omdömesvisning för de ${ag.p.agreed.sources.coveredIds.length} företag där täckning visades före köpet (täckningskontrollsumma ${ag.p.agreed.sources.coverageHash})` : ""}.`,
+    `Vad du köpt: ${ag.product === OFFER.product ? `jämförelserapport för ${ag.docCount} offerter` : `${ag.product} (kontroll av din offert, tilläggstexter och PDF-bilaga som du själv bekräftar)`}${cov ? `, samt källans egna omdömesvisning för de ${ag.p.agreed.sources.coveredIds.length} företag där täckning visades före köpet (täckningskontrollsumma ${ag.p.agreed.sources.coverageHash})` : ""}.`,
     ...(c.declaration ? [
       `Din bekräftelse (en enda markering som du själv gjorde, ej förkryssad; texten ordagrant):`,
       `- ${t.declaration} ${f("declaration")}`,
@@ -149,7 +149,7 @@ export function confirmationMail(ledger) {
   const body = [
     `Tack för ditt köp!`,
     ``,
-    `Din beställning är bekräftad. Vi förbereder din jämförelse.`,
+    `Din beställning är bekräftad. Vi förbereder ${ag.product === OFFER.product ? "din jämförelse" : "din förkontroll"}.`,
     `Avtal och köpinformation finns i bifogad PDF (${AGREEMENT_PDF}).`,
     ``,
     `Frågor? ${ag.seller.email}`,
@@ -181,19 +181,20 @@ export function receiptMail(ledger, wd) {
 }
 // Rapport-mejl (kort): fullständig rapport som PDF + samma avtals-PDF + personlig 24 h-länk ({{RAPPORTLANK}} fylls i vid sändning och töms efteråt). Ingen rapport-/offerttext i brödtexten.
 export const REPORT_PDF_PREFIX = "Jamforelse-";
-export function reportReadyMail(orderId, sellerEmail) {
+export function reportReadyMail(orderId, sellerEmail, kind) {
   const no = orderId.slice(2, 10).toUpperCase();
+  const chk = kind === "check";
   const body = [
     `Tack för ditt köp!`,
     ``,
-    `Här är din jämförelse – rapporten finns bifogad som PDF.`,
-    `Du kan också öppna den online (länken gäller i 24 timmar): {{RAPPORTLANK}}`,
+    chk ? `Här är din förkontroll – rapporten finns bifogad som PDF.` : `Här är din jämförelse – rapporten finns bifogad som PDF.`,
+    chk ? `Du kan öppna den online som skrivskyddad vy (länken gäller i 24 timmar): {{RAPPORTLANK}}\nFör att bekräfta uppgifter och få tilläggstexter och PDF-bilaga till din kund, öppna förkontrollen i webbläsaren där du köpte den.` : `Du kan också öppna den online (länken gäller i 24 timmar): {{RAPPORTLANK}}`,
     ``,
     `Avtal och köpinformation finns i den andra bilagan.`,
     ``,
     `Frågor? ${sellerEmail}`,
   ].join("\n");
-  return { id: `mail_rapport_${orderId}`, kind: "rapport", subject: `Din jämförelse är klar – ordernummer ${no}`, body, attachments: [{ filename: `${REPORT_PDF_PREFIX}${no}.pdf`, contentType: "application/pdf", gen: "report" }, { filename: AGREEMENT_PDF, contentType: "application/pdf", gen: "agreement" }] };
+  return { id: `mail_rapport_${orderId}`, kind: "rapport", subject: chk ? `Din förkontroll är klar – ordernummer ${no}` : `Din jämförelse är klar – ordernummer ${no}`, body, attachments: [{ filename: `${REPORT_PDF_PREFIX}${no}.pdf`, contentType: "application/pdf", gen: "report" }, { filename: AGREEMENT_PDF, contentType: "application/pdf", gen: "agreement" }] };
 }
 // Utkorgsposten fryser meddelandet (ämne, brödtext med platshållare, typade bilagor) vid köandet. Bilagor lagras som base64 (typad nyttolast, inte parsad ur brödtext).
 export async function outboxEntry(mail, { to, now, secrets = null }) {

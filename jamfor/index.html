@@ -13,6 +13,7 @@
 <style>
 :root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b;--acc-text:#b8431f;--ok:#2e7d4f;--warn:#8a6508;--bad:#c0392b;--oksoft:#e3f1e8;--warnsoft:#fbf0d2;--badsoft:#f9e0dc}
 *{box-sizing:border-box}
+.ckdl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 12px;margin:0}.ckdl dt{color:var(--ink2);font-size:14px}.ckdl dd{margin:0;font-weight:600}.ckhead{display:flex;justify-content:space-between;gap:8px;align-items:center}.ckacts{display:flex;gap:10px;flex-wrap:wrap}.cktext{overflow-wrap:anywhere}#ckform select,#ckform input[type=date]{width:100%;min-height:48px;font:16px Barlow,sans-serif}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;padding:0 16px 56px;line-height:1.45}
 .wrap{max-width:880px;margin:0 auto}
@@ -534,6 +535,8 @@ async function tick(cancelled){
   try{r=await api('GET','/compare/orders/'+state.order.id,{token:state.order.token})}catch(e){setStatus('Kunde inte nå tjänsten just nu. Försöker igen…');state.timer=setTimeout(tick,4000);return}
   if(r.status===404){if(startFreshFromGone('Din tidigare jämförelse hittades inte (den kan ha gått ut eller raderats), så den är inte påverkad av detta. Du börjar en ny.'))return;store('jamfor_order',null);setStatus('Ordern hittades inte. Den kan ha gått ut (24 timmar) eller raderats.',true);return}
   var o=r.json.order;if(!o){state.timer=setTimeout(tick,4000);return}
+  state.kind=o.kind;
+  if(o.kind==='check'){ckChrome();var h3=$('h-s3');if(h3)h3.textContent='Din förkontroll'}
   if(Number.isInteger(o.docCount))state.docCount=o.docCount;
   if(['draft','ready','awaiting_payment'].indexOf(o.status)<0&&$('offer'))show('offer',false); // källpanelen hör bara till obetald återupptagning
   $('reclink').textContent=recoveryLink();show('recovery',true);
@@ -639,6 +642,7 @@ async function retryPay(){
   err((r.json&&r.json.error)||'Betalningen kunde inte startas.');
 }
 async function consentAgain(msg){
+  if(state.kind==='check'){location.href='/forkontroll/#betala';return} // förkontrollens egna köptexter finns på /forkontroll/
   try{state.cfg=(await api('GET','/compare/config')).json}catch(e){}
   var cfg=state.cfg||{},t=(cfg.consent&&cfg.consent.texts)||{},box=$('statusbox');box.textContent='';
   box.appendChild(el('p',{text:msg||'Läs och godkänn villkoren igen innan du betalar.'}));
@@ -815,7 +819,142 @@ function srcCardsBlock(R,o){
   box.appendChild(el('p',{class:'hint',text:'Länken öppnar företagets offentliga sida hos Google. Här visas inga omdömen, betyg eller antal. PDF:en i mejlet visar läget vid leverans ('+new Date(fz).toLocaleString('sv-SE')+')'+(live&&live.changedSinceDelivery?' och har inte uppdaterats. Den här visningen är uppdaterad '+new Date(live.asOf).toLocaleString('sv-SE')+'.':'.')}));
   return box;
 }
+// ---------- D17: förkontroll av min offert (hantverkarens egen offert före utskick) ----------
+// Allt som visas är textContent. Tilläggstexter och PDF härleds på servern ur EXAKT de värden hantverkaren bekräftat (samma revision).
+var CK_STAT={ok:'Stämmer',fel:'Fel',fraga:'Oklart',flagga:'Notera',ej_bedombar:'Går inte att bedöma'};
+var CK_CLS={ok:'ok',fel:'bad',fraga:'warn',flagga:'warn',ej_bedombar:'warn'};
+var CK_PT={fast:'Fast pris',ungefarligt:'Ungefärligt pris',lopande:'Löpande räkning'};
+function ckCopy(btn,text){
+  function done(ok){var o=btn.getAttribute('data-l')||btn.textContent;btn.setAttribute('data-l',o);btn.textContent=ok?'Kopierad ✓':'Markera och kopiera själv';setTimeout(function(){btn.textContent=o},2500)}
+  try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){done(true)},function(){done(false)});return}}catch(e){}
+  done(false);
+}
+function ckParseKr(s){var t=String(s==null?'':s).replace(/[\s ]|kr\.?$/gi,'').trim();if(!t)return null;if(!/^\d{1,8}$/.test(t))return NaN;return Number(t)}
+function ckFile(b64,name){
+  var bin=atob(b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+  var url=URL.createObjectURL(new Blob([u],{type:'application/pdf'}));
+  var a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url)},4000);
+}
+function ckChrome(){
+  var h=document.querySelector('h1');if(h){h.textContent='';h.appendChild(document.createTextNode('Förkontroll av din offert.'));h.appendChild(document.createElement('br'));h.appendChild(el('em',{text:'Det här behöver kunden få veta.'}))}
+  var l=document.querySelector('.lead');if(l)l.textContent='Din egen offert, kontrollerad innan du skickar den.';var n=$('scopenote');if(n)n.classList.add('hidden');document.title='Förkontroll av min offert – Granska min offert';
+}
+function renderCheck(R,o){
+  ckChrome();
+  var host=$('rep');host.textContent='';show('rep',true);
+  host.appendChild(el('h2',{id:'h-rep',text:'Din förkontroll'}));
+  host.appendChild(el('p',{class:'hint',text:'Det här är din egen offert, kontrollerad innan du skickar den. Allt nedan bygger på vad som står i offerten. Det du inte själv bekräftar förblir okänt och hamnar aldrig i tilläggen.'}));
+  var ord=R.original||{};
+  // 1. Vad vi läste
+  var rd=el('div',{class:'card'},el('h3',{style:'margin-top:0',text:'Så här läste vi din offert'}));
+  var rows=[];
+  var vb=function(m){return m==='inkl'?' inklusive moms':m==='exkl'?' exklusive moms':' (momsbas framgår inte)'};
+  if(ord.priceType)rows.push(['Pristyp i offerten',CK_PT[ord.priceType]||ord.priceType]);
+  if(ord.laborSumSek!=null)rows.push(['Arbete',kr(ord.laborSumSek)+vb(ord.vatMode)]);
+  if(ord.materialSumSek!=null)rows.push(['Material',kr(ord.materialSumSek)+vb(ord.vatMode)]);
+  if(ord.totalSumSek!=null)rows.push(['Totalsumma',kr(ord.totalSumSek)+vb(ord.totalVatBasis)]); // totalsummans EGEN momsbas, aldrig radernas
+  if(ord.rotAmountSek!=null)rows.push(['ROT-avdrag i offerten',kr(ord.rotAmountSek)]);
+  if(!rows.length)rows.push(['Belopp','Inga belopp kunde läsas säkert ur offerten.']);
+  var dl=el('dl',{class:'ckdl'});rows.forEach(function(r){dl.appendChild(el('dt',{text:r[0]}));dl.appendChild(el('dd',{text:r[1]}))});
+  rd.appendChild(dl);rd.appendChild(el('p',{class:'hint',text:'Beloppen är avlästa och kan innehålla avläsningsfel. Ditt original är oförändrat.'}));
+  host.appendChild(rd);
+  // 2. Kontroller
+  host.appendChild(el('h3',{text:'Kontroller'}));
+  (R.findings||[]).forEach(function(f){
+    var c=el('div',{class:'card','data-finding':f.id},el('div',{class:'ckhead'},el('b',{text:f.title}),el('span',{class:'tag '+(CK_CLS[f.status]||'warn'),text:CK_STAT[f.status]||f.status})),el('p',{style:'margin:6px 0 0',text:f.text}));
+    host.appendChild(c);
+  });
+  if(R.questions&&R.questions.length){
+    var qc=el('div',{class:'card'},el('h3',{style:'margin-top:0',text:'Frågor din kund sannolikt ställer'}));
+    var ul=el('ul',{class:'tight'});R.questions.forEach(function(q){ul.appendChild(el('li',{text:q.text}))});qc.appendChild(ul);host.appendChild(qc);
+  }
+  var nd=el('div',{id:'ckout'});
+  if(o.readOnly){
+    host.appendChild(el('div',{class:'warnbox',id:'ckro',text:'Den här länken är skrivskyddad och visar bara kontrollerna. För att bekräfta uppgifter och hämta tilläggstexter och PDF-bilaga, öppna förkontrollen i webbläsaren där du köpte den.'}));
+  }else{
+    host.appendChild(el('h3',{text:'Bekräfta det som ska in i offerten'}));
+    host.appendChild(el('p',{class:'hint',text:'Fyll bara i det du själv står för. Tomma fält blir inga påståenden. Belopp anges i hela kronor inklusive moms, utan decimaler.'}));
+    var form=el('form',{id:'ckform',class:'card',novalidate:'novalidate'});
+    function fld(label,inp,id,hint){form.appendChild(el('label',{class:'t','for':id,text:label}));form.appendChild(inp);if(hint)form.appendChild(el('p',{class:'hint',text:hint}))}
+    function sel(id,opts){var s=el('select',{id:id,style:'width:100%;min-height:48px;font:16px Barlow,sans-serif;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff'});opts.forEach(function(p){s.appendChild(el('option',{value:p[0],text:p[1]}))});return s}
+    function num(id){return el('input',{type:'text',id:id,inputmode:'numeric',autocomplete:'off',maxlength:'12',placeholder:'t.ex. 25000'})}
+    fld('Pristyp',sel('ck-priceType',[['','Välj…'],['fast','Fast pris'],['ungefarligt','Ungefärligt pris'],['lopande','Löpande räkning']]),'ck-priceType');
+    fld('Arbete, kr inklusive moms',num('ck-laborInclVat'),'ck-laborInclVat');
+    fld('Material, kr inklusive moms',num('ck-materialInclVat'),'ck-materialInclVat');
+    fld('Övrigt, kr inklusive moms (skriv 0 om inget övrigt)',num('ck-otherInclVat'),'ck-otherInclVat','En komplett total räknas först när arbete, material och övrigt är ifyllda. Tomt betyder okänt, aldrig 0.');
+    fld('ROT-avdrag',sel('ck-rotMode',[['','Välj…'],['villkorat','Villkorat ROT-avdrag (om kunden har rätt till det)'],['ingen','Inget ROT-avdrag']]),'ck-rotMode');
+    fld('Planerad start',el('input',{type:'date',id:'ck-plannedStart'}),'ck-plannedStart');
+    fld('Planerat klart',el('input',{type:'date',id:'ck-plannedEnd'}),'ck-plannedEnd');
+    fld('Det här ingår (en rad per punkt, högst 8)',el('textarea',{id:'ck-includes',maxlength:'1200'}),'ck-includes');
+    fld('Det här ingår inte (en rad per punkt, högst 8)',el('textarea',{id:'ck-excludes',maxlength:'1200'}),'ck-excludes');
+    fld('Städning efter arbetet',sel('ck-cleaning',[['','Välj…'],['ingar','Ingår'],['ingar_inte','Ingår inte']]),'ck-cleaning');
+    fld('Bortforsling av avfall',sel('ck-removal',[['','Välj…'],['ingar','Ingår'],['ingar_inte','Ingår inte']]),'ck-removal');
+    fld('Garanti (bara om du lämnar en)',el('input',{type:'text',id:'ck-warranty',maxlength:'200',autocomplete:'off'}),'ck-warranty','Lämna tomt om du inte lämnar någon garanti. Vi lägger aldrig till en.');
+    var msg=el('p',{class:'hint',id:'ckmsg',role:'status','aria-live':'polite'});
+    var save=el('button',{type:'submit',class:'btn acc block',id:'cksave',text:'Bekräfta och skapa tillägg'});
+    form.appendChild(save);form.appendChild(msg);host.appendChild(form);host.appendChild(nd);
+    var token=state.order&&state.order.token;
+    function fill(vals){
+      vals=vals||{};
+      ['priceType','rotMode','plannedStart','plannedEnd','cleaning','removal','warranty'].forEach(function(k){$('ck-'+k).value=vals[k]||''});
+      ['laborInclVat','materialInclVat','otherInclVat'].forEach(function(k){$('ck-'+k).value=vals[k]==null?'':String(vals[k])});
+      $('ck-includes').value=(vals.includes||[]).join('\n');$('ck-excludes').value=(vals.excludes||[]).join('\n');
+    }
+    function collect(){
+      var v={},e=null;
+      ['priceType','rotMode','plannedStart','plannedEnd','cleaning','removal'].forEach(function(k){var x=$('ck-'+k).value;if(x)v[k]=x});
+      ['laborInclVat','materialInclVat','otherInclVat'].forEach(function(k){var n=ckParseKr($('ck-'+k).value);if(n===null)return;if(isNaN(n)){e='Belopp anges som hela kronor, bara siffror.';return}v[k]=n});
+      ['includes','excludes'].forEach(function(k){var ls=$('ck-'+k).value.split(/\r?\n/).map(function(s){return s.trim()}).filter(Boolean);if(ls.length)v[k]=ls});
+      var w=$('ck-warranty').value.trim();if(w)v.warranty=w;
+      if(/[<>]/.test(JSON.stringify(v)))e='Texten får inte innehålla tecknen < eller >.';
+      if(!e&&v.plannedStart&&v.plannedEnd&&v.plannedEnd<v.plannedStart)e='Planerat klart kan inte vara före planerad start.';
+      return {values:v,error:e};
+    }
+    function drawOut(d){
+      nd.textContent='';if(!d||!d.outputs||!d.revision)return;
+      var out=d.outputs;
+      var head=el('div',{class:'card acc',id:'ckrev'},el('h3',{style:'margin-top:0',text:'Tillägg till din offert – revision '+d.revision}),el('p',{class:'hint',text:'Revisionskod '+out.code+'. Texterna och PDF-bilagan innehåller exakt samma uppgifter. Bekräftat '+d.saves+' av '+d.limits.saves+' gånger, PDF hämtad '+d.exports+' av '+d.limits.exports+'.'}));
+      nd.appendChild(head);
+      if(out.draft){var dl2=el('ul',{class:'tight'});(out.unresolved||[]).forEach(function(u){dl2.appendChild(el('li',{text:u.label}))});nd.appendChild(el('div',{class:'warnbox',id:'ckdraft',role:'status'},el('b',{text:'Utkast – tillägget är inte komplett.'}),el('p',{style:'margin:4px 0',text:'Kvarstår att bekräfta innan du skickar offerten:'}),dl2))}
+      (out.sections||[]).forEach(function(s){
+        var c=el('div',{class:'card','data-section':s.id},el('b',{text:s.title}),el('p',{class:'cktext',style:'margin:6px 0',text:s.text}));
+        var b=el('button',{type:'button',class:'btn ghost',text:'Kopiera text'});b.addEventListener('click',function(){ckCopy(b,s.text)});c.appendChild(b);nd.appendChild(c);
+      });
+      if(!(out.sections||[]).length)nd.appendChild(el('p',{class:'hint',text:'Inget bekräftat än, så det finns inget att lägga till.'}));
+      var row=el('div',{class:'ckacts'});
+      var ba=el('button',{type:'button',class:'btn',id:'ckcopyall',text:'Kopiera alla tillägg'});ba.addEventListener('click',function(){ckCopy(ba,out.text)});row.appendChild(ba);
+      var bp=el('button',{type:'button',class:'btn acc',id:'ckpdf',text:'Hämta PDF-bilaga till kunden'});
+      bp.addEventListener('click',async function(){
+        bp.disabled=true;msg.textContent='';
+        try{var r=await api('POST','/compare/orders/'+o.id+'/check/export',{token:token,body:{revision:d.revision}});
+          if(r.status===409&&r.json.revisionChanged){fill(r.json.values);d=r.json;drawOut(d);msg.textContent='En nyare revision ('+d.revision+') fanns i en annan flik. Vyn är uppdaterad – ingen PDF hämtades. Kontrollera och hämta PDF:en igen.';bp.disabled=false;return}
+          if(r.status===200&&r.json.pdfBase64){ckFile(r.json.pdfBase64,r.json.filename||'Tillagg-till-offert.pdf');if(r.json.revision!==d.revision||r.json.code!==d.outputs.code){msg.textContent='Revisionen ändrades under hämtningen. Vyn uppdateras.';var g2=await api('GET','/compare/orders/'+o.id+'/check',{token:token});if(g2.status===200){fill(g2.json.values);d=g2.json;drawOut(d)}bp.disabled=false;return}
+            msg.textContent='PDF hämtad (revision '+r.json.revision+', kod '+r.json.code+').';d.exports=r.json.exports;drawOut(d)}
+          else msg.textContent=r.status===429?'Du har hämtat PDF:en det antal gånger som ingår.':r.status===410?'Förkontrollen har gått ut och är raderad.':(r.json&&r.json.error)||'Det gick inte att hämta PDF:en just nu.';
+        }catch(e){msg.textContent='Det gick inte att hämta PDF:en just nu.'}
+        bp.disabled=false;
+      });row.appendChild(bp);nd.appendChild(row);
+      nd.appendChild(el('p',{class:'hint',text:'Lägg texterna i din offert och skicka den själv. Vi skickar ingenting till din kund.'}));
+    }
+    form.addEventListener('submit',async function(ev){
+      ev.preventDefault();msg.textContent='';var c=collect();
+      if(c.error){msg.textContent=c.error;return}
+      if(!Object.keys(c.values).length){msg.textContent='Fyll i minst en uppgift du vill bekräfta.';return}
+      save.disabled=true;
+      try{var r=await api('PUT','/compare/orders/'+o.id+'/check',{token:token,body:{values:c.values}});
+        if(r.status===200&&r.json.ok){msg.textContent=r.json.unchanged?'Inget ändrat sedan förra bekräftelsen (revision '+r.json.revision+').':'Bekräftat som revision '+r.json.revision+'.';drawOut(r.json)}
+        else msg.textContent=r.status===429?'Du har bekräftat det antal gånger som ingår.':r.status===410?'Förkontrollen har gått ut och är raderad.':(r.json&&r.json.message)||(r.json&&r.json.error)||'Det gick inte att spara just nu.';
+      }catch(e){msg.textContent='Det gick inte att spara just nu.'}
+      save.disabled=false;
+    });
+    api('GET','/compare/orders/'+o.id+'/check',{token:token}).then(function(r){if(r.status===200&&r.json.ok){fill(r.json.values);drawOut(r.json)}}).catch(function(){});
+  }
+  if(R.receipt&&R.receipt.product)host.appendChild(el('p',{class:'hint',text:'Köp: '+R.receipt.product+', '+kr(R.receipt.amountOre/100)+' inklusive moms. Kvitto och avtal finns i mejlet du fick.'}));
+  var dc=el('div',{class:'card'},el('h3',{style:'margin-top:0',text:'Gott att veta'}));var du=el('ul',{class:'tight'});(R.disclaimers||[]).forEach(function(t){du.appendChild(el('li',{text:t}))});dc.appendChild(du);host.appendChild(dc);
+  host.appendChild(el('p',{class:'hint',text:'Förkontrollen sparas i 24 timmar efter leverans och raderas sedan.'}));
+}
 function renderReport(R,o){
+  if(R&&R.kind==='check')return renderCheck(R,o);
   var host=$('rep');host.textContent='';show('rep',true);
   host.appendChild(el('h2',{id:'h-rep',text:'Din jämförelse'}));
   var n=R.offers.length;window.__lastN=n;

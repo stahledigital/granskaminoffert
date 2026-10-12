@@ -8,7 +8,7 @@
 // utebliven leverans. Manuell capture är INTE implementerad (otestad, och auktoriseringsfönstret
 // är begränsat); den kräver eget test innan den väljs.
 
-import { paymentMethods, methodsKey, OFFER } from "./compare_config.js";
+import { paymentMethods, methodsKey, OFFER, CHECK_OFFER } from "./compare_config.js";
 import { hmacSha256Hex, timingSafeEqual } from "./compare_util.js";
 
 const API = "https://api.stripe.com/v1";
@@ -63,12 +63,12 @@ export async function createCheckoutSession(env, order, { returnUrl, fetchImpl }
       quantity: 1,
       price_data: {
         currency: OFFER.currency,
-        unit_amount: OFFER.priceOre,
-        product_data: { name: `${OFFER.product} (${order.docCount} offerter)` },
+        unit_amount: order.kind === "check" ? CHECK_OFFER.priceOre : OFFER.priceOre,
+        product_data: { name: order.kind === "check" ? CHECK_OFFER.product : `${OFFER.product} (${order.docCount} offerter)` },
       },
     }],
-    metadata: { order_id: order.id, offer: OFFER.version },
-    payment_intent_data: { metadata: { order_id: order.id, offer: OFFER.version } },
+    metadata: { order_id: order.id, offer: order.kind === "check" ? CHECK_OFFER.version : OFFER.version, ...(order.kind === "check" ? { product: "check" } : {}) },
+    payment_intent_data: { metadata: { order_id: order.id, offer: order.kind === "check" ? CHECK_OFFER.version : OFFER.version, ...(order.kind === "check" ? { product: "check" } : {}) } },
   };
   const s = await stripeFetch(env, "/checkout/sessions", { method: "POST", body, idempotencyKey: `checkout:${order.id}:${order.attempt}${pm.kind === "card" ? "" : ":" + methodsKey(pm)}`, fetchImpl });
   if (!s || typeof s.id !== "string" || typeof s.url !== "string" || !/^https:\/\//.test(s.url)) throw new Error("stripe: ogiltig session");
@@ -142,8 +142,10 @@ export function evaluatePaidSession(session, order, mode) {
   if (!order.stripe || session.id !== order.stripe.sessionId) return fail("session");
   if (session.metadata && session.metadata.order_id !== undefined && session.metadata.order_id !== order.id) return fail("metadata");
   if (Array.isArray(order.stripe.methods) && Array.isArray(session.payment_method_types) && !session.payment_method_types.every((t) => order.stripe.methods.includes(t))) return fail("metod");
+  // Produktbindning: felprodukt låser aldrig upp. Förkontroll kräver metadata.product=check; jämförelse får inte bära den.
+  if (order.kind === "check" ? !(session.metadata && session.metadata.product === "check") : !!(session.metadata && session.metadata.product !== undefined)) return fail("produkt");
   if (session.currency !== OFFER.currency) return fail("valuta");
-  if (session.amount_total !== OFFER.priceOre) return fail("belopp");
+  if (session.amount_total !== (order.kind === "check" ? CHECK_OFFER.priceOre : OFFER.priceOre)) return fail("belopp");
   if (session.status !== "complete" || session.payment_status !== "paid") return fail("ej_betald");
   const pi = typeof session.payment_intent === "string" ? session.payment_intent : (session.payment_intent && session.payment_intent.id);
   if (typeof pi !== "string" || !/^pi_[A-Za-z0-9_]{8,}$/.test(pi)) return fail("betalning");

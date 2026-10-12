@@ -16,7 +16,8 @@ import { sourcesConfig, sourceCardsFor } from "./compare_sources.js";
 import { sha256Hex } from "./compare_util.js";
 import { buildExtractRequest, readOffer, sanitizeOffer, EXTRACT_VERSION } from "./compare_extract.js";
 import { compareOffers, offerLabels } from "./compare_engine.js";
-import { buildSynthRequest, readPriority, assembleReport } from "./compare_report.js";
+import { buildSynthRequest, readPriority, assembleReport, buildReceipt } from "./compare_report.js";
+import { buildCheckReport } from "./compare_check.js";
 import * as budget from "./compare_budget.js";
 import { freeReserve, freeSettle, freeUnknown, freeRelease } from "./free_budget.js";
 
@@ -127,6 +128,19 @@ async function run({ env, io, store, model: modelOverride }) {
       break;
     }
     if (!done) return { state: "failed", reason: "avlasning_misslyckades" };
+  }
+
+  // ---- 2a. D17 Förkontroll: EN offert, ren kod (regelmotorn), inget syntessteg ----
+  if (order.kind === "check") {
+    const e0 = await store.getExt(0);
+    if (!e0 || !e0.offer) return { state: "failed", reason: "avlasning_saknas" };
+    const fresh0 = await store.order();
+    if (!fresh0) return { state: "lost" };
+    const now0 = io.now();
+    const rep = buildCheckReport({ order: fresh0, offer: e0.offer, label: offerLabels(order.labels, 1)[0], now: now0, receipt: buildReceipt(fresh0) });
+    const key0 = `cmprep:${order.id}`, json0 = JSON.stringify(rep);
+    try { await io.kv.put(key0, json0, { expirationTtl: OFFER.retentionHours * 3600 }); } catch { return { state: "retry", reason: "lagring" }; }
+    return { state: "delivered", reportKey: key0, reportHash: await sha256Hex(json0) };
   }
 
   // ---- 2. Jämförelse (ren kod) ----

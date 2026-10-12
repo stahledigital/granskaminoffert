@@ -198,8 +198,8 @@ export function termsSnapshot(env) {
   ];
   return { version: TERMS_VERSION, draft: true, seller, sections };
 }
-function termsSnapshotP(env) {
-  const seller = sellerInfo(env), pol = retentionPolicy(env), copy = offerCopy(env), rev = reviewsActive(env), fp = fulfilmentPoint(env).point;
+function termsSnapshotP(env, opts) {
+  const seller = sellerInfo(env), pol = retentionPolicy(env), copy = offerCopy(env), rev = !(opts && opts.reviews === false) && reviewsActive(env), fp = fulfilmentPoint(env).point;
   const vatOre = vatPart(OFFER.priceOre, OFFER.vatPct);
   const days = (d, what) => (d === null ? `[lagringstid för ${what} är inte fastställd]` : `${d} dagar`);
   const done = "när vi har levererat din jämförelserapport" + (rev ? " och de omdömesvisningar som visades före köpet (se Täckning)" : "") + (fp === "fonster_slut" ? " och tiden på 24 timmar för att spara rapporten har gått ut" : "");
@@ -238,7 +238,8 @@ export function dataCoverage(env) {
 }
 
 // Det kunden accepterar: pris, produkt, erbjudandetext och samtyckestexter. Hashen bindes till ordern.
-export function consentSnapshot(env) {
+export function consentSnapshot(env, kind) {
+  if (kind === "check") return checkConsentSnapshot(env);
   const base = {
     consentVersion: consentVersion(env), draft: consentDraft(env),
     offerVersion: OFFER.version, priceOre: OFFER.priceOre, currency: OFFER.currency, vatPct: OFFER.vatPct,
@@ -372,4 +373,69 @@ export function acceptingOrders(env, allowedOrigins) {
 // Moms ur ett belopp som redan innehåller moms (öre). Kalkylantagande, märks så i kvittot.
 export function vatPart(totalOre, pct = OFFER.vatPct) {
   return Math.round((totalOre * pct) / (100 + pct));
+}
+
+// ---- D17 Förkontroll av min offert: EN egen offert före utskick. Egen produkt/text/hash men samma pris (4900 öre inkl. moms, serverfryst), samma Stripe/ledger/mejl/24 h. ----
+// Policy P krävs (en aktiv deklaration). Produktspecifik villkorstext är härledd ur de fastställda P-villkoren (villkor-p-1) med produktnamn ersatta och ett eget
+// tjänstestycke: den är UTKAST tills en människa fastställt den. Live kräver därför COMPARE_CHECK_TERMS_VERIFIED=1 (människoflagga, inte en credential); testläge behöver den inte.
+export const CHECK_OFFER = Object.freeze({ version: "erbjudande-fk-1", product: "Förkontroll av min offert", priceOre: 4900, currency: "sek", vatPct: 25, minDocs: 1, maxDocs: 1, retentionHours: 24 });
+export const CHECK_TERMS_VERSION = "villkor-fk-1";
+// Produktspecifik tjänstetext (slutlig formulering, väntar på mänsklig fastställelse). Människogrinden är EXAKT denna text: COMPARE_CHECK_TERMS_VERIFIED=1 gäller bara
+// om COMPARE_CHECK_TERMS_HASH == CHECK_TERMS_TEXT_SHA256 (hash av texten nedan). Ändras texten måste hashen fastställas på nytt; annars förblir villkoren utkast.
+export const CHECK_SERVICE_TEXT = [
+  "Förkontroll av min offert läser av EN offert som du själv laddar upp (PDF, foto eller text) och visar fynd om pristyp, moms, ROT-underlag, omfattning och tid samt frågor som din kund sannolikt ställer.",
+  "I tjänsten ingår också att du själv bekräftar uppgifter, får tilläggstexter att kopiera in i din offert och en PDF-bilaga till din kund som bara innehåller det du bekräftat, med revisionskod och samma uppgifter som texterna. Under 24 timmar efter leverans kan du bekräfta högst 12 gånger och hämta PDF-bilagan högst 12 gånger.",
+  "Pris: 49 kr inklusive moms, engångsköp, ingen prenumeration.",
+  "Tjänsten bedömer inte kvalitet, om priset är rimligt eller om din kund har rätt till ROT-avdrag. ROT-avdraget är högst 50 000 kr per person och år enligt Skatteverket; fördelning mellan flera kunder, kvarvarande utrymme och skatt kontrolleras inte och inget personligt avdrag anges över taket.",
+  "Inga uppgifter läggs till som du inte själv har bekräftat; det som är okänt förblir okänt. Tjänsten ger inget certifikat, ingen stämpel och ingen garanti för offertens innehåll och är inte juridisk rådgivning. Din originaloffert ändras aldrig. Filer och resultat raderas efter 24 timmar.",
+].join("\n");
+export const CHECK_TERMS_TEXT_SHA256 = "f64282b0a0b4919b1401e895f0e96b775a2e06ee26f20d932efb5ac249529d50"; // sha256 av checkServiceSectionText() (testet i compare_check.test.mjs)
+export const checkServiceSectionText = () => [CHECK_SERVICE_TEXT, "Det här ingår:", ...CHECK_COPY.gets.map((t) => `- ${t}`), "Det här ingår inte:", ...CHECK_COPY.getsNot.map((t) => `- ${t}`), "Så går det till:", ...CHECK_COPY.how.map((t) => `- ${t}`)].join("\n");
+export const checkTermsVerified = (env) => !!env && env.COMPARE_CHECK_TERMS_VERIFIED === "1" && env.COMPARE_CHECK_TERMS_HASH === CHECK_TERMS_TEXT_SHA256;
+export const CHECK_COPY = Object.freeze({
+  gets: [
+    "Kontroll av EN egen offert före utskick: moms, ROT-underlag, pristyp, omfattning och tid, med hänvisning till var i offerten uppgiften står.",
+    "Tydligt markerat det som inte framgår – det betyder inte att det saknas.",
+    "Frågor som en kund sannolikt ställer.",
+    "När du själv bekräftat uppgifter: färdiga tilläggstexter att klistra in i offerten och en PDF-bilaga till kunden med exakt samma uppgifter.",
+    "Begränsad bekräftelse, redigering och export under 24 timmar.",
+  ],
+  getsNot: [
+    "Ingen bedömning av kvalitet, om priset är rimligt eller om din kund får ROT-avdrag.",
+    "Inga uppgifter läggs till som du inte bekräftat. Det som är okänt förblir okänt, även garanti.",
+    "Ingen prenumeration, inget certifikat och ingen stämpel. Din originaloffert ändras aldrig.",
+    "Inte juridisk rådgivning.",
+  ],
+  how: [
+    "Efter betalning startar kontrollen direkt och tar oftast några minuter. Du kan stänga fliken – du får tillbaka resultatet via en länk som visas här.",
+    "Offerten skickas till Anthropic (Claude) för avläsning. Inga namn eller offerttexter går till betalleverantören.",
+    "Dina filer och resultatet raderas efter 24 timmar, eller direkt när du själv raderar.",
+    "Du anger en e-postadress. Kvitto och avtalsbekräftelse med alla villkor skickas dit, med en länk till Ditt köp och hjälp. Adressen används bara för det.",
+    "Går något fel och du inte får ditt resultat ska du få pengarna tillbaka.",
+  ],
+});
+export function checkAvailable(env) {
+  if (!env || consentPolicy(env) !== "P") return false;
+  const m = paymentsMode(env);
+  return m === "test" || (m === "live" && checkTermsVerified(env));
+}
+export function checkConsentTexts(env) {
+  const t = consentTexts(env);
+  return Object.freeze({ ...t, sameJob: "Jag bekräftar att offerten är min egen och att jag får ladda upp den.", declaration: "Jag vill att förkontrollen börjar direkt och godtar att ångerrätten upphör när tjänsten är helt utförd.", fulfilmentDef: `Tjänsten är helt utförd när jag har fått min förkontroll${fulfilmentPoint(env).point === "fonster_slut" ? ", och tiden på 24 timmar för att spara resultatet har gått ut" : ""}.` });
+}
+const fkWords = (t) => String(t).replaceAll("din jämförelserapport", "din förkontroll").replaceAll("jämförelserapport", "förkontroll").replaceAll("Jämförelsen", "Förkontrollen").replaceAll("jämförelsen", "förkontrollen").replaceAll("jämförelse", "förkontroll").replaceAll("/jamfor/angra/", "/jamfor/angra/");
+export function checkTermsSnapshot(env) {
+  const b = termsSnapshotP(env, { reviews: false }); // förkontrollen har aldrig omdömesvisningar: fullgörandetexten får inte bero på jämförelsens omdömesflagga
+  const sections = b.sections.map((x) => (x.id === "tjansten"
+    ? { id: x.id, title: x.title, text: checkServiceSectionText() }
+    : { id: x.id, title: x.title, text: fkWords(x.text) }));
+  return { version: CHECK_TERMS_VERSION, draft: !checkTermsVerified(env), seller: b.seller, sections };
+}
+export function checkConsentSnapshot(env) {
+  return {
+    consentVersion: consentVersion(env), draft: !checkTermsVerified(env), product: CHECK_OFFER.product,
+    offerVersion: CHECK_OFFER.version, priceOre: CHECK_OFFER.priceOre, currency: CHECK_OFFER.currency, vatPct: CHECK_OFFER.vatPct,
+    copy: CHECK_COPY, texts: checkConsentTexts(env), dataCoverage: Object.freeze({ reviews: false, text: "Omdömen om företagen ingår inte i förkontrollen." }), terms: checkTermsSnapshot(env),
+    policy: "P", fulfilmentPoint: fulfilmentPoint(env).point,
+  };
 }

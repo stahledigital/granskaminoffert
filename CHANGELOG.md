@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## 2026-10-12 – förkontroll av hantverkarens egen offert (D17)
+- Samma Donatellos granskade slutpatch52995768: en egen offert, fel/oklarheter och kundfrågor, egna bekräftelser, tilläggstext och kund-PDF med samma revision; 49 kr inklusive moms.
+- Sparad order skyddas vid osäker nätverkskontroll, tomma belopp förblir okända, delvis komplettering märks utkast. Adminskyddad Stripe TEST-väg för en offert; auth, kostnadstak, befintliga D07-rättelser och test/livedelning bevarade.
+- Root12+25 riktade kontroller PASS på exakt senaste2d1-bas. Publicering/testkedja och publik köpöppning redovisas separat i ägarfilen; köpet hålls stängt tills riktiga leverantörs- och mobilprov fungerar.
+
 ## d07-srconly-css – dölj fristående mejlrubrik i återupptagen källvy
 - Samma Donatellos f4a59903: en CSS-regel gäller endast source-only; originalköpets mejlfält och källpanelen bevaras. Root full patch/MD/SHA review och en riktad visningskontroll PASS.
 

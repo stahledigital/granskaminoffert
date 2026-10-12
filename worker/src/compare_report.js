@@ -8,7 +8,7 @@
 
 import { buildAnthropicRequest } from "./models.js";
 import { scrubForbidden } from "./rules.js";
-import { OFFER, COMPARE_VERSION, vatPart } from "./compare_config.js";
+import { OFFER, CHECK_OFFER, COMPARE_VERSION, vatPart } from "./compare_config.js";
 import { EXTRACT_VERSION } from "./compare_extract.js";
 
 export const SYNTH_VERSION = "ordning-1";
@@ -66,7 +66,7 @@ export function applyPriority(differences, ids) {
 export function buildReceipt(order) {
   return {
     orderNo: order.id.slice(2, 10).toUpperCase(),
-    product: `${OFFER.product} (${order.docCount} offerter)`,
+    product: order.kind === "check" ? CHECK_OFFER.product : `${OFFER.product} (${order.docCount} offerter)`,
     amountOre: OFFER.priceOre,
     currency: OFFER.currency,
     vatOre: vatPart(OFFER.priceOre),

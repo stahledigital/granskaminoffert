@@ -7,7 +7,7 @@
 // Betalningsbevis kommer bara från signerad webhook eller serveravstämning mot Stripe – returadressen
 // (success_url) bevisar ingenting.
 
-import { OFFER, LIMITS, testChain, TEST_CHAIN_TO, testStripeEnv, stripeEnvFor, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, CONSENT, consentDraft, consentPolicy, consentTexts, consentVersion, fulfilmentPoint, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
+import { OFFER, CHECK_OFFER, CHECK_COPY, checkAvailable, LIMITS, testChain, TEST_CHAIN_TO, testStripeEnv, stripeEnvFor, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, checkConsentSnapshot, CONSENT, consentDraft, consentPolicy, consentTexts, consentVersion, fulfilmentPoint, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
@@ -77,7 +77,7 @@ async function readJson(request, maxChars) {
   try { return { value: JSON.parse(raw) }; } catch { return { bad: true }; }
 }
 
-async function consentHash(env) { return sha256Hex(JSON.stringify(consentSnapshot(env))); }
+async function consentHash(env, kind) { return sha256Hex(JSON.stringify(consentSnapshot(env, kind))); }
 
 async function publicConfig(env, allowedOrigins) {
   const enabled = compareEnabled(env);
@@ -97,6 +97,7 @@ async function publicConfig(env, allowedOrigins) {
     dataCoverage: dataCoverage(env),
     terms: termsSnapshot(env), // fullständig villkorstext (UTKAST) som ingår i samtyckeshashen och i bekräftelsen
     draft: consentDraft(env),
+    check: checkAvailable(env) ? { available: true, offer: { product: CHECK_OFFER.product, priceOre: CHECK_OFFER.priceOre, currency: CHECK_OFFER.currency, vatPct: CHECK_OFFER.vatPct, retentionHours: CHECK_OFFER.retentionHours }, offerCopy: CHECK_COPY, consent: { version: consentVersion(env), draft: checkConsentSnapshot(env).draft, hash: await consentHash(env, "check"), texts: consentSnapshot(env, "check").texts, policy: "P", fulfilmentPoint: fulfilmentPoint(env).point }, terms: consentSnapshot(env, "check").terms, dataCoverage: consentSnapshot(env, "check").dataCoverage } : { available: false },
     requiresEmail: true,
     withdrawUrl: "/jamfor/angra/",
     retention: { classes: Object.fromEntries(Object.entries(RETENTION_CLASSES).map(([k, v]) => [k, v.hours ? `${v.hours} h` : "policy ej fastställd"])), policyOk: retentionPolicy(env).ok },
@@ -254,11 +255,15 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     const cfg = budgetConfig(env);
     const cap = await budget.capacity(env, { caps: { joint: cfg.month, scope: cfg.paid }, scope: "paid" });
     if (!cap.ok || cap.halted || cap.remaining <= 0) return reply({ error: "Potten är full." }, 503);
+    // D17 testkedja: samma adminskyddade väg, valfritt {kind:"check"} ⇒ EN syntetisk förkontrollsorder. Oförändrat tak (2 per 48 h), fast mottagare, ingen ny auth.
+    const tb = await readJson(request, 500); const tkind = tb.value && typeof tb.value === "object" ? tb.value.kind : undefined;
+    if (tb.tooLarge || (tkind !== undefined && tkind !== "check")) return reply({ error: "Ogiltig begäran." }, 400);
+    const tCheck = tkind === "check"; if (tCheck && consentPolicy(env) !== "P") return reply({ error: "Förkontrollen kräver policy P." }, 503);
     const ck = "cmptest:count"; const n = Number(await env.REVIEWS_KV.get(ck)) || 0;
     if (n >= 2) return reply({ error: "Testtaket (2 per 48 h) är nått." }, 429);
     await env.REVIEWS_KV.put(ck, String(n + 1), { expirationTtl: 172800 });
     const id = newOrderId(), token = newAccessToken();
-    const r = await orderCall(env, id, "/create", { id, tokenHash: await sha256Hex(token), labels: offerLabels(["Testbygg Ett", "Testbygg Två"], 2), docCount: 2, test: true, accept: { sameJob: true, at: Date.now(), offer: OFFER.version }, now: Date.now() });
+    const r = await orderCall(env, id, "/create", { id, tokenHash: await sha256Hex(token), labels: offerLabels(tCheck ? ["Testbygg Förkontroll"] : ["Testbygg Ett", "Testbygg Två"], tCheck ? 1 : 2), docCount: tCheck ? 1 : 2, ...(tCheck ? { kind: "check" } : {}), test: true, accept: { sameJob: true, at: Date.now(), offer: OFFER.version }, now: Date.now() });
     if (r.status !== 200 || !r.json.ok) return reply({ error: "Kunde inte skapa testorder." }, 503);
     return reply({ ok: true, orderId: id, token, test: true, to: TEST_CHAIN_TO }, 201);
   }
@@ -280,7 +285,9 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     const token = body.value && body.value.token;
     if (typeof token !== "string" || token.length < 16) return reply({ error: "Ogiltig begäran." }, 400);
     const tokenHash = await sha256Hex(token);
-    const snap = consentSnapshot(env), hash = await consentHash(env);
+    const kr = await orderCall(env, id, "/internal", { now: Date.now() }); // produktslag styr text/hash/produkt (som i den publika kassan)
+    const tk = kr.status === 200 && kr.json.order && kr.json.order.kind === "check" ? "check" : undefined;
+    const snap = consentSnapshot(env, tk), hash = await consentHash(env, tk);
     const acc = snap.policy === "P" ? { terms: true, declaration: true } : { terms: true, immediateDelivery: true };
     const ac = await orderCall(env, id, "/accept", { tokenHash, testAdmin: true, accept: { ...acc, consentHash: hash, consentVersion: snap.consentVersion, contactEmail: TEST_CHAIN_TO, draft: snap.draft, offerVersion: snap.offerVersion, priceOre: snap.priceOre, currency: snap.currency }, now: Date.now() });
     if (ac.status !== 200) return reply({ error: "Testordern kan inte betalas i det här läget.", reason: ac.json && ac.json.error }, ac.status === 404 ? 404 : 409);
@@ -363,10 +370,13 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     const body = await readJson(request, 20_000);
     if (!body.value) return reply({ error: "Ogiltig förfrågan." }, 400);
     const b = body.value;
-    const docCount = b.docCount;
-    if (!Number.isInteger(docCount) || docCount < OFFER.minDocs || docCount > OFFER.maxDocs) return reply({ error: `Välj ${OFFER.minDocs}–${OFFER.maxDocs} offerter.` }, 400);
+    const isCheck = b.kind === "check"; // D17 Förkontroll av min offert: EN egen offert, samma pris, egen produkt
+    if (b.kind !== undefined && !isCheck) return reply({ error: "Ogiltig förfrågan." }, 400);
+    if (isCheck && !checkAvailable(env)) return closed();
+    const docCount = isCheck ? 1 : b.docCount;
+    if (isCheck ? b.docCount !== undefined && b.docCount !== 1 : (!Number.isInteger(docCount) || docCount < OFFER.minDocs || docCount > OFFER.maxDocs)) return reply({ error: isCheck ? "Förkontrollen gäller en offert." : `Välj ${OFFER.minDocs}–${OFFER.maxDocs} offerter.` }, 400);
     const a = b.accept || {};
-    if (a.sameJob !== true) return reply({ error: "Du behöver bekräfta att offerterna gäller samma jobb.", needAccept: true }, 400);
+    if (a.sameJob !== true) return reply({ error: isCheck ? "Du behöver bekräfta att offerten är din egen." : "Du behöver bekräfta att offerterna gäller samma jobb.", needAccept: true }, 400);
     const cfg = budgetConfig(env);
     const cap = await budget.capacity(env, { caps: { joint: cfg.month, scope: cfg.paid }, scope: "paid" });
     if (!cap.ok || cap.halted || cap.remaining <= 0) return reply({ error: "Jämförelsen är tillfälligt full. Försök igen senare." }, 503);
@@ -374,8 +384,8 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (!c.ok) return reply({ error: "Dagens platser är slut. Försök igen i morgon." }, 429);
     const id = newOrderId();
     const token = newAccessToken();
-    const labels = offerLabels(Array.isArray(b.labels) ? b.labels : [], docCount);
-    const r = await orderCall(env, id, "/create", { id, tokenHash: await sha256Hex(token), labels, docCount, accept: { sameJob: true, at: Date.now(), offer: OFFER.version }, now: Date.now() });
+    const labels = offerLabels(isCheck ? ["Din offert"] : Array.isArray(b.labels) ? b.labels : [], docCount);
+    const r = await orderCall(env, id, "/create", { id, tokenHash: await sha256Hex(token), labels, docCount, ...(isCheck ? { kind: "check" } : {}), accept: { sameJob: true, at: Date.now(), offer: OFFER.version }, now: Date.now() });
     if (r.status !== 200 || !r.json.ok) return reply({ error: "Det gick inte att starta just nu." }, 503);
     return reply({ ok: true, orderId: id, token, order: r.json.order }, 201);
   }
@@ -550,7 +560,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   }
 
   // ---- Per order ----
-  const m = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})(?:\/(docs\/([0-3])|checkout|report|withdraw|source-delivered))?$/);
+  const m = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})(?:\/(docs\/([0-3])|checkout|report|withdraw|source-delivered|check|check\/export))?$/);
   if (!m) return reply({ error: "Not found" }, 404);
   const id = m[1];
   const sub = m[2] || "";
@@ -605,6 +615,25 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     return reply({ ok: r.json.ok === true, order: r.json.order });
   }
 
+  // D17 Förkontroll: bekräftelser (revisioner), tilläggstexter och PDF-bilaga. Kräver orderns FULLA åtkomstnyckel (resultatlänkens token räcker aldrig).
+  if (sub === "check" || sub === "check/export") {
+    if (!bindingsOk(env)) return closed();
+    const call = (p, extra = {}) => orderCall(env, id, p, { tokenHash, now: Date.now(), ...extra });
+    let r;
+    if (sub === "check" && request.method === "GET") r = await call("/check-get");
+    else if (sub === "check" && request.method === "PUT") { const bi = await readJson(request, 6_000); if (!bi.value || typeof bi.value !== "object") return reply({ error: "Ogiltig begäran." }, 400); r = await call("/check-save", { values: bi.value.values }); }
+    else if (sub === "check/export" && request.method === "POST") { const bi = await readJson(request, 500); r = await call("/check-export", { revision: bi.value && Number.isInteger(bi.value.revision) ? bi.value.revision : null }); }
+    else return reply({ error: "Not found" }, 404);
+    if (r.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
+    if (r.status === 409 && r.json.error === "revision_andrad") { const { ok: _o, error: _e, ...view } = r.json; return reply({ error: "En nyare revision finns. Visningen uppdateras – hämta PDF:en igen.", revisionChanged: true, ...view }, 409); }
+    if (r.status === 409) return reply({ error: r.json.error === "inget_bekraftat" ? "Bekräfta minst en uppgift först." : "Förkontrollen är inte klar än." }, 409);
+    if (r.status === 410) return reply({ error: "Förkontrollen har gått ut och är raderad (den sparas i 24 timmar)." }, 410);
+    if (r.status === 429) return reply({ error: "Gränsen för bekräftelser eller exporter för den här förkontrollen är nådd." }, 429);
+    if (r.status === 400) return reply({ error: r.json.message || "Ogiltig begäran." }, 400);
+    if (r.status !== 200 || !r.json.ok) return reply({ error: "Tillfälligt fel. Försök igen." }, 503);
+    const { ok, ...rest } = r.json; return reply({ ok: true, ...rest });
+  }
+
   if (sub === "withdraw" && request.method === "POST") {
     const r = await orderCall(env, id, "/withdraw", { via: "order", tokenHash, now: Date.now() });
     if (r.status === 404) return reply({ error: "Det finns inget köp att ångra för den här ordern." }, 404);
@@ -647,8 +676,11 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     // Samtycke är bundet till version + hash av exakt de texter/priser servern visar. Med body: kunden har just sett
     // och kryssat texterna. Utan body ("betala igen"): bara ett redan givet samtycke med SAMMA hash återanvänds –
     // annars ber vi kunden läsa och godkänna igen.
-    const snap = consentSnapshot(env);
-    const hash = await consentHash(env);
+    const kindR = await orderCall(env, id, "/internal", { now: Date.now() }); // produktslag (check/jämförelse) styr vilken text och hash som gäller; DO:n avgör åtkomsten
+    const oKind = kindR.status === 200 && kindR.json.order && kindR.json.order.kind === "check" ? "check" : undefined;
+    const snap = consentSnapshot(env, oKind);
+    if (oKind === "check" && mode === "live" && snap.draft) return closed(); // förkontrollens villkor är utkast tills mänsklig fastställelse (hash-grind): ingen skarp betalning
+    const hash = await consentHash(env, oKind);
     const bodyIn = await readJson(request, 2_000);
     const acc = bodyIn.value && bodyIn.value.accept;
     if (acc) {

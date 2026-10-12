@@ -198,6 +198,13 @@ details.gmo-all{margin-top:12px}
   <a class="btn" id="cmpo-go" href="/jamfor/" data-cmp="start">Jämför 2–4 offerter – <span data-cmp-price>49 kr</span></a>
 </aside>
 
+<aside class="cmpoffer" id="fkoffer" hidden aria-labelledby="fko-h">
+  <p class="cmph" id="fko-h" role="heading" aria-level="2">Ska du skicka en offert?</p>
+  <p>Kontrollera din egen offert innan du skickar den: moms, ROT-underlag, pristyp, omfattning och tid. Du får frågor din kund sannolikt ställer och, efter din bekräftelse, färdiga tilläggstexter och en PDF-bilaga till kunden.</p>
+  <p class="cmpmeta">Betalas en gång: 49 kr inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
+  <a class="btn" id="fko-go" href="/forkontroll/">Förkontrollera min offert – 49 kr</a>
+</aside>
+
 <div class="loading" id="loading" role="status" aria-live="polite">Granskningen kan ta en stund.</div>
 <div class="errbox" id="errbox" role="alert"></div>
 <div class="sr" id="announce" role="status" aria-live="polite"></div>
@@ -279,6 +286,7 @@ const demoResult={
 };
 
 let pendingFile=null; // {kind,dataBase64,mediaType,filename} eller null om text används
+let fkOpen=false;
 let chosenPath='mottagare'; // 'mottagare' | 'hantverkare' — styr bara etikett/kopiera-knapp, inte själva granskningen
 let lastResult=null;
 let lastIsDemo=false;
@@ -624,6 +632,7 @@ function syncCmp(){
   document.querySelectorAll('[data-cmp-price]').forEach(n=>{n.textContent=cmpPrice;});
   const mott=chosenPath==='mottagare',shown=$('res').classList.contains('on');
   const o=$('cmpoffer');if(o)o.hidden=!(cmpOpen&&mott&&!shown);
+  const fk=$('fkoffer');if(fk)fk.hidden=!(fkOpen&&chosenPath==='hantverkare');
   const c=$('cmpcta');if(c)c.hidden=!(cmpOpen&&mott);
   if(cmpOpen&&mott&&shown&&!c){const alt=$('res').querySelector(':scope > .alt');if(alt){alt.insertAdjacentHTML('beforebegin',cmpCtaHtml(lastIsDemo));bindCmp();const n=$('cmpcta');if(n)n.hidden=false;}}
 }
@@ -633,7 +642,7 @@ function syncCmp(){
     const local=/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
     const base=local?(new URLSearchParams(location.search).get('api')||location.origin):API_BASE;
     fetch(base.replace(/\/$/,'')+'/compare/config',{headers:{accept:'application/json'}}).then(r=>r.ok?r.json():null).then(c=>{
-      if(c&&c.enabled===true&&c.accepting===true&&c.offer&&Number.isFinite(c.offer.priceOre)){cmpOpen=true;cmpPrice=Math.round(c.offer.priceOre/100)+' kr';syncCmp();} if(c&&c.consent&&c.consent.policy==='P'){const fb=document.getElementById('ftbuy');if(fb){fb.href='/jamfor/kop/';fb.textContent='Köp, villkor och hjälp';}}
+      if(c&&c.enabled===true&&c.accepting===true&&c.offer&&Number.isFinite(c.offer.priceOre)){cmpOpen=true;cmpPrice=Math.round(c.offer.priceOre/100)+' kr';syncCmp();} if(c&&c.check&&c.check.available===true){fkOpen=true;syncCmp();} if(c&&c.consent&&c.consent.policy==='P'){const fb=document.getElementById('ftbuy');if(fb){fb.href='/jamfor/kop/';fb.textContent='Köp, villkor och hjälp';}}
     }).catch(()=>{});
   }catch(e){}
 })();
