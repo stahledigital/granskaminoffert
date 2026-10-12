@@ -20,6 +20,12 @@ header{display:flex;justify-content:space-between;align-items:baseline;padding-b
 header a{color:var(--ink2)}
 h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:clamp(38px,8vw,60px);line-height:.95;margin:22px 0 12px;text-wrap:balance}
 h1 em{font-style:normal;color:var(--acc-text)}
+/* Riktning 3 (Anders GO 2026-10-12): mörk introduktionsyta i varumärkets botten/antracit, ljus arbetsyta för formulär och resultat. Full bredd via box-shadow+clip-path. */
+.intro{background:#17181A;color:#F4F4F2;box-shadow:0 0 0 100vmax #17181A;clip-path:inset(0 -100vmax);padding-bottom:22px;margin-bottom:18px;border-bottom:3px solid var(--acc)}
+.intro header{color:#A9A9A6}.intro header a{color:#F4F4F2}
+.intro h1{color:#F4F4F2}.intro h1 em{color:var(--acc)}
+.intro .lead{color:#C9C9C5;margin-bottom:0}
+
 h2{font-family:"Barlow Condensed",Barlow,sans-serif;font-size:28px;line-height:1.05;margin:0 0 10px}
 h3{font-size:17px;margin:18px 0 6px}
 .lead{font-size:18px;max-width:54ch;margin:0 0 20px;color:var(--ink2)}
@@ -107,9 +113,11 @@ table.cmp td small{display:block;color:var(--ink2);font-weight:400;font-size:13p
 </head>
 <body>
 <main class="wrap" id="app">
+<div class="intro">
 <header><span>Förkontroll av min offert</span><a href="/">Granska en offert gratis</a></header>
 <h1>Kolla din egen offert<br><em>innan du skickar den.</em></h1>
 <p class="lead">Vi läser din offert och visar vad en kund kommer att fråga om: moms, ROT-underlag, pristyp, omfattning och tid. Bekräfta det du själv står för och få färdiga tilläggstexter och en PDF-bilaga till kunden. Engångsköp 49 kr inklusive moms.</p>
+</div>
 <div id="closed" class="card hidden" role="status"></div>
 <div id="err" class="err hidden" role="alert"></div>
 <div id="guard" class="warnbox hidden" role="status"></div>

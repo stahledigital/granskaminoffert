@@ -37,6 +37,15 @@ header a{color:inherit;text-decoration:none}
 h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:clamp(40px,8vw,64px);line-height:.95;margin:22px 0 12px;text-wrap:balance}
 h1 em{font-style:normal;color:var(--acc-text)}
 .lead{font-size:18px;max-width:52ch;margin:0 0 22px;color:var(--ink2)}
+/* Riktning 3 (Anders GO 2026-10-12): mörk introduktionsyta i varumärkets botten/antracit, ljus arbetsyta för formulär och resultat. Full bredd via box-shadow+clip-path. */
+.intro{background:#17181A;color:#F4F4F2;box-shadow:0 0 0 100vmax #17181A;clip-path:inset(0 -100vmax);padding-bottom:22px;margin-bottom:18px;border-bottom:3px solid var(--acc)}
+.intro header{color:#A9A9A6}.intro header a{color:#F4F4F2}
+.intro h1{color:#F4F4F2}.intro h1 em{color:var(--acc)}
+.intro .lead{color:#C9C9C5;margin-bottom:0}
+/* Beskedkortet mörkt (riktning 3): kortets egna färgvariabler styrs om, tonfärgerna ljusare för kontrast ≥ 5:1 mot antracit */
+.gmo-card{--ink:#F4F4F2;--ink2:#C9C9C5;--line:#F4F4F226;--paper:#232427;--g:#5fbf86;--a:#e2a93b;--r:#ef6b68;--n:#9aa7ae;--track:#3b3c41;background:#232427;color:#F4F4F2;border-color:#232427}
+.gmo-card .tag{background:var(--acc);color:#161616}
+
 .pathsel{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 22px}
 .pathcard{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:14px 16px;cursor:pointer;font:inherit;color:inherit}
 .pathcard b{display:block;font-size:16px;margin-bottom:4px}
@@ -162,9 +171,11 @@ details.gmo-all{margin-top:12px}
 <body>
 
 <main class="wrap">
+<div class="intro">
 <header><span>Granska min offert</span><a href="https://stahledigital.se/verkstaden">Ståhle Digital</a></header>
 <h1>Granska din hantverkaroffert.</h1>
 <p class="lead">För bygg, renovering och installation i hemmet. Få hjälp att upptäcka oklarheter, motsägelser och uppgifter som behöver förtydligas.</p>
+</div>
 <p class="scopenote" style="font-size:14px;color:var(--ink2);margin:-6px 0 14px">Tjänsten är avsedd för hantverksarbete. Material som ingår i hantverkarens offert omfattas. Materialinköp, produktköp och abonnemang stöds ännu inte.</p>
 
 <div class="pathsel" id="pathsel" role="group" aria-label="Välj din roll">
