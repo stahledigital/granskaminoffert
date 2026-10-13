@@ -46,7 +46,7 @@ h1 em{font-style:normal;color:var(--acc-text)}
 .gmo-card{--ink:#F4F4F2;--ink2:#C9C9C5;--line:#F4F4F226;--paper:#232427;--g:#5fbf86;--a:#e2a93b;--r:#ef6b68;--n:#9aa7ae;--track:#3b3c41;background:#232427;color:#F4F4F2;border-color:#232427}
 .gmo-card .tag{background:var(--acc);color:#161616}
 
-.pathsel{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 22px}
+.pathsel{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 12px}
 .pathcard{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:14px 16px;cursor:pointer;font:inherit;color:inherit}
 .pathcard b{display:block;font-size:16px;margin-bottom:4px}
 .pathcard span{color:var(--ink2);font-size:13px}
@@ -59,14 +59,15 @@ h1 em{font-style:normal;color:var(--acc-text)}
 .privinfo a{color:var(--ink)}
 #res:focus{outline:none}
 .chk li>div,.qs li,.calcnote,.price>div{min-width:0;overflow-wrap:anywhere}
-@media (max-width:480px){.pathsel{grid-template-columns:1fr}}
-.pathnote{margin:-8px 0 12px;font-size:15px;color:var(--ink2);max-width:52ch}
-.pathalt{margin:0 0 20px;font-size:15px;color:var(--ink2);max-width:52ch}
-.pathalt[hidden]{display:none}
-.pathalt a{color:var(--acc-text);font-weight:600;text-decoration:underline;text-underline-offset:2px}
+/* UX 2026-10-13 (Fable): vägvalet sida vid sida även på mobil, bara rubrikerna; förklaringen ligger i .pathnote */
+@media (max-width:480px){.pathcard{padding:12px 10px}.pathcard b{font-size:15px;margin:0;line-height:1.25}.pathcard span{display:none}}
+.pathnote{margin:0 0 14px;font-size:15px;color:var(--ink2);max-width:52ch}
 .freetag{display:inline-block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--acc-text);margin-bottom:8px}
 .fromsd{margin-top:28px;border:1px solid var(--line);border-left:6px solid var(--acc);border-radius:10px;padding:16px 18px;background:var(--paper)}
-.cmpoffer,.cmpcta{margin-top:24px;border:1px solid var(--line);border-radius:10px;padding:16px 18px;background:var(--paper)}
+.cmpoffer,.cmpcta{border:1px solid var(--line);border-radius:10px;padding:16px 18px;background:var(--paper)}.cmpcta{margin-top:24px}
+/* UX 2026-10-13 (Fable): kompakt betalkort under vägvalet – knapp först, prisrad, detaljer bakom "Vad ingår?" */
+.cmpoffer{margin:0 0 20px;padding:14px 16px}.cmpoffer .btn{display:block;width:100%;margin:2px 0 8px}@media (min-width:481px){.cmpoffer .btn{display:inline-block;width:auto;min-width:280px}}
+.cmpoffer details.more{margin:0;background:none;border:0;padding:0}.cmpoffer details.more summary{padding:4px 0;color:var(--acc-text);font-weight:600;font-size:14px}.cmpoffer details.more p{margin:6px 0 0;font-size:14px;color:var(--ink2)}.cmpoffer details.more .cmpreviews{color:var(--ink)}
 .cmpoffer[hidden],.cmpcta[hidden]{display:none}
 .cmph{font:700 18px Barlow,sans-serif;margin:0 0 6px}
 .cmpoffer p,.cmpcta p{margin:0 0 10px;font-size:15px;max-width:52ch}
@@ -174,18 +175,33 @@ details.gmo-all{margin-top:12px}
 <div class="intro">
 <header><span>Granska min offert</span><a href="https://stahledigital.se/verkstaden">Ståhle Digital</a></header>
 <h1>Granska din hantverkaroffert.</h1>
-<p class="lead">För bygg, renovering och installation i hemmet. Få hjälp att upptäcka oklarheter, motsägelser och uppgifter som behöver förtydligas.</p>
+<p class="lead">För bygg, renovering och installation i hemmet. Hitta det som är oklart innan ni skriver på.</p>
 </div>
-<p class="scopenote" style="font-size:14px;color:var(--ink2);margin:-6px 0 14px">Tjänsten är avsedd för hantverksarbete. Material som ingår i hantverkarens offert omfattas. Materialinköp, produktköp och abonnemang stöds ännu inte.</p>
-
 <div class="pathsel" id="pathsel" role="group" aria-label="Välj din roll">
   <button type="button" class="pathcard sel" data-path="mottagare" aria-pressed="true"><b>Jag har fått en offert</b><span>Förstå vad som står i den och vad du bör fråga om innan du skriver på.</span></button>
   <button type="button" class="pathcard" data-path="hantverkare" aria-pressed="false"><b>Jag ska skicka en offert</b><span>Se vad kunden kommer att fråga om – innan du skickar.</span></button>
 </div>
-<p class="pathnote" id="pathnote" aria-live="polite">Du får en lista med det som är otydligt – och kan skicka frågorna direkt till hantverkaren.</p>
-<p class="pathalt" id="pathalt" hidden><span id="pathalt-txt"></span> <a id="pathalt-go" href="/jamfor/"></a></p>
+<p class="pathnote" id="pathnote" aria-live="polite">Du får en lista med det som är otydligt – och frågor att skicka till hantverkaren.</p>
+<!-- UX 2026-10-13 (Fable, Anders förslag): det betalda alternativet för vald väg ligger som knapp direkt under vägvalet; detaljtext bakom "Vad ingår?". Pris/villkorstext oförändrade. -->
+<aside class="cmpoffer" id="cmpoffer" hidden aria-labelledby="cmpo-h">
+  <p class="cmph" id="cmpo-h" role="heading" aria-level="2">Har du fler offerter för samma jobb?</p>
+  <a class="btn" id="cmpo-go" href="/jamfor/" data-cmp="start">Jämför 2–4 offerter – <span data-cmp-price>49 kr</span></a>
+  <p class="cmpmeta">Betalas en gång: <span data-cmp-price>49 kr</span> inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
+  <details class="more"><summary>Vad ingår?</summary>
+    <p>Här granskas en offert i taget, gratis. Jämför mina offerter ställer 2–4 offerter för samma jobb sida vid sida – vad som ingår, pris och villkor.</p>
+    <p class="cmpreviews" id="cmpo-rev"><b>Jämför också företagens omdömen, betyg och antal recensioner sida vid sida när källor finns.</b> Vilka källor som finns för just dina firmor visas innan du betalar.</p>
+  </details>
+</aside>
+<aside class="cmpoffer" id="fkoffer" hidden aria-labelledby="fko-h">
+  <p class="cmph" id="fko-h" role="heading" aria-level="2">Ska du skicka en offert?</p>
+  <a class="btn" id="fko-go" href="/forkontroll/">Förkontrollera min offert – 49 kr</a>
+  <p class="cmpmeta">Betalas en gång: 49 kr inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
+  <details class="more"><summary>Vad ingår?</summary>
+    <p>Kontroll av din egen offert innan du skickar den: moms, ROT-underlag, pristyp, omfattning och tid. Du får frågor din kund sannolikt ställer och, efter din bekräftelse, färdiga tilläggstexter och en PDF-bilaga till kunden.</p>
+  </details>
+</aside>
 
-<div class="drop" id="drop"><span class="freetag">Gratis · en offert i taget</span><b>Släpp din hantverkaroffert här</b><span>PDF, foto eller text</span>
+<div class="drop" id="drop"><span class="freetag">Gratis · inget konto</span><b>Ladda upp din offert</b><span>PDF, foto eller text</span>
   <div class="alt" style="justify-content:center;margin-top:16px">
     <button type="button" class="btn acc" id="pickfile">Välj fil</button>
     <button type="button" class="btn" id="pickcam">Ta foto</button>
@@ -194,8 +210,7 @@ details.gmo-all{margin-top:12px}
   <input type="file" id="cam" accept="image/*" capture="environment" tabindex="-1" aria-label="Foto av offert">
 </div>
 <div class="filepreview" id="filepreview" role="status"></div>
-<p style="font-size:14px;color:var(--ink2);margin:10px 0 0">AI-stödd granskning av dokumentets innehåll. Gratis att prova, inget konto.</p>
-<p class="privinfo" id="privinfo">Offerten skickas till Anthropic (Claude) för analys. AI:ns svar och teknisk information sparas hos oss högst 24 timmar för felsökning. Personuppgifter behövs inte för granskningen – dölj gärna personnummer, namn och adress innan du skickar. <a href="#om" id="privlink">Läs hela texten om dina uppgifter</a>.</p>
+<p class="privinfo" id="privinfo">AI (Anthropic Claude) läser offerten; svaret sparas hos oss högst 24 timmar för felsökning. Dölj gärna personnummer, namn och adress – de behövs inte. <a href="#om" id="privlink">Mer om dina uppgifter</a>.</p>
 <div class="alt">
   <button class="btn ghost" id="demo">Prova med en exempeloffert</button>
   <button class="btn ghost" id="paste">Klistra in text i stället</button>
@@ -206,21 +221,6 @@ details.gmo-all{margin-top:12px}
   <div class="alt"><button class="btn" id="run">Granska</button></div>
 </div>
 
-<aside class="cmpoffer" id="cmpoffer" hidden aria-labelledby="cmpo-h">
-  <p class="cmph" id="cmpo-h" role="heading" aria-level="2">Har du fler offerter för samma jobb?</p>
-  <p>Här granskas en offert i taget, gratis. Vill du i stället jämföra 2–4 offerter för samma jobb sida vid sida – vad som ingår, pris och villkor – finns Jämför mina offerter.</p>
-  <p class="cmpreviews" id="cmpo-rev"><b>Jämför också företagens omdömen, betyg och antal recensioner sida vid sida när källor finns.</b> Vilka källor som finns för just dina firmor visas innan du betalar.</p>
-  <p class="cmpmeta">Betalas en gång: <span data-cmp-price>49 kr</span> inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
-  <a class="btn" id="cmpo-go" href="/jamfor/" data-cmp="start">Jämför 2–4 offerter – <span data-cmp-price>49 kr</span></a>
-</aside>
-
-<aside class="cmpoffer" id="fkoffer" hidden aria-labelledby="fko-h">
-  <p class="cmph" id="fko-h" role="heading" aria-level="2">Ska du skicka en offert?</p>
-  <p>Kontrollera din egen offert innan du skickar den: moms, ROT-underlag, pristyp, omfattning och tid. Du får frågor din kund sannolikt ställer och, efter din bekräftelse, färdiga tilläggstexter och en PDF-bilaga till kunden.</p>
-  <p class="cmpmeta">Betalas en gång: 49 kr inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
-  <a class="btn" id="fko-go" href="/forkontroll/">Förkontrollera min offert – 49 kr</a>
-</aside>
-
 <div class="loading" id="loading" role="status" aria-live="polite">Granskningen kan ta en stund.</div>
 <div class="errbox" id="errbox" role="alert"></div>
 <div class="sr" id="announce" role="status" aria-live="polite"></div>
@@ -229,6 +229,7 @@ details.gmo-all{margin-top:12px}
 <details id="om">
 <summary>Om tjänsten och dina uppgifter</summary>
 <div class="body">
+<p>Tjänsten är avsedd för hantverksarbete. Material som ingår i hantverkarens offert omfattas. Materialinköp, produktköp och abonnemang stöds ännu inte.</p>
 <p>Granska min offert läser offerten med hjälp av AI (Anthropic Claude) och ger en uppskattning av vad som står i dokumentet — inte ett juridiskt utlåtande och ingen kontroll mot externa register (t.ex. Skatteverket).</p>
 <p>Offerten (foto, PDF eller text) skickas till Anthropic för att kunna analyseras. Anthropic behåller in- och utdata i upp till 30 dagar enligt sin egen policy, längre om innehållet flaggats av deras säkerhetssystem, och använder det inte för att träna AI-modeller utan uttryckligt tillstånd — se <a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data">Anthropics policy för dataretention</a>.</p>
 <p>Vi sparar inte själva offertfilen eller den inklistrade texten i vår egen infrastruktur. Vi behåller AI:ts svar (som kan innehålla uppgifter hämtade ur offerten, t.ex. belopp eller adress) samt teknisk information inklusive din IP-adress i högst 24 timmar, enbart för att kunna felsöka fel — därefter raderas det automatiskt.</p>
@@ -306,7 +307,7 @@ let fkOpen=false;
 let chosenPath='mottagare'; // 'mottagare' | 'hantverkare' — styr bara etikett/kopiera-knapp, inte själva granskningen
 let lastResult=null;
 let lastIsDemo=false;
-const PATHNOTE={mottagare:'Du får en lista med det som är otydligt – och kan skicka frågorna direkt till hantverkaren.',hantverkare:'Du får en punktlista att fixa innan offerten går iväg – så slipper du frågorna efteråt.'};
+const PATHNOTE={mottagare:'Du får en lista med det som är otydligt – och frågor att skicka till hantverkaren.',hantverkare:'Du får en punktlista att fixa innan offerten går iväg.'};
 
 // Reserverad resultatyta: skelettet tar platsen före anropet och ersätts på plats av resultatet.
 // Sidan scrollas högst EN gång, till resultatets topp vid start. Ingen slutscroll när resultatet kommer.
@@ -658,11 +659,7 @@ function syncCmp(){
   const mott=chosenPath==='mottagare',shown=$('res').classList.contains('on');
   const o=$('cmpoffer');if(o)o.hidden=!(cmpOpen&&mott&&!shown);
   const fk=$('fkoffer');if(fk)fk.hidden=!(fkOpen&&chosenPath==='hantverkare');
-  // UX 2026-10-12 (Fable): det betalda alternativet för vald väg syns redan vid vägvalet, ovanför den fria uppladdningen. Pris/text oförändrade mot korten nedan.
-  const pa=$('pathalt'),pt=$('pathalt-txt'),pg=$('pathalt-go');
-  if(pa&&pt&&pg){if(mott&&cmpOpen&&!shown){pt.textContent='Har du fått 2–4 offerter på samma jobb?';pg.textContent='Jämför dem sida vid sida – '+cmpPrice;pg.href='/jamfor/';pg.setAttribute('data-cmp','start');pa.hidden=false;}
-    else if(chosenPath==='hantverkare'&&fkOpen&&!shown){pt.textContent='Vill du ha färdiga tilläggstexter och en PDF-bilaga till kunden?';pg.textContent='Förkontrollera offerten – 49 kr';pg.href='/forkontroll/';pg.removeAttribute('data-cmp');pa.hidden=false;}
-    else pa.hidden=true;}
+  // UX 2026-10-13 (Fable): #cmpoffer/#fkoffer ligger direkt under vägvalet (ovan); ingen separat textlänk.
   const c=$('cmpcta');if(c)c.hidden=!(cmpOpen&&mott);
   if(cmpOpen&&mott&&shown&&!c){const alt=$('res').querySelector(':scope > .alt');if(alt){alt.insertAdjacentHTML('beforebegin',cmpCtaHtml(lastIsDemo));bindCmp();const n=$('cmpcta');if(n)n.hidden=false;}}
 }

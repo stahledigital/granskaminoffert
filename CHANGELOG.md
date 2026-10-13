@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## 2026-10-13 – startsidan: tydligare vägar, färre ord (Fable, Anders förslag)
+- Rollvalet ligger sida vid sida även på mobil (bara rubrikerna; förklaringen under). Det betalda alternativet för vald roll är en knapp direkt under valet (Jämför 2–4 offerter / Förkontrollera min offert – 49 kr) med prisraden synlig och resten bakom "Vad ingår?". Dubbletten längst ner borttagen.
+- Kortare texter: ingress, rollnoter, uppladdningsytan ("Gratis · inget konto"), datainformationen. Avgränsningen (hantverksarbete, inte materialköp) flyttad in under "Om tjänsten och dina uppgifter". Pris, villkor, id:n och testlåsta formuleringar oförändrade.
+
 ## 2026-10-12 – förkontrollens moms, tid och rapportbilagor rättade (D17-R2 steg A)
 - Radbeloppens momsbas hålls skild från totalens; okänd bas ger inget tvärsäkert ROT-belopp. Start utan slut ger en kundfråga. Förkontrollens avtalsbilaga beskriver dess egen prestation och rapportfilen heter Forkontroll.
 - Avgränsat admin-POST kan återläsa exakt samma dokumentdigest på en redan betald TEST-förkontroll inom ursprunglig retention och befintliga tak. Bevarar tidigare rapport, köp och samtycken; ett reviderat testmejl.
