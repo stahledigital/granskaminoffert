@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## 2026-10-14 – samma mörka utseende som Materialräknaren och tydligare offertinlämning (D18-GMO-MORK-UI, Donatello)
+- Alla GMO-sidor (start, jämför, förkontroll, köp, ångra, villkor, företagsuppgifter, så granskar vi priser) har Materialräknarens mr-v148-stil: samma fasta färgvariabler, `color-scheme: dark`, theme-color #17181a, orange fokusram och ljus utskrift. Statusfärgerna är MR:s ljusare toner (kontrast ≥ 4,5:1).
+- Startsidan: gratis uppladdning är huvudvägen (orange Välj fil, "…eller dra filen hit" bara med mus/styrplatta); 49 kr-knapparna är orange konturknappar på samma plats. Vald fil (även textfil) visas, och Granska samt felrutan ligger direkt efter vald fil; exempel/klistra in efter.
+- Jämför/förkontroll: filfälten är tydliga släppytor med orange filknapp. En återupptagen gammal jämförelse vars rapport gått ut (410) eller som raderats visar nu samma besked plus Börja om (rensar bara den lokala orderpekaren vid klick) i stället för en återvändsgränd. Priser, moms, villkor, samtycken, API, modell, Stripe, e-post, sparade ordrar och funktioner oförändrade. Alla select- och datumfält, även förkontrollformulärets JS-byggda, är MR-fält (#2c2d31, kant #808185); villkorssidan har Barlow som övriga sidor. Nya tester tests/ui/d18_mork_ui.test.mjs (statisk), tests/ui/d18_gammal_order.test.mjs och tests/ui/d18_falt_typsnitt.test.mjs (Chromium, syntetiska data).
+
 ## 2026-10-13 – startsidan: tydligare vägar, färre ord (Fable, Anders förslag)
 - Rollvalet ligger sida vid sida även på mobil (bara rubrikerna; förklaringen under). Det betalda alternativet för vald roll är en knapp direkt under valet (Jämför 2–4 offerter / Förkontrollera min offert – 49 kr) med prisraden synlig och resten bakom "Vad ingår?". Dubbletten längst ner borttagen.
 - Kortare texter: ingress, rollnoter, uppladdningsytan ("Gratis · inget konto"), datainformationen. Avgränsningen (hantverksarbete, inte materialköp) flyttad in under "Om tjänsten och dina uppgifter". Pris, villkor, id:n och testlåsta formuleringar oförändrade.

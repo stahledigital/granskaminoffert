@@ -2,8 +2,8 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v20">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="app-version" content="gmo-v22">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#17181a">
 <title>Så granskar vi priser – Granska min offert</title>
 <meta name="description" content="Hur prisbilden i Granska min offert räknas: vilka källor vi lutar oss mot, vad ett referensintervall är och inte är, och vad som sparas om du bidrar till statistiken.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -19,7 +19,11 @@
 <link rel="preload" href="/fonts/barlow-condensed-700.woff2" as="font" type="font/woff2" crossorigin>
 <style>@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/barlow-condensed-700.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/barlow-400.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/barlow-500.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/barlow-600.woff2) format('woff2')}</style>
 <style>
-:root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b}
+:root{--bg:#17181a;--paper:#232427;--ink:#f4f4f2;--ink2:#c9c9c5;--line:#f4f4f226;--acc:#f0643b;--acc-text:#f0643b;--acc-ink:#161616;--acc-soft:#28292c;--field:#2c2d31;--fl:#808185;--gul:#e2a93b;--ok:#5fbf86;--warn:#e2a93b;--bad:#ef6b68;--oksoft:#1f2b24;--warnsoft:#2d281b;--badsoft:#2f2223;--neu:#9aa7ae;--trk:#3b3c41;color-scheme:dark}
+/* D18-GMO-MORK-UI 2026-10-14: samma mörka utseende som Materialräknaren mr-v148 (fasta variabler), ljus utskrift */
+@media print{:root{--bg:#fff;--paper:#fff;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc-text:#b8431f;--acc-soft:#fff;--field:#fff;--gul:#8a5a00;--fl:#16161640;--ok:#2e7d4f;--warn:#8a6508;--bad:#c0392b;--oksoft:#e3f1e8;--warnsoft:#fbf0d2;--badsoft:#f9e0dc;--neu:#596b75;--trk:#e4e6df;color-scheme:light}}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+a{color:var(--ink)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;padding:0 16px;padding-block:0 56px;line-height:1.5}
 .wrap{max-width:680px;margin:0 auto}

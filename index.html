@@ -2,8 +2,8 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="app-version" content="gmo-v21">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="app-version" content="gmo-v22">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#17181a">
 <title>Granska din hantverkaroffert – bygg, renovering och installation</title>
 <meta name="description" content="AI-stödd granskning av hantverkarofferter för bygg, renovering och installation i hemmet. PDF, foto eller text. För dig som fått en hantverkaroffert eller ska skicka en. Gratis att prova utan konto.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -28,7 +28,11 @@
 <link rel="preload" href="/fonts/barlow-condensed-700.woff2" as="font" type="font/woff2" crossorigin>
 <style>@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/barlow-condensed-700.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/barlow-400.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/barlow-500.woff2) format('woff2')}@font-face{font-family:'Barlow';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/barlow-600.woff2) format('woff2')}</style>
 <style>
-:root{--bg:#f6f5f1;--paper:#fffcf8;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc:#f0643b;--acc-text:#b8431f;--ok:#2e7d4f;--warn:#b8860b;--bad:#c0392b;--oksoft:#e3f1e8;--warnsoft:#fbf0d2;--badsoft:#f9e0dc}
+:root{--bg:#17181a;--paper:#232427;--ink:#f4f4f2;--ink2:#c9c9c5;--line:#f4f4f226;--acc:#f0643b;--acc-text:#f0643b;--acc-ink:#161616;--acc-soft:#28292c;--field:#2c2d31;--fl:#808185;--gul:#e2a93b;--ok:#5fbf86;--warn:#e2a93b;--bad:#ef6b68;--oksoft:#1f2b24;--warnsoft:#2d281b;--badsoft:#2f2223;--neu:#9aa7ae;--trk:#3b3c41;color-scheme:dark}
+/* D18-GMO-MORK-UI 2026-10-14: samma mörka utseende som Materialräknaren mr-v148 (fasta variabler), ljus utskrift */
+@media print{:root{--bg:#fff;--paper:#fff;--ink:#161616;--ink2:#5c5c5c;--line:#16161624;--acc-text:#b8431f;--acc-soft:#fff;--field:#fff;--gul:#8a5a00;--fl:#16161640;--ok:#2e7d4f;--warn:#8a6508;--bad:#c0392b;--oksoft:#e3f1e8;--warnsoft:#fbf0d2;--badsoft:#f9e0dc;--neu:#596b75;--trk:#e4e6df;color-scheme:light}}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+a{color:var(--ink)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;padding:0 16px;padding-block:0 56px;line-height:1.45}
 .wrap{max-width:680px;margin:0 auto}
@@ -38,23 +42,22 @@ h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:cl
 h1 em{font-style:normal;color:var(--acc-text)}
 .lead{font-size:18px;max-width:52ch;margin:0 0 22px;color:var(--ink2)}
 /* Riktning 3 (Anders GO 2026-10-12): mörk introduktionsyta i varumärkets botten/antracit, ljus arbetsyta för formulär och resultat. Full bredd via box-shadow+clip-path. */
-.intro{background:#17181A;color:#F4F4F2;box-shadow:0 0 0 100vmax #17181A;clip-path:inset(0 -100vmax);padding-bottom:22px;margin-bottom:18px;border-bottom:3px solid var(--acc)}
-.intro header{color:#A9A9A6}.intro header a{color:#F4F4F2}
-.intro h1{color:#F4F4F2}.intro h1 em{color:var(--acc)}
-.intro .lead{color:#C9C9C5;margin-bottom:0}
+.intro{background:var(--bg);color:var(--ink);box-shadow:0 0 0 100vmax var(--bg);clip-path:inset(0 -100vmax);padding-bottom:22px;margin-bottom:18px;border-bottom:3px solid var(--acc)}
+.intro header{color:var(--ink2)}.intro header a{color:var(--ink)}
+.intro h1{color:var(--ink)}.intro h1 em{color:var(--acc)}
+.intro .lead{color:var(--ink2);margin-bottom:0}
 /* Beskedkortet mörkt (riktning 3): kortets egna färgvariabler styrs om, tonfärgerna ljusare för kontrast ≥ 5:1 mot antracit */
-.gmo-card{--ink:#F4F4F2;--ink2:#C9C9C5;--line:#F4F4F226;--paper:#232427;--g:#5fbf86;--a:#e2a93b;--r:#ef6b68;--n:#9aa7ae;--track:#3b3c41;background:#232427;color:#F4F4F2;border-color:#232427}
-.gmo-card .tag{background:var(--acc);color:#161616}
+.gmo-card .tag{background:var(--acc);color:var(--acc-ink)}
 
 .pathsel{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 12px}
 .pathcard{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:14px 16px;cursor:pointer;font:inherit;color:inherit}
 .pathcard b{display:block;font-size:16px;margin-bottom:4px}
 .pathcard span{color:var(--ink2);font-size:13px}
-.pathcard.sel{border-color:var(--acc);background:#fff4ee;box-shadow:inset 0 0 0 2px var(--acc)}
+.pathcard.sel{border-color:var(--acc);background:var(--acc-soft);box-shadow:inset 0 0 0 2px var(--acc)}
 .pathcard[aria-pressed="true"] b::after{content:" ✓";color:var(--acc-text)}
 .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-:focus-visible{outline:3px solid #1a56c4;outline-offset:2px}
-.btn:focus-visible,.pathcard:focus-visible{outline:3px solid #1a56c4;outline-offset:2px}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.btn:focus-visible,.pathcard:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
 .privinfo{font-size:14px;color:var(--ink2);margin:10px 0 0;max-width:60ch}
 .privinfo a{color:var(--ink)}
 #res:focus{outline:none}
@@ -79,8 +82,8 @@ h1 em{font-style:normal;color:var(--acc-text)}
 .fromsd p{margin:0 0 12px;font-size:15px;max-width:52ch}
 .fromsd .sub{margin:14px 0 0;font-size:14px;color:var(--ink2)}
 .fromsd .sub a{color:var(--ink)}
-.drop{display:block;border:3px dashed #16161640;border-radius:14px;background:var(--paper);padding:36px 24px 28px;text-align:center;transition:border-color .15s,background .15s}
-.drop.over{border-color:var(--acc);background:#fff4ee}
+.drop{display:block;border:2px dashed var(--fl);border-radius:14px;background:var(--paper);padding:36px 24px 28px;text-align:center;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--acc);background:var(--acc-soft)}
 .drop b{display:block;font-size:22px;margin-bottom:6px}
 .drop span{color:var(--ink2)}
 .drop input{display:none}
@@ -88,9 +91,9 @@ h1 em{font-style:normal;color:var(--acc-text)}
 .btn{display:inline-block;border:1px solid var(--ink);background:var(--ink);color:var(--bg);font:600 15px Barlow,sans-serif;padding:12px 16px;min-height:44px;border-radius:8px;cursor:pointer}
 .btn{text-decoration:none;text-align:center}
 .btn.ghost{background:transparent;color:var(--ink)}
-.btn.acc{background:var(--acc);border-color:var(--acc);color:#161616}
+.btn.acc{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
 .btn:disabled{opacity:.5;cursor:default}
-textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:8px;padding:12px;font:16px/1.4 Barlow,sans-serif;background:var(--paper);color:var(--ink);margin-top:12px;display:none}
+textarea{width:100%;min-height:150px;border:1px solid var(--fl);border-radius:8px;padding:12px;font:16px/1.4 Barlow,sans-serif;background:var(--field);color:var(--ink);margin-top:12px;display:none}
 textarea.on{display:block}
 .filepreview{display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);font-size:14px;color:var(--ink2)}
 .filepreview.on{display:block}
@@ -121,7 +124,7 @@ details.stated summary::after{content:"+";color:var(--acc-text)}details.stated[o
 h3{font-family:"Barlow Condensed",sans-serif;font-size:20px;text-transform:uppercase;letter-spacing:.03em;margin:22px 0 8px}
 .chk{list-style:none;padding:0;margin:0;display:grid;gap:6px}
 .chk li{display:grid;grid-template-columns:26px 1fr;gap:10px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;align-items:start}
-.chk i{display:inline-block;width:22px;height:22px;border-radius:50%;font-style:normal;font-weight:700;font-size:13px;text-align:center;line-height:22px;color:#fff}
+.chk i{display:inline-block;width:22px;height:22px;border-radius:50%;font-style:normal;font-weight:700;font-size:13px;text-align:center;line-height:22px;color:var(--acc-ink)}
 .chk .ok i{background:var(--ok)}.chk .warn i{background:var(--warn)}.chk .bad i{background:var(--bad)}
 .chk b{display:block}.chk small{color:var(--ink2)}
 .calcnote{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 8px}
@@ -131,16 +134,16 @@ h3{font-family:"Barlow Condensed",sans-serif;font-size:20px;text-transform:upper
 .price small{color:var(--ink2)}
 .q{margin:0;padding-left:20px}.q li{margin:5px 0}
 .foot{margin-top:28px;font-size:13px;color:var(--ink2);max-width:60ch}
-.tag{display:inline-block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;background:var(--acc);color:#161616;padding:3px 8px;border-radius:999px;vertical-align:middle;margin-left:8px}
+.tag{display:inline-block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;background:var(--acc);color:var(--acc-ink);padding:3px 8px;border-radius:999px;vertical-align:middle;margin-left:8px}
 details{margin-top:14px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:2px 14px}
 details summary{cursor:pointer;padding:12px 0;font-weight:600;font-size:14px}
 details .body{padding:0 0 14px;font-size:14px;color:var(--ink2);max-width:60ch}
 details .body p{margin:8px 0}
 details .body ul{margin:8px 0;padding-left:20px}
-.gmo-card{--g:#247345;--a:#98600c;--r:#b33836;--n:#596b75;--track:#e4e6df;border:1px solid var(--line);border-radius:14px;background:var(--paper);padding:22px 20px 18px;margin-bottom:18px}
+.gmo-card{--g:var(--ok);--a:var(--warn);--r:var(--bad);--n:var(--neu);--track:var(--trk);border:1px solid var(--line);border-radius:14px;background:var(--paper);padding:22px 20px 18px;margin-bottom:18px}
 .gmo-card[data-tone=green]{--v:var(--g)}.gmo-card[data-tone=amber]{--v:var(--a)}.gmo-card[data-tone=red]{--v:var(--r)}.gmo-card[data-tone=grey]{--v:var(--n)}
 .gmo-verdict{display:flex;align-items:center;gap:17px;margin:0 0 18px}
-.gmo-mark{flex:0 0 60px;height:60px;display:grid;place-items:center;border-radius:50%;background:var(--v);color:#fff;font-size:32px;font-weight:700;line-height:1}
+.gmo-mark{flex:0 0 60px;height:60px;display:grid;place-items:center;border-radius:50%;background:var(--v);color:var(--acc-ink);font-size:32px;font-weight:700;line-height:1}
 .gmo-eyebrow{font-size:11px;font-weight:700;letter-spacing:.09em;color:var(--ink2);text-transform:uppercase}
 .gmo-card h2{font-family:"Barlow Condensed",sans-serif;font-size:30px;line-height:1.08;margin:4px 0 6px;text-transform:none;text-wrap:balance;color:var(--v)}
 .gmo-short{margin:0;color:var(--ink2);font-size:16px}
@@ -166,6 +169,17 @@ details.gmo-all{margin-top:12px}
 .gmo-foot{font-size:12px;color:var(--ink2);margin:12px 0 0}
 @media(max-width:430px){.gmo-card{padding:18px 16px 14px}.gmo-card h2{font-size:25px}.gmo-mark{flex-basis:48px;height:48px;font-size:26px}.gmo-verdict{gap:12px}}
 @media(prefers-reduced-motion:reduce){.gmo-fill{transition:none}.gmo-skel span{animation:none}}
+
+/* D18 tydlig inlämning: gratis uppladdning är huvudvägen; 49 kr-vägarna konturknappar; nästa steg (Granska) och fel direkt under vald fil */
+.cmpoffer .btn{background:transparent;border-color:var(--acc);color:var(--acc-text)}
+.drop:hover{border-color:var(--acc)}
+.drop .dragtip{display:none;margin-top:12px;font-size:14px}
+@media (hover:hover) and (pointer:fine){.drop .dragtip{display:block}}
+.filepreview{color:var(--ink);border-color:var(--acc);background:var(--acc-soft)}
+#runwrap{flex-direction:column;align-items:stretch;gap:0}
+#run{background:var(--acc);border-color:var(--acc);color:var(--acc-ink);width:100%}
+@media (min-width:481px){#run{width:auto;min-width:220px}}
+@media print{.chk i,.gmo-mark{color:#fff}}
 </style>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebApplication", "@id": "https://granskaminoffert.se/#app", "name": "Granska min offert", "url": "https://granskaminoffert.se/", "inLanguage": "sv-SE", "applicationCategory": "BusinessApplication", "operatingSystem": "Any", "description": "AI-stödd dokumentgranskning av hantverkarofferter i PDF, foto eller text, för den som har fått eller ska skicka en offert.", "publisher": {"@type": "Organization", "name": "Ståhle Digital", "url": "https://stahledigital.se/"}}</script>
 </head>
@@ -206,15 +220,12 @@ details.gmo-all{margin-top:12px}
     <button type="button" class="btn acc" id="pickfile">Välj fil</button>
     <button type="button" class="btn" id="pickcam">Ta foto</button>
   </div>
+  <span class="dragtip">…eller dra filen hit</span>
   <input type="file" id="file" accept=".pdf,image/*,.txt" tabindex="-1" aria-label="Offertfil">
   <input type="file" id="cam" accept="image/*" capture="environment" tabindex="-1" aria-label="Foto av offert">
 </div>
 <div class="filepreview" id="filepreview" role="status"></div>
 <p class="privinfo" id="privinfo">AI (Anthropic Claude) läser offerten; svaret sparas hos oss högst 24 timmar för felsökning. Dölj gärna personnummer, namn och adress – de behövs inte. <a href="#om" id="privlink">Mer om dina uppgifter</a>.</p>
-<div class="alt">
-  <button class="btn ghost" id="demo">Prova med en exempeloffert</button>
-  <button class="btn ghost" id="paste">Klistra in text i stället</button>
-</div>
 <textarea id="txt" placeholder="Klistra in offerttexten här…"></textarea>
 <div id="runwrap" style="display:none">
   <label class="optin"><input type="checkbox" id="statsopt"> <span>Bidra anonymt till prisstatistik. Sparar bara jobbtyp, län, prisband och vilka kontroller som föll ut – aldrig text, namn, företag eller belopp. <a href="/sa-granskar-vi-priser/">Läs vad som sparas</a>.</span></label>
@@ -224,6 +235,10 @@ details.gmo-all{margin-top:12px}
 <div class="loading" id="loading" role="status" aria-live="polite">Granskningen kan ta en stund.</div>
 <div class="errbox" id="errbox" role="alert"></div>
 <div class="sr" id="announce" role="status" aria-live="polite"></div>
+<div class="alt">
+  <button class="btn ghost" id="demo">Prova med en exempeloffert</button>
+  <button class="btn ghost" id="paste">Klistra in text i stället</button>
+</div>
 <div class="res" id="res" data-nosnippet tabindex="-1" aria-label="Granskningsresultat"></div>
 
 <details id="om">
@@ -871,7 +886,8 @@ function laddaFil(f){
     f.text().then(t=>{
       pendingFile=null;
       $('txt').value=t;$('txt').classList.add('on');$('runwrap').style.display='flex';
-      $('filepreview').classList.remove('on');
+      $('filepreview').textContent=`Vald fil: ${f.name} (${Math.max(1,Math.round(f.size/1024))} kB). Texten visas nedan – tryck Granska för att starta.`;
+      $('filepreview').classList.add('on');
     });
     return;
   }
