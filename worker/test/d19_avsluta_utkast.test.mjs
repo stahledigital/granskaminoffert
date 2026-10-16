@@ -223,3 +223,77 @@ test("P1: befintliga /delete har samma säkra ordning men oförändrad policy oc
     assert.equal(ok.status, 200); assert.equal(ok.json.order.status, "deleted"); assert.equal(docKeys(env, orderId).length, 0);
   } finally { f.restore(); }
 });
+
+// ---- CP2-QA 1 (Codex 2026-10-16 23:39): lokal aux-städning (ext:*, sources, preid, check) måste faktiskt ske, inte sväljas ----
+const AUX = ["ext:0", "ext:1", "sources", "preid", "check"];
+const seedAux = (env, id) => { const st = stored(env, id); for (const k of AUX) st.set(k, { seed: k }); };
+const auxLeft = (env, id) => AUX.filter((k) => stored(env, id).has(k));
+const failDelete = (env, id, names) => {
+  const storage = env.COMPARE_ORDERS.peek(id).obj.state.storage; const real = storage.delete.bind(storage);
+  storage.delete = async (k) => { if (names.includes(k)) throw new Error("injicerat raderingsfel " + k); return real(k); };
+  return () => { storage.delete = real; };
+};
+
+test("CP2-1: aux-raderingsfel i avslutet rullar tillbaka ALLT (ordern kvar, KV och aux orörda) – och när felet är borta städas allt fysiskt", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv({}); const { orderId, token } = await readyOrder(env, [S(100000), S(110000)]);
+    seedAux(env, orderId);
+    const kv0 = docKeys(env, orderId).map((k) => [k, env.REVIEWS_KV.m.get(k)]);
+    assert.equal(kv0.length, 2);
+    const restore = failDelete(env, orderId, ["sources"]);
+    const r = await closeDraft(env, orderId, token);
+    assert.equal(r.status, 503, "ärligt fel: ordern är kvar");
+    restore();
+    const o = stored(env, orderId).get("order");
+    assert.equal(o.status, "ready"); assert.equal(o.docs.length, 2); assert.notEqual(o.contentDeleted, true);
+    assert.deepEqual(auxLeft(env, orderId), AUX, "lokal rollback: ingen aux-nyckel raderades");
+    assert.deepEqual(docKeys(env, orderId).map((k) => [k, env.REVIEWS_KV.m.get(k)]), kv0, "KV orört");
+    // felet borta: nytt försök lyckas och ALLT är fysiskt borta
+    const ok = await closeDraft(env, orderId, token);
+    assert.equal(ok.status, 200); assert.equal(ok.json.order.status, "deleted");
+    assert.deepEqual(auxLeft(env, orderId), [], "ext:*, sources, preid och check är fysiskt raderade");
+    assert.equal(docKeys(env, orderId).length, 0);
+    const o2 = stored(env, orderId).get("order"); assert.equal(o2.contentDeleted, true); assert.deepEqual(o2.docs, []); assert.deepEqual(o2.purgeKeys, []);
+  } finally { f.restore(); }
+});
+
+test("CP2-1: samma garanti för befintlig DELETE (policy och auktorisering oförändrade): fel ⇒ allt kvar, felet borta ⇒ allt fysiskt städat", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv({}); const { orderId, token } = await readyOrder(env, [S(100000), S(110000)]);
+    assert.equal((await startCheckout(env, orderId, token)).status, 200);
+    seedAux(env, orderId);
+    const restore = failDelete(env, orderId, ["ext:1", "check"]);
+    const bad = await api(env, "DELETE", `/compare/orders/${orderId}`, { token });
+    assert.notEqual(bad.json.ok, true); restore();
+    assert.equal(stored(env, orderId).get("order").status, "awaiting_payment"); assert.deepEqual(auxLeft(env, orderId), AUX); assert.equal(docKeys(env, orderId).length, 2);
+    assert.equal((await api(env, "DELETE", `/compare/orders/${orderId}`, { token: "A".repeat(43) })).status, 404, "fel nyckel oförändrat");
+    const ok = await api(env, "DELETE", `/compare/orders/${orderId}`, { token });
+    assert.equal(ok.status, 200); assert.equal(ok.json.order.status, "deleted");
+    assert.deepEqual(auxLeft(env, orderId), []); assert.equal(docKeys(env, orderId).length, 0);
+  } finally { f.restore(); }
+});
+
+test("CP2-1: ext:* som inte står i work.steps (föräldralösa) städas också; KV-fel ger purgeKeys som den befintliga livscykeln försöker igen vid utgång", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv({}); const { orderId, token } = await readyOrder(env, [S(100000), S(110000)]);
+    seedAux(env, orderId); stored(env, orderId).set("ext:99", { seed: "orphan" });
+    const keys = docKeys(env, orderId); const realDel = env.REVIEWS_KV.delete.bind(env.REVIEWS_KV);
+    let kvDown = true;
+    env.REVIEWS_KV.delete = async (k) => { if (kvDown && k === keys[1]) throw new Error("kv nere"); return realDel(k); };
+    const r = await closeDraft(env, orderId, token);
+    assert.equal(r.status, 200);
+    assert.deepEqual(auxLeft(env, orderId), []); assert.equal(stored(env, orderId).has("ext:99"), false, "även föräldralös ext:* är borta");
+    assert.deepEqual(stored(env, orderId).get("order").purgeKeys, [keys[1]]);
+    assert.equal(env.REVIEWS_KV.m.has(keys[1]), true, "den icke raderbara nyckeln ligger kvar tills nästa försök");
+    // utgång: ordern passerar P1 (expiresAt + 65 min) – livscykelalarmet försöker radera purgeKeys igen
+    kvDown = false;
+    const peek = env.COMPARE_ORDERS.peek(orderId); const o = peek.store.get("order"); o.expiresAt = Date.now() - 70 * 60_000; peek.store.set("order", o);
+    await peek.obj.alarm();
+    assert.equal(env.REVIEWS_KV.m.has(keys[1]), false, "KV-dokumentet raderades vid omförsöket");
+    assert.deepEqual(stored(env, orderId).get("order").purgeKeys, []);
+    assert.equal(stored(env, orderId).get("order").status, "deleted");
+  } finally { f.restore(); }
+});

@@ -15,6 +15,8 @@
 // Moms: känd moms (inkl/exkl) normaliseras till inklusive moms med känd sats
 // oavsett kundtyp. ej_angivet / blandat / okant_moms görs aldrig om till faktum.
 
+import * as D from "./money.js";
+
 export const VAT_RATE = 0.25; // Skatteverket: 25 % på byggtjänster till privatperson
 const TOL = 0.02;
 
@@ -54,6 +56,20 @@ export function rowsSumStated(x) {
   return labor + material + (num(x.travelSumSek) || 0) + (num(x.otherSumSek) || 0);
 }
 
+// Samma summa som decimaltal (exakt, utan float-avrundning); null om en av de två obligatoriska kategorierna saknas.
+export function rowsSumStatedD(x) {
+  const labor = num(x.laborSumSek), material = num(x.materialSumSek);
+  if (labor === null || material === null) return null;
+  return D.sum([D.dec(labor), D.dec(material), D.dec(num(x.travelSumSek) || 0), D.dec(num(x.otherSumSek) || 0)]);
+}
+
+// Raderna omräknade till inklusive moms, som decimaltal; null om radernas momsläge är okänt.
+export function rowsSumInclD(x) {
+  const s = rowsSumStatedD(x);
+  const f = vatFactor(x.vatMode);
+  return s === null || f === null ? null : D.mul(s, D.dec(f));
+}
+
 // Raderna omräknade till inklusive moms; null om radernas momsläge är okänt.
 export function rowsSumIncl(x) {
   const s = rowsSumStated(x);
@@ -61,7 +77,12 @@ export function rowsSumIncl(x) {
   return s === null || f === null ? null : s * f;
 }
 
-const kr0 = (n) => `${Math.round(n).toLocaleString("sv-SE")} kr`;
+// Visning av belopp i tolkningstexter. Decimaltal (money.js) visas med bevarad precision; ett beräknat JS-tal avrundas till hela kronor.
+const kr0 = (n) => (n && typeof n === "object" ? D.fmtKr(n) : `${Math.round(n).toLocaleString("sv-SE")} kr`);
+// Decimalsäker multiplikation av ett avläst belopp med en momsfaktor (1 eller 1,25), utan binär float-avrundning.
+const dx = (v, k) => D.mul(D.dec(v), D.dec(k));
+const decNum = (v) => (v === null ? null : D.dec(v));
+
 const LABEL_BEFORE = "totalen är summan före ROT-avdrag";
 const LABEL_AFTER = "totalen är summan att betala efter ROT-avdrag";
 
@@ -78,6 +99,9 @@ export function resolveTotals(x) {
   const legacy = num(x.totalSumSek);
   const tb = totalBasis(x);
   const f = vatFactor(tb);
+  // Alla belopp bärs parallellt som exakta decimaltal (suffix D, money.js): ingen toFixed/float-avrundning före gränsjämförelser.
+  // De numeriska fälten finns kvar för toleransbaserade heuristiker (withinPct) och för äldre konsumenter.
+  const rotD = hasRot ? D.dec(rot) : D.dec(0);
 
   // Tolkningar i båda momsbaser när totalens momsbas är okänd.
   const bases = f === null ? [["inkl", 1], ["exkl", 1 + VAT_RATE]] : [[tb, f]];
@@ -88,48 +112,56 @@ export function resolveTotals(x) {
     if (f !== null && pay !== null) {
       const expectedPay = before * f - (hasRot ? rot : 0);
       if (!withinPct(pay * f, expectedPay)) {
+        const beforeD = dx(before, f), toPayD = dx(pay, f);
         return {
           status: "oklar", reason: "konflikt", conflict: true,
           alternatives: [
-            { label: `summan före ROT-avdrag är ${kr0(before * f)} (som offerten anger)`, beforeRotIncl: before * f, basis: tb },
-            { label: `summan att betala är ${kr0(pay * f)} (som offerten anger)`, beforeRotIncl: hasRot ? pay * f + rot : pay * f, basis: tb },
+            { label: `summan före ROT-avdrag är ${kr0(beforeD)} (som offerten anger)`, beforeRotIncl: before * f, beforeRotInclD: beforeD, basis: tb },
+            { label: `summan att betala är ${kr0(toPayD)} (som offerten anger)`, beforeRotIncl: hasRot ? pay * f + rot : pay * f, beforeRotInclD: D.add(toPayD, rotD), basis: tb },
           ],
           before: before * f, toPay: pay * f, expectedPay,
+          beforeD, toPayD, expectedPayD: D.sub(beforeD, rotD),
         };
       }
     }
-    if (f !== null) return { status: "belagd", beforeRotIncl: before * f, toPayIncl: hasRot ? before * f - rot : before * f, source: "explicit_fore_rot", basis: tb };
-    return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `summan före ROT-avdrag är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: before * k, basis: b })) };
+    if (f !== null) {
+      const beforeD = dx(before, f);
+      return { status: "belagd", beforeRotIncl: before * f, beforeRotInclD: beforeD, toPayIncl: hasRot ? before * f - rot : before * f, toPayInclD: D.sub(beforeD, rotD), source: "explicit_fore_rot", basis: tb };
+    }
+    return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `summan före ROT-avdrag är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: before * k, beforeRotInclD: dx(before, k), basis: b })) };
   }
 
   if (pay !== null) {
     if (f !== null) {
       const toPayIncl = pay * f;
+      const toPayInclD = dx(pay, f);
       // Uttrycklig summa att betala utan angivet ROT-belopp: ett saknat belopp är inte ett belägg för
       // "inget avdrag". Skiljer sig raderna från nettot kan ett avdrag ha tappats i avläsningen. Nettot
       // behåller sin identitet (aldrig ometiketterat som "före ROT"); före-ROT-beloppet redovisas villkorat.
       const rowsIncl = rowsSumIncl(x);
       if (rot === null && rowsIncl !== null && !withinPct(toPayIncl, rowsIncl)) {
+        const rowsInclD = rowsSumInclD(x);
         const gap = rowsIncl - toPayIncl;
+        const gapD = D.sub(rowsInclD, toPayInclD);
         return {
-          status: "oklar", reason: "avdrag_okant", toPayIncl, basis: tb,
+          status: "oklar", reason: "avdrag_okant", toPayIncl, toPayInclD, basis: tb,
           alternatives: [
-            { label: `inget ROT-avdrag finns och ${kr0(toPayIncl)} är hela priset`, beforeRotIncl: toPayIncl, basis: tb },
-            ...(gap > 0 ? [{ label: `ett avdrag på ${kr0(gap)} saknas i avläsningen, så att ${kr0(toPayIncl)} är summan att betala efter avdraget (före avdrag ${kr0(rowsIncl)})`, beforeRotIncl: rowsIncl, basis: tb }] : []),
+            { label: `inget ROT-avdrag finns och ${kr0(toPayInclD)} är hela priset`, beforeRotIncl: toPayIncl, beforeRotInclD: toPayInclD, basis: tb },
+            ...(gap > 0 ? [{ label: `ett avdrag på ${kr0(gapD)} saknas i avläsningen, så att ${kr0(toPayInclD)} är summan att betala efter avdraget (före avdrag ${kr0(rowsInclD)})`, beforeRotIncl: rowsIncl, beforeRotInclD: rowsInclD, basis: tb }] : []),
           ],
         };
       }
-      return { status: "belagd", beforeRotIncl: hasRot ? toPayIncl + rot : toPayIncl, toPayIncl, source: hasRot ? "explicit_att_betala" : "ingen_rot", basis: tb };
+      return { status: "belagd", beforeRotIncl: hasRot ? toPayIncl + rot : toPayIncl, beforeRotInclD: D.add(toPayInclD, rotD), toPayIncl, toPayInclD, source: hasRot ? "explicit_att_betala" : "ingen_rot", basis: tb };
     }
-    return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `summan att betala är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: hasRot ? pay * k + rot : pay * k, basis: b })) };
+    return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `summan att betala är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: hasRot ? pay * k + rot : pay * k, beforeRotInclD: D.add(dx(pay, k), rotD), basis: b })) };
   }
 
   if (legacy === null) return { status: "saknas" };
 
   // Endast en oetiketterad total.
   if (!hasRot) {
-    if (f !== null) return { status: "belagd", beforeRotIncl: legacy * f, toPayIncl: legacy * f, source: "ingen_rot", basis: tb };
-    return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `totalen är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: legacy * k, basis: b })) };
+    if (f !== null) { const v = dx(legacy, f); return { status: "belagd", beforeRotIncl: legacy * f, beforeRotInclD: v, toPayIncl: legacy * f, toPayInclD: v, source: "ingen_rot", basis: tb }; }
+    return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `totalen är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: legacy * k, beforeRotInclD: dx(legacy, k), basis: b })) };
   }
 
   // ROT finns och totalen är oetiketterad: före eller efter ROT?
@@ -137,16 +169,17 @@ export function resolveTotals(x) {
   if (f !== null && rows !== null) {
     const a = withinPct(legacy * f, rows); // totalen är före ROT
     const b = withinPct(legacy * f + rot, rows); // totalen är efter ROT
-    if (a && !b) return { status: "belagd", beforeRotIncl: legacy * f, toPayIncl: legacy * f - rot, source: "rader", basis: tb };
-    if (b && !a) return { status: "belagd", beforeRotIncl: legacy * f + rot, toPayIncl: legacy * f, source: "rader", basis: tb };
+    const lD = dx(legacy, f);
+    if (a && !b) return { status: "belagd", beforeRotIncl: legacy * f, beforeRotInclD: lD, toPayIncl: legacy * f - rot, toPayInclD: D.sub(lD, rotD), source: "rader", basis: tb };
+    if (b && !a) return { status: "belagd", beforeRotIncl: legacy * f + rot, beforeRotInclD: D.add(lD, rotD), toPayIncl: legacy * f, toPayInclD: lD, source: "rader", basis: tb };
     // Båda tolkningarna ryms i toleransen: raderna kan inte avgöra, och en
     // hypotes som råkar passa är inte en belagd bas.
     if (a && b) {
       return {
         status: "oklar", reason: "rot_tvetydig",
         alternatives: [
-          { label: `${LABEL_BEFORE} (${tb === "inkl" ? "inklusive" : "exklusive"} moms)`, beforeRotIncl: legacy * f, basis: tb },
-          { label: `${LABEL_AFTER} (${tb === "inkl" ? "inklusive" : "exklusive"} moms)`, beforeRotIncl: legacy * f + rot, basis: tb },
+          { label: `${LABEL_BEFORE} (${tb === "inkl" ? "inklusive" : "exklusive"} moms)`, beforeRotIncl: legacy * f, beforeRotInclD: lD, basis: tb },
+          { label: `${LABEL_AFTER} (${tb === "inkl" ? "inklusive" : "exklusive"} moms)`, beforeRotIncl: legacy * f + rot, beforeRotInclD: D.add(lD, rotD), basis: tb },
         ],
       };
     }
@@ -154,8 +187,9 @@ export function resolveTotals(x) {
   const alts = [];
   for (const [bb, k] of bases) {
     const bl = bb === "inkl" ? "inklusive" : "exklusive";
-    alts.push({ label: `${LABEL_BEFORE} (${bl} moms)`, beforeRotIncl: legacy * k, basis: bb });
-    alts.push({ label: `${LABEL_AFTER} (${bl} moms)`, beforeRotIncl: legacy * k + rot, basis: bb });
+    const lk = dx(legacy, k);
+    alts.push({ label: `${LABEL_BEFORE} (${bl} moms)`, beforeRotIncl: legacy * k, beforeRotInclD: lk, basis: bb });
+    alts.push({ label: `${LABEL_AFTER} (${bl} moms)`, beforeRotIncl: legacy * k + rot, beforeRotInclD: D.add(lk, rotD), basis: bb });
   }
   return { status: "oklar", reason: f === null ? "moms_och_rot" : "rot", alternatives: alts };
 }

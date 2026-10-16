@@ -6,7 +6,8 @@ import { runF2 } from "../../scripts/f2_run.mjs";
 import { buildReviewRequest } from "../src/index.js";
 import { EXTRA } from "./f2/extra.mjs";
 
-const facit = JSON.parse(readFileSync(new URL("./f2/facit.json", import.meta.url), "utf8"));
+import { loadF2Cases } from "../../scripts/f2_run.mjs";
+const facit = { cases: loadF2Cases() };
 const KEY = "sk-ant-TESTNYCKEL-SKA-ALDRIG-SKRIVAS-UT";
 const MODEL = "claude-sonnet-5-5";
 const ENV = { F2_BUDGET_APPROVED: "yes", F2_BUDGET_USD: "5", F2_MAX_CALLS: "20", ANTHROPIC_API_KEY: KEY, ANTHROPIC_MODEL: MODEL };

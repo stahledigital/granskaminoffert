@@ -1,0 +1,26 @@
+{
+ "_note": "D19-V2 förväntanslager (versionerat). facit.json och f2/extra.mjs är orörda originalet. Här står BARA avsiktliga V2-skillnader för originaltexterna, med skäl. Fullständiga, uttryckligen ändrade inputs (påhittat 0/offertdatum) ligger som egna namngivna fall i worker/test/f2_v2_complete.test.mjs – de ersätter aldrig originalen.",
+ "version": "D19-V2",
+ "cases": {
+  "F2-01-brutto-fore-rot": {
+   "expectRules": {
+    "summa": "ej_bedombar",
+    "rot_belopp": "fraga"
+   },
+   "why": "Texten anger inga resor (null är inte 0) och inget betalnings-/offertdatum: summeringen är inte fullt bedömd och ROT-beloppet blir en fråga om betalningsdatum."
+  },
+  "F2-02-endast-att-betala": {
+   "expectRules": {
+    "summa": "ej_bedombar"
+   },
+   "why": "Texten anger inga resor (null är inte 0): summeringen är inte fullt bedömd."
+  },
+  "F2-04-exkl-moms": {
+   "expectRules": {
+    "rot_belopp": "fraga",
+    "summa": "ej_bedombar"
+   },
+   "why": "Texten anger varken resor eller övrigt (null är inte 0) och inget datum: summeringen är inte fullt bedömd och ROT-beloppet blir en fråga om betalningsdatum."
+  }
+ }
+}

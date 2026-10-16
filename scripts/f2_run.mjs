@@ -29,6 +29,18 @@ import { modelInfo, computeCost, worstCaseUsd, DEFAULT_MODEL } from "../worker/s
 import { countInputTokens } from "../worker/src/limits.js";
 
 const FACIT_URL = new URL("../worker/test/f2/facit.json", import.meta.url);
+// D19-V2: avsiktliga regelskillnader mot det orörda originalfacit ligger i ett separat versionerat förväntanslager (facit_v2_overlay.json).
+const OVERLAY_URL = new URL("../worker/test/f2/facit_v2_overlay.json", import.meta.url);
+
+export function loadF2Cases() {
+  const facit = JSON.parse(readFileSync(FACIT_URL, "utf8"));
+  let overlay = {};
+  try { overlay = JSON.parse(readFileSync(OVERLAY_URL, "utf8")).cases || {}; } catch { overlay = {}; }
+  return facit.cases.map((c) => (overlay[c.id] ? { ...c, expectRules: { ...c.expectRules, ...overlay[c.id].expectRules }, v2Overlay: true } : c));
+}
+
+// Avstående kontroller saknar id i rapporten; deras titel är nyckeln. Alias så att facit kan namnge regeln med dess id.
+const ID_BY_TITLE = { Summering: "summa", Betalningsdatum: "betaldatum" };
 
 const posNumber = (v) => {
   if (typeof v !== "string" || !/^(0|[1-9][0-9]*)(\.[0-9]{1,6})?$/.test(v.trim())) return null;
@@ -54,7 +66,7 @@ function ruleStatuses(rep) {
   const m = new Map();
   for (const r of rep.checked || []) m.set(r.id, r.status);
   for (const r of rep.compared || []) m.set(r.id, r.mode);
-  for (const r of rep.cannotAssess || []) m.set(r.id || r.title, "ej_bedombar");
+  for (const r of rep.cannotAssess || []) m.set(r.id || ID_BY_TITLE[r.title] || r.title, "ej_bedombar");
   return m;
 }
 
@@ -94,7 +106,7 @@ export async function runF2({ env = {}, argv = [], fetchImpl = fetch, cases, wri
     log(`Avbryter: modellen ${JSON.stringify(String(model).slice(0, 80))} finns inte i prismodellen, så kostnaden kan inte begränsas.`);
     return { exitCode: 2, summary: { reason: "okand_modell", calls: 0, spentUsd: 0 }, results: [] };
   }
-  const list = cases || JSON.parse(readFileSync(FACIT_URL, "utf8")).cases;
+  const list = cases || loadF2Cases();
 
   let calls = 0;
   let spent = 0; // bokförd (faktisk eller konservativt reserverad) kostnad i USD

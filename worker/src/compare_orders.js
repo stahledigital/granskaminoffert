@@ -518,21 +518,29 @@ export class CompareOrders {
   }
 
   // Avslutar/raderar orderns innehåll (filer, extraktioner, källuppgifter, förköpsidentitet, bekräftelser). Gemensamt för /delete och /close-draft.
-  // ORDNING (D19 P1): det beständiga beslutet FÖRST, destruktiv städning EFTER. Misslyckas den första sparningen kastas felet innan något raderats:
-  // ordern står kvar helt (ready, alla underlag, KV orörd) och kunden får ärligt 503 "Ordern är kvar". Lyckas den har ordern beständigt status
-  // deleted/contentDeleted och är varken återupptagbar eller betalbar; städningen därefter är best-effort och kan inte ångra beslutet.
-  // Nycklar vars radering misslyckas ligger kvar i purgeKeys och faller tillbaka på KV-dokumentens TTL (24 h, befintlig policy).
+  // ORDNING (D19 P1 + CP2-QA 1): det beständiga beslutet och ALL lokal städning går in i EN atomär lagertransaktion FÖRE den destruktiva
+  // KV-städningen: order (status deleted/contentDeleted, tomma docs) + borttagning av ext:*, sources, preid och check. Misslyckas den kastas felet
+  // innan något raderats: ordern står kvar helt (ready, alla underlag, KV orörd) och kunden får ärligt 503 "Ordern är kvar". Lyckas den är
+  // ordern beständigt avslutad OCH det lokala innehållet borta – det finns ingen halvstädad terminal order vars lokala rester ingen längre städar.
+  // Därefter är bara KV-raderingen kvar (best-effort): nycklar som inte gick att radera ligger i purgeKeys, provas igen vid nästa alarm i den
+  // befintliga livscykeln och faller annars tillbaka på KV-dokumentens TTL (24 h, befintlig policy). Ingen ny retention, resurs eller bredare /delete.
+  // Äldre lageradapter utan transaktion (inte produktion): ordern sparas först, därefter raderas de lokala nycklarna en och en.
   async _retireContent(o, finalStatus) {
+    const st = this.state.storage;
     const keys = [...new Set([...o.docs.map((d) => d.key).filter(Boolean), ...(o.purgeKeys || [])])].concat(o.reportKey ? [o.reportKey] : []);
-    const extIds = Object.keys((o.work && o.work.steps && o.work.steps.ext) || {});
+    const extKeys = [...(await st.list({ prefix: "ext:" })).keys()];
+    const aux = [...new Set([...extKeys, ...Object.keys((o.work && o.work.steps && o.work.steps.ext) || {}).map((d) => `ext:${d}`), "sources", "preid", "check"])];
     o.docs = []; o.purgeKeys = keys; o.reportKey = null; o.contentDeleted = true; o.estimate = null;
     if (finalStatus) o.status = finalStatus;
-    await this._save(o); // kastar vid fel INNAN något raderats
+    if (typeof st.transaction === "function") {
+      await this._commit({ put: { order: o }, del: aux }); // allt eller inget; kastar vid fel INNAN något (lokalt eller i KV) raderats
+    } else {
+      await this._save(o);
+      for (const k of aux) { try { await st.delete(k); } catch { /* äldre adapter: svepet vid utgång tar resten */ } }
+    }
     const failed = [];
     for (const k of keys) { try { await this.env.REVIEWS_KV.delete(k); } catch { failed.push(k); } }
-    for (const d of extIds) { try { await this.state.storage.delete(`ext:${d}`); } catch { /* svepet vid utgång tar resten */ } }
-    for (const k of ["sources", "preid", "check"]) { try { await this.state.storage.delete(k); } catch { /* som ovan */ } }
-    if (failed.length !== keys.length) { o.purgeKeys = failed; try { await this._save(o); } catch { /* purgeKeys lämnas fullständig: TTL är reservvägen */ } }
+    if (failed.length !== keys.length) { o.purgeKeys = failed; try { await this._save(o); } catch { /* purgeKeys lämnas fullständig: nästa alarm/TTL är reservvägen */ } }
   }
 
   _shouldReconcile(o, now) {
@@ -584,6 +592,12 @@ export class CompareOrders {
         for (const k of (await st.list({ prefix: "ext:" })).keys()) await st.delete(k);
         for (const k of ["aux:priority", "preid", "sources", "check"]) await st.delete(k);
         o.docs = []; o.purgeKeys = failed; o.contentDeleted = true; o.estimate = null; await this._save(o); // misslyckade KV-nycklar: TTL 24 h är reservvägen
+      }
+      if (o.contentDeleted && (o.purgeKeys || []).length) {
+        // Redan avslutad order vars KV-radering misslyckades: försök igen i den befintliga livscykeln (utan ny retention); TTL 24 h är reservvägen.
+        const failed = [];
+        for (const k of o.purgeKeys) { try { await this.env.REVIEWS_KV.delete(k); } catch { failed.push(k); } }
+        if (failed.length !== o.purgeKeys.length) { o.purgeKeys = failed; await this._save(o); }
       }
       if (now < WIPE) { if (st.setAlarm) await st.setAlarm(WIPE + 10); return true; }
       // Återkontroll av AKTUELL post omedelbart före fullwipe: betald order eller avtalspost raderas aldrig av detta svep.
