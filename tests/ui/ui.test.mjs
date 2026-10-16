@@ -5,6 +5,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { pageSource } from "./_src.mjs";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -59,7 +60,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 async function newPage(viewport = { width: 390, height: 844 }, mock = {}) {
   const context = await browser.newContext({ viewport, permissions: ["clipboard-read", "clipboard-write"] });
   const page = await context.newPage();
-  const events = [], reviews = [];
+  const events = [], reviews = [], landings = [];
   await page.route("**/review", async (route) => {
     if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
     reviews.push(route.request().postDataJSON());
@@ -69,16 +70,17 @@ async function newPage(viewport = { width: 390, height: 844 }, mock = {}) {
   });
   await page.route("**/event", async (route) => {
     if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
-    try { events.push(route.request().postDataJSON()); } catch { events.push({ raw: route.request().postData() }); }
+    try { const b = route.request().postDataJSON(); if (b && b.type === "client" && b.event === "landing") landings.push(b); else events.push(b); } catch { events.push({ raw: route.request().postData() }); }
     return route.fulfill({ status: 204, headers: CORS });
   });
   await page.route(/cloudflareinsights/, (r) => r.abort());
-  await page.goto(base + "/", { waitUntil: "load" });
+  await page.goto(base + "/#gratis", { waitUntil: "load" });
   // Playwright slår på filväljar-avlyssning asynkront: utan lyssnare + liten väntan kan det första Enter-trycket
   // komma före avlyssningen (testartefakt, påvisad i 12 körningar utan lyssnare: 6 missar; med lyssnare: 0).
   page.on("filechooser", () => {});
+  await page.waitForSelector("#pathsel", { state: "attached" });
   await page.waitForTimeout(300);
-  return { page, context, events, reviews };
+  return { page, context, events, reviews, landings };
 }
 async function runWithText(page, text = "Offert 42 820 kr") {
   await page.click("#paste");
@@ -334,7 +336,7 @@ test("testläge ?sd-test=1 märker mätningen som test", async () => {
   await page.route("**/review", (route) => route.request().method() === "OPTIONS" ? route.fulfill({ status: 204, headers: CORS }) : route.fulfill({ status: 200, headers: { ...CORS, "content-type": "application/json" }, body: JSON.stringify(RESULT) }));
   await page.route("**/event", (route) => { if (route.request().method() !== "OPTIONS") events.push(route.request().postDataJSON()); return route.fulfill({ status: 204, headers: CORS }); });
   await page.route(/cloudflareinsights/, (r) => r.abort());
-  await page.goto(base + "/?sd-test=1");
+  await page.goto(base + "/?sd-test=1#gratis");
   await runWithText(page);
   await page.waitForTimeout(200);
   assert.equal(events[0].test, true);
@@ -479,7 +481,7 @@ test("resultat: ALLA fynd, frågor och prisrutor ligger bakom EN riktig öppning
 
 test("övergång: skelett före anropet, resultatet byter innehåll på plats – ingen slutscroll, ankaret rör sig inte", async () => {
   const { page, context } = await newPage({ width: 390, height: 844 }, { review: { status: 200, body: clone(RESULT), delay: 1200 } });
-  const src = readFileSync(join(ROOT, "index.html"), "utf8");
+  const src = pageSource("index.html");
   assert.doesNotMatch(src, /behavior:\s*'smooth'/);
   await page.click("#paste"); await page.fill("#txt", "x".repeat(60));
   await page.click("#run");
@@ -501,7 +503,7 @@ test("resultatkort: prefers-reduced-motion stänger av stapelrörelsen", async (
   await page.route("**/review", (route) => route.request().method() === "OPTIONS" ? route.fulfill({ status: 204, headers: CORS }) : route.fulfill({ status: 200, headers: { ...CORS, "content-type": "application/json" }, body: JSON.stringify(RESULT) }));
   await page.route("**/event", (route) => route.fulfill({ status: 204, headers: CORS }));
   await page.route(/cloudflareinsights/, (r) => r.abort());
-  await page.goto(base + "/");
+  await page.goto(base + "/#gratis");
   await runWithText(page);
   const tr = await page.$eval(".gmo-fill", (e) => getComputedStyle(e).transitionDuration);
   assert.match(tr, /^0s$/);
@@ -514,7 +516,7 @@ test("Växjö: borta ur rubrik, sidfot, exempel och CTA; platsen finns kvar i F�
   assert.doesNotMatch(head + foot, /Växjö/);
   await page.click("#demo");
   await page.waitForSelector("#res.on");
-  await page.goto(base + "/");
+  await page.goto(base + "/#gratis");
   await page.click(".pathcard[data-path=hantverkare]");
   await runWithText(page);
   assert.doesNotMatch(await page.textContent("#res"), /Växjö/);

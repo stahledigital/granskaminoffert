@@ -233,7 +233,7 @@ test("R1 punkt 8 (UI): startsidan visar kort förkontrollserbjudande 49 kr bara 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "sv-SE" }); const page = await ctx.newPage(); const errors = []; page.on("pageerror", (e) => errors.push(String(e)));
   try {
     await page.route("**/compare/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CFG2("C".repeat(64))) }));
-    await page.goto(h.base + "/"); await page.waitForTimeout(500);
+    await page.goto(h.base + "/#gratis"); await page.waitForTimeout(500);
     assert.equal(await page.locator("#fkoffer").isVisible(), false, "dolt för mottagare-spåret");
     await page.click('[data-path="hantverkare"]'); await page.waitForSelector("#fkoffer:not([hidden])");
     const t = (await page.locator("#fkoffer").innerText()).replace(/\s+/g, " "); assert.match(t, /49 kr inkl\. moms/); assert.match(t, /Ingen prenumeration/); assert.ok(!/premium|pro\b/i.test(t));

@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const PAGES = ["index.html", "jamfor/index.html", "forkontroll/index.html", "jamfor/kop/index.html", "jamfor/angra/index.html", "foretagsuppgifter/index.html", "sa-granskar-vi-priser/index.html"];
 const MR148 = { bg: "#17181a", paper: "#232427", ink: "#f4f4f2", ink2: "#c9c9c5", line: "#f4f4f226", acc: "#f0643b", "acc-text": "#f0643b", "acc-ink": "#161616", "acc-soft": "#28292c", field: "#2c2d31", fl: "#808185", gul: "#e2a93b" };
-const read = (f) => readFileSync(ROOT + f, "utf8");
+import { pageSource } from "./_src.mjs";
+const read = (f) => pageSource(f);
 const lum = (h) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
 const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort(); return (y + 0.05) / (x + 0.05); };
 
@@ -37,9 +38,9 @@ test("kontrast: text ≥ 4,5:1 och fältkanter ≥ 3:1 mot sina ytor", () => {
 });
 test("startsidan: tydlig inlämning (dra-hit bara för mus, Granska och fel direkt efter vald fil, textfil visas som vald)", () => {
   const s = read("index.html");
-  assert.match(s, /<span class="dragtip">…eller dra filen hit<\/span>/); assert.match(s, /@media \(hover:hover\) and \(pointer:fine\)\{\.drop \.dragtip\{display:block\}\}/);
+  assert.match(s, /<span class="dragtip">…eller dra filen hit<\/span>/); assert.match(s, /@media \(hover:hover\) and \(pointer:fine\)\{(#app\[data-task="free"\] )?\.drop \.dragtip\{display:block\}\}/);
   const i = (id) => s.indexOf(`id="${id}"`);
   assert.ok(i("drop") < i("filepreview") && i("filepreview") < i("txt") && i("txt") < i("runwrap") && i("runwrap") < i("errbox") && i("errbox") < i("demo") && i("demo") < i("res"), "ordning");
   assert.match(s, /Texten visas nedan – tryck Granska för att starta\./);
-  assert.match(s, /content="gmo-v22"/);
+  assert.match(s, /content="gmo-v23-d19"/);
 });
