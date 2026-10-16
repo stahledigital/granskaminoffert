@@ -9,7 +9,7 @@
 
 import { OFFER, CHECK_OFFER, CHECK_COPY, checkAvailable, LIMITS, testChain, TEST_CHAIN_TO, testStripeEnv, stripeEnvFor, compareEnabled, termsSnapshot, paymentsMode, budgetConfig, returnUrl, acceptingOrders, consentSnapshot, checkConsentSnapshot, CONSENT, consentDraft, consentPolicy, consentTexts, consentVersion, fulfilmentPoint, offerCopy, dataCoverage, RETENTION_CLASSES, retentionPolicy, paymentMethods, SWISH_NOTE } from "./compare_config.js";
 import { ORDER_ID_RE, TOKEN_RE, newOrderId, newAccessToken, sha256Hex, jsonResponse } from "./compare_util.js";
-import { sniffFile, countInputTokens } from "./limits.js";
+import { base64ByteLength, sniffFile, countInputTokens } from "./limits.js";
 import { DEFAULT_MODEL, worstCaseUsd, modelInfo } from "./models.js";
 import { buildExtractRequest } from "./compare_extract.js";
 import { offerLabels } from "./compare_engine.js";
@@ -766,7 +766,10 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (kind === "text" && (typeof text !== "string" || !text.trim())) return reply({ error: "Ingen offert att läsa." }, 400);
     if (kind === "text" && text.length > LIMITS.maxTextChars) return reply({ error: `Texten är för lång (max ${LIMITS.maxTextChars.toLocaleString("sv-SE")} tecken).` }, 400);
     if (kind !== "text" && (typeof dataBase64 !== "string" || !dataBase64)) return reply({ error: "Ingen offert att läsa." }, 400);
-    if (kind !== "text" && dataBase64.length * 0.75 > LIMITS.maxFileBytes) return reply({ error: "Filen är för stor (max 8 MB)." }, 413);
+    // D19: exakt binär storlek för validerad base64 (padding är inte data); taket 8 MB är oförändrat. Ogiltig base64 nekas.
+    const exactBytes = kind === "text" ? null : base64ByteLength(dataBase64);
+    if (kind !== "text" && exactBytes === null) return reply({ error: "Filen kunde inte läsas. Försök igen." }, 400);
+    if (kind !== "text" && exactBytes > LIMITS.maxFileBytes) return reply({ error: "Filen är för stor (max 8 MB)." }, 413);
     let doc = { kind, text: kind === "text" ? text : undefined, mediaType: undefined, dataBase64: kind === "text" ? undefined : dataBase64 };
     let pages = null;
     if (kind !== "text") {
@@ -788,7 +791,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     // Alltid uppmätt (fail closed): ingen teckenheuristik för text, eftersom tecken/token varierar kraftigt (t.ex. CJK).
     try { tokens = await countInputTokens(env, req); } catch { return reply({ error: "Det gick inte att kontrollera filens storlek just nu. Försök igen om en stund." }, 503); }
     if (tokens > LIMITS.maxInputTokensPerDoc) return reply({ error: "Dokumentet är för omfattande. Dela upp det eller ta bara sidorna med pris och villkor.", tokens, limit: LIMITS.maxInputTokensPerDoc }, 400);
-    const bytes = kind === "text" ? new TextEncoder().encode(text).length : Math.floor(dataBase64.length * 0.75);
+    const bytes = kind === "text" ? new TextEncoder().encode(text).length : exactBytes;
     const sha = await sha256Hex(kind === "text" ? text : dataBase64);
     // Förväntad kostnad för hela ordern med detta dokument inräknat (alla dokument kända först då ordern är komplett).
     const others = order.docs.filter((d) => d.idx !== idx).map((d) => d.tokens);

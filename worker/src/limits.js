@@ -8,6 +8,17 @@
 export const DEFAULT_INPUT_TOKEN_LIMIT = 60000;
 const COUNT_URL = "https://api.anthropic.com/v1/messages/count_tokens";
 
+// Exakt antal binära byte i en base64-sträng (standardalfabetet, padding bara sist), utan att avkoda. null = ogiltig base64.
+// D19 (8/20 MB-gränsfynd): längd × 0,75 räknar paddingtecknen som data och gav 8 000 001 för en korrekt 8 000 000-byte-fil. Taken (8 MB per fil,
+// 20 MB totalt) är oförändrade; bara mätningen är exakt. Opaddad base64 (längd % 4 ≠ 0) räknas på samma sätt (floor(längd × 3/4)); längd % 4 = 1 är ogiltig.
+export function base64ByteLength(b64) {
+  if (typeof b64 !== "string" || b64.length === 0 || b64.length % 4 === 1) return null;
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) return null;
+  if (b64.includes("=") && b64.length % 4 !== 0) return null;
+  const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - pad;
+}
+
 // Första byten i filen måste stämma med vad besökaren säger att det är.
 export function sniffFile(kind, mediaType, base64) {
   if (kind !== "pdf" && kind !== "image") return { ok: true };

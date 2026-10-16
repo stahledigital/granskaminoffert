@@ -14,7 +14,7 @@ import { sanitizeExtracted, sanitizeReview, FIELD_LABELS } from "./sanitize.js";
 import { DEFAULT_MODEL, modelInfo, buildAnthropicRequest, computeCost } from "./models.js";
 import { freeGateStatus, freeReserve, freeSettle, freeUnknown, freeRelease, worstMicroFor } from "./free_budget.js";
 import { reserve, quotaMode, parseLimit, QuotaCounter } from "./quota.js";
-import { sniffFile, countInputTokens, DEFAULT_INPUT_TOKEN_LIMIT } from "./limits.js";
+import { base64ByteLength, sniffFile, countInputTokens, DEFAULT_INPUT_TOKEN_LIMIT } from "./limits.js";
 
 // Durable Object-klassen måste exporteras härifrån för att kunna bindas (wrangler.toml, avsnittet QUOTA).
 export { QuotaCounter };
@@ -576,8 +576,11 @@ async function handleReview(request, env, ctx, allowedOrigins) {
   if (kind === "text" && text.length > 20000) {
     return jsonResponse({ error: "Texten är för lång (max 20 000 tecken)." }, 400, headers);
   }
-  if (kind !== "text" && dataBase64.length * 0.75 > maxBytes) {
-    return jsonResponse({ error: "Filen är för stor (max ~8 MB)." }, 400, headers);
+  if (kind !== "text") {
+    // D19: exakt binär storlek (padding räknas inte som data); ogiltig base64 nekas före allt annat.
+    const exact = typeof dataBase64 === "string" ? base64ByteLength(dataBase64) : null;
+    if (exact === null) return jsonResponse({ error: "Filen kunde inte läsas. Försök igen eller klistra in texten i stället." }, 400, headers);
+    if (exact > maxBytes) return jsonResponse({ error: "Filen är för stor (max ~8 MB)." }, 400, headers);
   }
   // Format kontrolleras FÖRE kvoterna: ett fel format ska inte kosta besökaren
   // en av timmens granskningar (Rainmans kodgranskning RG-012, 2026-09-18).
