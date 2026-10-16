@@ -19,7 +19,7 @@ var TEMPLATE=`<div class="pathsel" id="pathsel" role="group" aria-label="Välj d
 </aside>
 <aside class="cmpoffer" id="fkoffer" hidden aria-labelledby="fko-h">
   <p class="cmph" id="fko-h" role="heading" aria-level="2">Ska du skicka en offert?</p>
-  <a class="btn" id="fko-go" href="/forkontroll/">Förkontrollera min offert – 49 kr</a>
+  <a class="btn" id="fko-go" href="/forkontroll/" data-fk="start">Förkontrollera min offert – 49 kr</a>
   <p class="cmpmeta">Betalas en gång: 49 kr inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
   <details class="more"><summary>Vad ingår?</summary>
     <p>Kontroll av din egen offert innan du skickar den: moms, ROT-underlag, pristyp, omfattning och tid. Du får frågor din kund sannolikt ställer och, efter din bekräftelse, färdiga tilläggstexter och en PDF-bilaga till kunden.</p>
@@ -131,11 +131,18 @@ const demoResult={
   meta:{demo:true}
 };
 
-let pendingFile=null; // {kind,dataBase64,mediaType,filename} eller null om text används
+// Arbetsytan (G.ws.free) bär originalfilen/texten/rollen/resultatet mellan uppgiftsbyten i samma dokument (aldrig lagring, aldrig nätverk).
+// pendingFile = den förberedda (ev. krympta) filen som gratisgranskningen skickar; originalet i wsF.file ändras aldrig och är det som följer med till betalvägen.
+const wsF=G.ws.free;
+let pendingFile=null; // File (förberedd) eller null om text används
 let fkOpen=false;
-let chosenPath='mottagare'; // 'mottagare' | 'hantverkare' — styr bara etikett/kopiera-knapp, inte själva granskningen
+let chosenPath=wsF.path||'mottagare'; // 'mottagare' | 'hantverkare' — styr bara etikett/kopiera-knapp, inte själva granskningen
 let lastResult=null;
 let lastIsDemo=false;
+let ownResult=null; // eget (icke-demo) resultat som exemplet tillfälligt skymmer
+let inputGen=0;     // generation för användarens senaste inmatningsavsikt; sena läs-/bildsvar med äldre generation tillämpas aldrig
+let skipSave=false,attemptGen=0,running=false,runCtl=null; // submit-lås (före första await) och pågående försök
+let methodNow='unknown',readyFired=false;
 const PATHNOTE={mottagare:'Du får en lista med det som är otydligt – och frågor att skicka till hantverkaren.',hantverkare:'Du får en punktlista att fixa innan offerten går iväg.'};
 
 // Reserverad resultatyta: skelettet tar platsen före anropet och ersätts på plats av resultatet.
@@ -427,26 +434,25 @@ function animateBars(){
   requestAnimationFrame(()=>requestAnimationFrame(go));
 }
 
-// ---- Övergång gratis → betald jämförelse (kandidat). Visas bara när jämförelsen är öppen enligt serverns config (annars oförändrad gratissida).
-// Första offerten följer med efter ett AKTIVT klick som lokal, kortlivad engångshandoff i sessionStorage (aldrig i adressen, aldrig i händelser/loggar). Ingen analys, betalning eller källanrop startas av navigeringen.
-const HANDOFF_KEY='sd_handoff_v1',HANDOFF_TTL=30*60*1000,HANDOFF_MAX=4500000;
+// ---- Övergång gratis → betald jämförelse/förkontroll (A2). Visas bara när respektive produkt är öppen enligt serverns config (annars oförändrad gratissida).
+// Ett AKTIVT klick för med det egna underlaget (originalfilen eller texten, aldrig exemplet) till TOMT mål i samma dokument. Inget skrivs i lagring eller adress,
+// ingen analys, betalning eller källanrop startas av överföringen, och ett mål som redan innehåller arbete eller en order skrivs aldrig över (kvitto förklarar).
+const HANDOFF_KEY='sd_handoff_v1';
 let cmpOpen=false,cmpPrice='49 kr';
 function handoffSweep(){try{const raw=sessionStorage.getItem(HANDOFF_KEY);if(!raw)return;let r=null;try{r=JSON.parse(raw)}catch(e){}if(!r||typeof r.exp!=='number'||Date.now()>r.exp)sessionStorage.removeItem(HANDOFF_KEY);}catch(e){}}
 function currentDoc(){
-  if(lastIsDemo&&lastResult&&$('res').classList.contains('on'))return null;
-  if(pendingFile)return{kind:pendingFile.kind,mediaType:pendingFile.mediaType,dataBase64:pendingFile.dataBase64,filename:pendingFile.filename};
-  const t=($('txt').value||'').trim();
-  if(!t||t===demoText.trim())return null;
-  return{kind:'text',text:t};
+  if(wsF.file)return{file:wsF.file};
+  const t=$('txt').value||'';
+  if(!t.trim())return null;
+  return{text:t};
 }
-function putHandoff(doc){
-  try{
-    const s=JSON.stringify({v:1,at:Date.now(),exp:Date.now()+HANDOFF_TTL,doc});
-    if(s.length>HANDOFF_MAX)return false;
-    sessionStorage.setItem(HANDOFF_KEY,s);
-    if(sessionStorage.getItem(HANDOFF_KEY)!==s){sessionStorage.removeItem(HANDOFF_KEY);return false;}
-    return true;
-  }catch(e){try{sessionStorage.removeItem(HANDOFF_KEY)}catch(_){}return false;}
+function moveTo(target,ev){
+  if(ev&&(ev.metaKey||ev.ctrlKey||ev.shiftKey||ev.button===1))return; // ny flik/Ctrl-klick = ren länk utan underlag (minnet följer inte med en ny flik)
+  if(ev)ev.preventDefault();
+  saveDraft();
+  const doc=currentDoc();
+  G.ws.receipt=G.transfer(target,doc,{from:'free'});
+  G.go(target,{push:true,reason:'user'});
 }
 function cmpCtaHtml(isDemo){
   return `<aside class="cmpcta" id="cmpcta" aria-labelledby="cmpr-h">
@@ -463,26 +469,13 @@ function fkCtaHtml(){
     <p class="cmph" id="fkr-h" role="heading" aria-level="2">Ska du skicka den här offerten?</p>
     <p>Förkontrollen går igenom moms, ROT-underlag, pristyp, omfattning och tid. När du bekräftat uppgifterna får du färdiga tilläggstexter och en PDF-bilaga till kunden.</p>
     <p class="cmpmeta">Betalas en gång: 49 kr inkl. moms. Ingen prenumeration, ingen automatisk dragning.</p>
-    <a class="btn acc" id="fkr-go" href="/forkontroll/">Förkontrollera min offert – 49 kr</a>
+    <a class="btn acc" id="fkr-go" href="/forkontroll/" data-fk="result">Förkontrollera min offert – 49 kr</a>
   </aside>`;
 }
-function cmpFail(host){
-  const old=host.parentNode.querySelector('.cmpfail');if(old)old.remove();
-  const b=document.createElement('div');b.className='cmpfail';b.setAttribute('role','alert');b.tabIndex=-1;
-  b.innerHTML='<p style="margin:0">Din offert kunde inte följa med till jämförelsen. Webbläsaren tillåter inte tillfällig lagring, eller så är offerten för stor. Du kan gå vidare och lägga in den där igen, eller stanna här.</p><div class="alt"><a class="btn acc" href="/jamfor/">Gå vidare utan offerten</a><button type="button" class="btn ghost" data-stay>Stanna här</button></div>';
-  host.parentNode.insertBefore(b,host.nextSibling);
-  b.querySelector('[data-stay]').addEventListener('click',()=>{b.remove();host.focus();});
-  b.focus();
+function bindCmp(){
+  document.querySelectorAll('[data-cmp]').forEach(a=>{if(!a.dataset.bound){a.dataset.bound='1';a.addEventListener('click',ev=>moveTo('compare',ev));}});
+  document.querySelectorAll('[data-fk]').forEach(a=>{if(!a.dataset.bound){a.dataset.bound='1';a.addEventListener('click',ev=>moveTo('check',ev));}});
 }
-function goCompare(ev){
-  const a=ev.currentTarget;
-  if(ev.metaKey||ev.ctrlKey||ev.shiftKey||ev.button===1)return; // öppna i ny flik = ren länk utan offert
-  ev.preventDefault();
-  const doc=currentDoc();
-  if(!doc){location.assign('/jamfor/');return;}
-  if(putHandoff(doc))location.assign('/jamfor/#fran=gratis');else cmpFail(a);
-}
-function bindCmp(){document.querySelectorAll('[data-cmp]').forEach(a=>{if(!a.dataset.bound){a.dataset.bound='1';a.addEventListener('click',goCompare);}});}
 function syncCmp(){
   document.querySelectorAll('[data-cmp-price]').forEach(n=>{n.textContent=cmpPrice;});
   const mott=chosenPath==='mottagare',shown=$('res').classList.contains('on');
@@ -504,7 +497,8 @@ function syncCmp(){
   G.config.load().then(apply,()=>{});
 })();
 
-function render(result,isDemo){
+function render(result,isDemo,opts){
+  opts=opts||{};
   lastResult=result;lastIsDemo=!!isDemo;
   const clarifyN=(result.clarify||[]).length;
   const statedN=(result.stated||[]).length;
@@ -531,7 +525,7 @@ function render(result,isDemo){
   ${chosenPath==='hantverkare'||!cmpOpen?'':cmpCtaHtml(isDemo)}
   ${chosenPath==='hantverkare'&&fkOpen?fkCtaHtml():''}
   <div class="alt">
-    <button class="btn ghost" onclick="location.reload()">Granska en till</button>
+    ${isDemo?'<button class="btn acc" type="button" id="demoback">Tillbaka till min offert</button>':'<button class="btn ghost" type="button" id="again">Granska en till</button>'}
   </div>
   ${chosenPath==='hantverkare'?`<aside class="fromsd"><p class="fromsd-tag">Från Ståhle Digital</p>
     <p>Har firman ingen hemsida, eller en som inte ger jobb? Vi bygger hemsidor för hantverkare, i hela Sverige.</p>
@@ -548,11 +542,16 @@ function render(result,isDemo){
   $('res').querySelectorAll('[data-cta]').forEach(a=>a.addEventListener('click',()=>sendEvent({type:'client',event:'kontakt_cta',detail:a.dataset.cta})));
   $('res').removeAttribute('aria-busy');
   $('res').classList.add('on');
-  $('announce').textContent=(isDemo?'Exempel. ':'Granskningen är klar. ')+summary;
-  const h=$('res').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}
+  if(!opts.restore){
+    $('announce').textContent=(isDemo?'Exempel. ':'Granskningen är klar. ')+summary;
+    const h=$('res').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}
+  }
   animateBars();
   bindCmp();syncCmp();
-  if(!isDemo)sendEvent({type:'client',event:'rapport_klar'});
+  const db=$('demoback');if(db)db.addEventListener('click',leaveDemo);
+  const ag=$('again');if(ag)ag.addEventListener('click',resetFree);
+  // En ny leverans mäts bara när den faktiskt kom från servern: omritning (rollbyte), återställning efter uppgiftsbyte och exempel ger ingen ny händelse.
+  if(!isDemo&&!opts.restore&&!opts.rerender){sendEvent({type:'client',event:'rapport_klar'});G.measure.event('result_view',{product:'free'});}
 
   const copyBtn=$('copybtn');
   copyBtn.onclick=async()=>{
@@ -585,60 +584,100 @@ function trackShare(channel){
   sendEvent({type:'share',channel});
 }
 
+function mError(reason,stage){G.measure.event('client_error',{product:'free',stage:stage||'submit',reason});}
+
 async function runReview(){
+  if(running||dead)return;            // lås före första await: ett dubbeltryck ger ett försök och en mätpunkt
+  running=true;
+  const my=++attemptGen,inGen=inputGen;
   clearError();
-  if(!API_BASE){
-    showError('Granskningstjänsten är inte påkopplad än (API_BASE saknas i koden). Testa "Prova med en exempeloffert" under tiden.');
-    return;
-  }
-  let payload;
-  if(pendingFile){
-    payload=pendingFile;
-  } else {
-    const t=($('txt').value||'').trim();
-    if(!t){showError('Klistra in offerttext eller välj en fil först.');return;}
-    payload={kind:'text',text:t};
-  }
-  payload.path=chosenPath;
-  payload.stats=!!($('statsopt')&&$('statsopt').checked);
+  if(!API_BASE){running=false;showError('Granskningstjänsten är inte påkopplad än (API_BASE saknas i koden). Testa "Prova med en exempeloffert" under tiden.');return;}
+  // Oföränderlig försökskontext: det som skickas är det som gällde när kunden tryckte, aldrig något som ändrats därefter.
+  const ctx={file:pendingFile,text:($('txt').value||'').trim(),path:chosenPath,stats:!!($('statsopt')&&$('statsopt').checked),method:methodNow};
+  if(!ctx.file&&!ctx.text){running=false;showError('Klistra in offerttext eller välj en fil först.');mError('empty','input');return;}
   setLoading(true);
   showSkeleton();
-  const avbryt=new AbortController();
-  const tidsgrans=setTimeout(()=>avbryt.abort(),120000); // hellre ett ärligt fel än evig väntan
+  G.measure.event('submit',{product:'free',method:ctx.file?(ctx.method==='camera'?'camera':'file'):'text'});
+  runCtl=new AbortController();
+  const avbryt=runCtl;
+  let tidsgrans=setTimeout(()=>avbryt.abort(),120000); // hellre ett ärligt fel än evig väntan
+  const stale=()=>dead||my!==attemptGen||inGen!==inputGen; // kundens senaste avsikt vinner: ändrad inmatning eller ny start gör svaret inaktuellt
   try{
+    let payload;
+    if(ctx.file){
+      let b64;
+      try{b64=await G.readAsBase64(ctx.file);}catch(e){if(!stale()){showError('Filen gick inte att läsa. Välj den igen eller klistra in texten.');mError('read');}return;}
+      if(stale())return;
+      payload={kind:ctx.file.type==='application/pdf'?'pdf':'image',dataBase64:b64,mediaType:ctx.file.type,filename:ctx.file.name};
+    }else payload={kind:'text',text:ctx.text};
+    payload.path=ctx.path;payload.stats=ctx.stats;
     const resp=await fetch(API_BASE.replace(/\/$/,'')+'/review',{
       method:'POST',headers:SD_TEST?{'Content-Type':'application/json','X-SD-Test':'1'}:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:avbryt.signal
     });
-    const data=await resp.json();
-    if(!resp.ok){showError(data.error||'Något gick fel. Försök igen.');return;}
+    let data=null;try{data=await resp.json();}catch(e){}
+    if(stale())return;
+    if(!resp.ok||!data){showError((data&&data.error)||'Något gick fel. Försök igen.');mError('server');return;}
+    wsF.result=data;
     render(data,false);
   }catch(e){
-    if(e&&e.name==='AbortError')showError('Granskningen tog för lång tid. Försök igen, eller klistra in offerttexten i stället för att skicka en bild.');
-    else showError('Kunde inte nå granskningstjänsten. Kontrollera din uppkoppling och försök igen.');
+    if(stale())return;
+    if(e&&e.name==='AbortError'){showError('Granskningen tog för lång tid. Försök igen, eller klistra in offerttexten i stället för att skicka en bild.');mError('timeout');}
+    else{showError('Kunde inte nå granskningstjänsten. Kontrollera din uppkoppling och försök igen.');mError('network');}
   }finally{
     clearTimeout(tidsgrans);
-    hideSkeleton();
-    setLoading(false);
+    if(my===attemptGen){running=false;runCtl=null;if(!dead){hideSkeleton();setLoading(false);}}
   }
+}
+// Ny inmatning avbryter ett pågående försök (kundens senaste avsikt vinner); svaret kastas och påverkar aldrig annan inmatning.
+function inputChanged(){
+  inputGen++;
+  if(running){attemptGen++;running=false;try{runCtl&&runCtl.abort();}catch(e){}runCtl=null;hideSkeleton();setLoading(false);}
 }
 
 document.querySelectorAll('.pathcard').forEach(el=>{
   el.addEventListener('click',()=>{
-    chosenPath=el.dataset.path;
+    chosenPath=el.dataset.path;wsF.path=chosenPath;
     document.querySelectorAll('.pathcard').forEach(c=>{c.classList.toggle('sel',c===el);c.setAttribute('aria-pressed',c===el?'true':'false');});
     $('pathnote').textContent=PATHNOTE[chosenPath];
-    if(lastResult&&$('res').classList.contains('on'))render(lastResult,lastIsDemo);
+    if(lastResult&&$('res').classList.contains('on'))render(lastResult,lastIsDemo,{rerender:true}); // rollbyte ritar om utan ny leverans/händelse
     syncCmp();
   });
 });
 
+// Exemplet är ett separat läsläge: det rör aldrig eget underlag, eget resultat eller payload och startar varken AI, order eller kassa.
 $('demo').onclick=()=>{
-  pendingFile=null;
-  $('txt').value=demoText;$('txt').classList.add('on');$('runwrap').style.display='flex';
-  clearError();showSkeleton();
+  if(!lastIsDemo&&lastResult)ownResult=lastResult;
+  wsF.demoActive=true;G.measure.demoSeen=true;
+  clearError();
   render(demoResult,true);
+  G.measure.event('example_view',{product:'free'});
 };
-$('paste').onclick=()=>{pendingFile=null;$('filepreview').classList.remove('on');$('txt').classList.add('on');$('runwrap').style.display='flex';$('txt').focus();};
+// "Granska en till": nollställer gratisutkastet i appen (ingen omladdning) och monterar om uppgiften.
+function resetFree(){
+  wsF.file=null;wsF.text='';wsF.result=null;wsF.demoActive=false;
+  G.measure.demoSeen=false;
+  skipSave=true;
+  G.go('free',{force:true,reason:'reset'});
+}
+function leaveDemo(){
+  wsF.demoActive=false;
+  if(ownResult){const r=ownResult;ownResult=null;render(r,false,{restore:true});}
+  else{lastResult=null;lastIsDemo=false;$('res').classList.remove('on');$('res').innerHTML='';const t=$('txt').classList.contains('on')?$('txt'):$('drop');try{t.focus({preventScroll:true});}catch(e){}}
+}
+$('paste').onclick=()=>{
+  inputChanged();methodNow='text';readyFired=false;
+  pendingFile=null;wsF.file=null;$('filepreview').classList.remove('on');$('file').value='';
+  $('txt').classList.add('on');$('runwrap').style.display='flex';$('txt').focus();
+  G.measure.event('input_choose',{product:'free',method:'text'});
+};
+$('txt').addEventListener('input',()=>{
+  inputChanged();
+  if(wsF.file||pendingFile){wsF.file=null;pendingFile=null;$('filepreview').classList.remove('on');$('file').value='';}
+  wsF.text=$('txt').value;
+  if(methodNow!=='text'){methodNow='text';readyFired=false;G.measure.event('input_choose',{product:'free',method:'text'});}
+  if($('txt').value.trim()&&!readyFired){readyFired=true;G.measure.event('input_ready',{product:'free',method:'text'});}
+  if(!$('txt').value.trim())readyFired=false;
+});
 $('run').onclick=runReview;
 
 // Riktiga knappar öppnar filväljaren, så Tab, Enter och Mellanslag fungerar utan mus.
@@ -658,6 +697,7 @@ const KRYMP_OVER=1200000; // bilder över ~1,2 MB krymps innan de skickas
 // Bilden ritas om till JPEG i webbläsaren. Två vinster: en HEIC från iPhone
 // blir läsbar (Safari avkodar den åt oss), och uppladdningen går snabbare på
 // mobil. Går något fel skickas originalet – då tar workern felet i stället.
+// Originalet (wsF.file) ersätts aldrig av den förberedda bilden: bara gratisvägen skickar den krympta kopian.
 function forbered(f){
   const bild=f.type&&f.type.startsWith('image/');
   if(!bild||(f.size<KRYMP_OVER&&f.type!=='image/heic'&&f.type!=='image/heif'))return Promise.resolve(f);
@@ -682,48 +722,78 @@ function forbered(f){
   });
 }
 
-function handleFile(f){
+// Aktivt val av fil/foto. Ett avbrutet filval (inga filer) ändrar ingenting. Generationen gör att ett långsamt svar för ett tidigare val aldrig
+// skriver över ett senare (fil→text→fil, byte av fil, nollställning).
+function handleFile(f,kind){
   if(!f)return;
+  inputChanged();
+  const gen=inputGen;
   clearError();
+  G.measure.event('input_choose',{product:'free',method:kind==='camera'?'camera':'file'});
+  const fresh=()=>!dead&&gen===inputGen;
   if(f.type&&f.type.startsWith('image/')){
     forbered(f).then(g=>{
-      if(g.size>MAX_BYTES){showError('Bilden är för stor (max 8 MB). Fota med lägre upplösning eller klistra in texten.');return;}
-      laddaFil(g);
+      if(!fresh())return;
+      if(g.size>MAX_BYTES){showError('Bilden är för stor (max 8 MB). Fota med lägre upplösning eller klistra in texten.');mError('size','input');return;}
+      laddaFil(f,g,kind,gen);
     });
     return;
   }
-  laddaFil(f);
+  laddaFil(f,f,kind,gen);
 }
 
-function laddaFil(f){
-  if(f.size>MAX_BYTES){showError('Filen är för stor (max 8 MB).');return;}
+function laddaFil(orig,f,kind,gen){
+  const fresh=()=>!dead&&gen===inputGen;
+  if(f.size>MAX_BYTES){showError('Filen är för stor (max 8 MB).');mError('size','input');return;}
   if(f.type.startsWith('text')||/\.txt$/i.test(f.name)){
-    f.text().then(t=>{
-      pendingFile=null;
-      $('txt').value=t;$('txt').classList.add('on');$('runwrap').style.display='flex';
+    G.readAsText(f).then(t=>{
+      if(!fresh())return;
+      pendingFile=null;wsF.file=null;methodNow=kind==='camera'?'camera':'file';
+      $('txt').value=t;wsF.text=t;$('txt').classList.add('on');$('runwrap').style.display='flex';
       $('filepreview').textContent=`Vald fil: ${f.name} (${Math.max(1,Math.round(f.size/1024))} kB). Texten visas nedan – tryck Granska för att starta.`;
       $('filepreview').classList.add('on');
-    });
+      readyFired=true;G.measure.event('input_ready',{product:'free',method:'file'});
+    },()=>{if(fresh()){showError('Filen gick inte att läsa. Välj den igen eller klistra in texten.');mError('read','input');}});
     return;
   }
-  const reader=new FileReader();
-  reader.onload=()=>{
-    const dataUrl=reader.result; // "data:<mime>;base64,XXXX"
-    const base64=dataUrl.split(',')[1];
-    const kind=f.type==='application/pdf'?'pdf':'image';
-    pendingFile={kind,dataBase64:base64,mediaType:f.type,filename:f.name};
-    $('txt').classList.remove('on');
-    $('filepreview').textContent=`Vald fil: ${f.name} (${Math.round(f.size/1024)} kB). Tryck Granska för att starta.`;
-    $('filepreview').classList.add('on');
-    $('runwrap').style.display='flex';
-  };
-  reader.readAsDataURL(f);
+  // PDF/bild: originalet behålls i minnet för betalvägen; payload (base64) byggs först när Granska trycks.
+  pendingFile=f;wsF.file=orig;wsF.text='';methodNow=kind==='camera'?'camera':'file';
+  $('txt').value='';$('txt').classList.remove('on');
+  $('filepreview').textContent=`Vald fil: ${f.name} (${Math.round(f.size/1024)} kB). Tryck Granska för att starta.`;
+  $('filepreview').classList.add('on');
+  $('runwrap').style.display='flex';
+  readyFired=true;G.measure.event('input_ready',{product:'free',method:kind==='camera'?'camera':'file'});
 }
-drop.addEventListener('drop',ev=>handleFile(ev.dataTransfer.files[0]));
-$('file').addEventListener('change',ev=>handleFile(ev.target.files[0]));
-$('cam').addEventListener('change',ev=>handleFile(ev.target.files[0]));
+drop.addEventListener('drop',ev=>handleFile(ev.dataTransfer.files[0],'file'));
+$('file').addEventListener('change',ev=>{handleFile(ev.target.files[0],'file');});
+$('cam').addEventListener('change',ev=>{handleFile(ev.target.files[0],'camera');});
 
-    return {unmount:function(){dead=true;}};
+// Utkastet (text/fil/roll/resultat) ligger kvar i arbetsytan när kunden byter uppgift och kommer tillbaka.
+function saveDraft(){wsF.text=$('txt').value;wsF.path=chosenPath;wsF.result=ownResult||(lastIsDemo?wsF.result:lastResult)||null;wsF.demoActive=false;}
+function restoreDraft(){
+  // Rollkort/pathnote följer arbetsytans roll
+  document.querySelectorAll('.pathcard').forEach(c=>{const on=c.dataset.path===chosenPath;c.classList.toggle('sel',on);c.setAttribute('aria-pressed',on?'true':'false');});
+  $('pathnote').textContent=PATHNOTE[chosenPath];
+  if(wsF.file){
+    const gen=inputGen,f=wsF.file;
+    methodNow='file';
+    $('filepreview').textContent=`Vald fil: ${f.name} (${Math.round(f.size/1024)} kB). Tryck Granska för att starta.`;
+    $('filepreview').classList.add('on');$('runwrap').style.display='flex';readyFired=true;
+    forbered(f).then(g=>{if(!dead&&gen===inputGen&&wsF.file===f)pendingFile=g;});
+    pendingFile=f; // tills förberedelsen är klar skickas originalet om kunden hinner trycka (workern tar ev. bildfel)
+  }else if(wsF.text){
+    $('txt').value=wsF.text;$('txt').classList.add('on');$('runwrap').style.display='flex';methodNow='text';readyFired=!!wsF.text.trim();
+  }
+  if(wsF.result){render(wsF.result,false,{restore:true});}
+}
+restoreDraft();
+
+    return {unmount:function(){
+      if(!skipSave)saveDraft();dead=true;
+      try{runCtl&&runCtl.abort();}catch(e){}
+      running=false;
+      attemptGen++;inputGen++;
+    }};
   }
 });
 })();

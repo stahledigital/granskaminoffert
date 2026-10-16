@@ -94,7 +94,8 @@
 
   // ---------- mätning (D19): slutna enum, prefix klient_, aldrig råa URL:er/ID/innehåll ----------
   var M = G.measure = { landed: false, seen: {}, qa: G.SD_TEST };
-  function role() { return (G.ws && G.ws.free && G.ws.free.path === 'hantverkare') ? 'hantverkare' : 'mottagare'; }
+  // Roll finns bara i gratisuppgiften; jämförelse och förkontroll rapporterar 'okand' (ingen roll har valts där).
+  function role() { if (G.current && G.current.name !== 'free' && G.current.name !== 'none') return 'okand'; return (G.ws && G.ws.free && G.ws.free.path === 'hantverkare') ? 'hantverkare' : (G.current && G.current.name === 'none' ? 'okand' : 'mottagare'); }
   M.send = function (ev) {
     try {
       var url = G.API_BASE.replace(/\/$/, '') + '/event';
@@ -107,7 +108,7 @@
   // flaggan följer med bara de händelser som själva sker i demoläget.
   M.event = function (name, f) {
     f = f || {};
-    var ev = { event: name, entry: G.ENTRY, role: role() };
+    var ev = { event: name, entry: G.ENTRY, role: role(), product: (G.current && G.current.name) || 'none' };
     for (var k in f) if (f[k] !== undefined && f[k] !== null) ev[k] = f[k];
     if (M.demoSeen && (name === 'submit' || name === 'result_view') && !ev.demo) ev.seen = 'sett_exempel';
     M.send(ev);
@@ -122,6 +123,31 @@
     compare: { n: 2, slots: [], samejob: false },
     check: { file: null, text: '', own: false },
     receipt: null
+  };
+
+  // ---------- explicit överföring av eget underlag mellan uppgifter (A2) ----------
+  // Endast efter aktivt klick, endast eget underlag (aldrig exemplet), endast till TOMT mål (en påbörjad order i målet skyddas av målet självt:
+  // underlaget ligger kvar i minnet men visas inte och skriver aldrig över ordern). Returnerar kvitto som målet visar.
+  G.hasStoredOrder = function () { try { var r = JSON.parse(localStorage.getItem('jamfor_order') || 'null'); return !!(r && r.id); } catch (e) { return false; } };
+  G.transfer = function (to, doc, o) {
+    o = o || {};
+    var r = { to: to, from: o.from || 'free', status: 'none', what: '' };
+    if (!doc || (!doc.file && !(doc.text && doc.text.trim()))) return r;
+    r.what = doc.file ? doc.file.name : 'text';
+    if (to === 'compare') {
+      var w = G.ws.compare, s0 = w.slots[0];
+      if (s0 && (s0.file || (s0.text && s0.text.trim()))) { r.status = 'occupied'; r.why = 'draft'; return r; }
+      w.slots[0] = { label: (s0 && s0.label) || '', file: doc.file || null, text: doc.file ? '' : doc.text, name: '', from: r.from };
+      if (!w.n || w.n < 2) w.n = 2;
+      r.status = 'copied'; return r;
+    }
+    if (to === 'check') {
+      var k = G.ws.check;
+      if (k.file || (k.text && k.text.trim())) { r.status = 'occupied'; r.why = 'draft'; return r; }
+      k.file = doc.file || null; k.text = doc.file ? '' : doc.text; k.from = r.from;
+      r.status = 'copied'; return r;
+    }
+    return r;
   };
 
   // ---------- uppgiftsregister och router ----------

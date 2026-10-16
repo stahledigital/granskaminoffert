@@ -70,7 +70,7 @@ async function newPage(viewport = { width: 390, height: 844 }, mock = {}) {
   });
   await page.route("**/event", async (route) => {
     if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
-    try { const b = route.request().postDataJSON(); if (b && b.type === "client" && b.event === "landing") landings.push(b); else events.push(b); } catch { events.push({ raw: route.request().postData() }); }
+    try { const b = route.request().postDataJSON(); const legacy = b && (b.type === "share" || (b.type === "client" && ["rapport_klar", "kontakt_cta"].includes(b.event))); if (b && !legacy) landings.push(b); else events.push(b); } catch { events.push({ raw: route.request().postData() }); }
     return route.fulfill({ status: 204, headers: CORS });
   });
   await page.route(/cloudflareinsights/, (r) => r.abort());
@@ -119,7 +119,7 @@ test("tangentbord: vald PDF och textfil visas och går att granska", async () =>
   await page.waitForSelector("#filepreview.on");
   assert.match(await page.textContent("#filepreview"), /offert\.pdf/);
   await page.focus("#run"); await page.keyboard.press("Enter");
-  await page.waitForSelector("#res.on");
+  await page.waitForSelector(".gmo-card");
   assert.equal(reviews[0].kind, "pdf");
   await page.focus("#pickfile");
   [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.keyboard.press("Space")]);

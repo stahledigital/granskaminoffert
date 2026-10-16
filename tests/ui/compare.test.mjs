@@ -1434,39 +1434,39 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
     } finally { await f2.ctx.close(); await h2.close(); }
   });
 
-  test(`gratis→betald (${name}): textoffert följer med byteexakt efter aktivt klick, tydlig bekräftelse, ingen analys/betalning/källanrop via navigeringen, innehåll aldrig i adress, förbrukas vid order`, async () => {
+  test(`gratis→betald A2 (${name}): textoffert följer med i minnet efter aktivt klick, kvitto, ingen analys/betalning/källanrop, inget i adress eller lagring, tillbaka/framåt och omladdning`, async () => {
     const h = await startHarness();
     const { ctx, page, errors, calls, reqs } = await freePage(h, w, hgt);
     try {
       await page.goto(h.base + "/#gratis"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
       await page.waitForTimeout(700); // sena gratis-händelser från själva granskningen ska inte räknas som klickets
       const before = reqs.length; calls.length = 0;
-      await page.click("#cmpr-go"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#carry:not(.hidden)");
-      assert.match(page.url(), /\/jamfor\/#fran=gratis$/); assert.ok(!page.url().includes("Taktäckarna") && !decodeURIComponent(page.url()).includes("Offert tak"), "innehåll aldrig i adressen");
-      assert.equal(calls.filter((c) => /review|event/.test(c)).length, 0, "klicket startade ingen granskning och skickade ingen händelse");
-      assert.equal((await page.textContent("#carry-h")).trim(), "Din första offert följer med."); assert.match(await page.textContent("#carry"), /Lägg till 1–3 offerter för samma jobb\./);
-      assert.equal(await page.inputValue("#t0"), DOC_TEXT); assert.equal(await page.evaluate(() => document.activeElement.id), "carry-h", "fokus på bekräftelsen");
-      assert.equal(await page.inputValue("#t1"), "");
+      await page.click("#cmpr-go"); await page.waitForURL(/\/jamfor\/$/); await page.waitForSelector("#receipt:not(.hidden)");
+      assert.ok(!page.url().includes("#") && !decodeURIComponent(page.url()).includes("Offert tak"), "innehåll och handoff-hash aldrig i adressen");
+      assert.equal(calls.filter((c) => /review|event/.test(c)).length, 0, "klicket startade ingen granskning och skickade ingen händelse till gratis-API:t");
+      assert.match(await page.textContent("#receipt"), /Din offert följde med/); assert.match(await page.textContent("#receipt"), /Offert 1/); assert.match(await page.textContent("#receipt"), /Inget har skickats, analyserats eller debiterats/);
+      assert.equal(await page.inputValue("#t0"), DOC_TEXT); assert.equal(await page.inputValue("#t1"), "");
+      assert.equal(await page.evaluate(() => document.activeElement.id), "task-heading", "fokus på uppgiftens rubrik");
+      assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null, "ingen sessionslagring skrivs av A2");
       assert.ok(await noSideScroll(page));
-      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_3_jamfor_bekraftelse.png`), fullPage: true });
-      // inga mutationer mot jämförelsen före aktivt val
+      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_3_jamfor_kvitto.png`), fullPage: true });
       await page.waitForTimeout(600);
       assert.deepEqual(reqs.slice(before).filter((r) => /^(POST|PUT|DELETE) /.test(r) && /\/compare\//.test(r)), [], "ingen order/betalning/källa startad av navigeringen");
-      // byte av antal behåller den medföljande offerten
-      await page.click('.seg button[data-n="3"]'); assert.equal(await page.inputValue("#t0"), DOC_TEXT); assert.equal(await page.isVisible("#carry"), true);
-      // reload: återhämtning
-      await page.reload(); await page.waitForSelector("#carry:not(.hidden)"); assert.equal(await page.inputValue("#t0"), DOC_TEXT);
-      // slutför: lägg till 2 offerter, kontrollera ⇒ ordern skapas och handoffen förbrukas
-      await page.click('.seg button[data-n="3"]'); assert.equal(await page.inputValue("#t0"), DOC_TEXT); await page.fill("#t1", OFFERS[1]); await page.fill("#t2", OFFERS[2]); await page.check("#samejob"); await page.click("#check");
-      await page.waitForSelector("#offer:not(.hidden)", { timeout: 15000 });
-      assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null, "handoffen förbrukad"); assert.ok(!/fran=gratis/.test(page.url()));
-      const ord = await page.evaluate(() => localStorage.getItem("jamfor_order")); assert.ok(ord);
-      await page.reload(); await page.waitForTimeout(800); assert.equal(await page.locator("#carry").isVisible(), false, "ingen gammal medföljande offert efter order");
+      // byte av antal behåller offerten
+      await page.click('.seg button[data-n="3"]'); assert.equal(await page.inputValue("#t0"), DOC_TEXT);
+      // tillbaka: gratisutkastet och resultatet finns kvar i samma dokument; framåt: jämförelsen med underlaget
+      await page.goBack(); await page.waitForSelector("#res.on"); assert.equal(await page.inputValue("#txt"), DOC_TEXT); assert.ok(await page.isVisible("#cmpcta"));
+      await page.goForward(); await page.waitForSelector("#t0"); assert.equal(await page.inputValue("#t0"), DOC_TEXT);
+      // fullreload lämnar oskickat minnesutkast (ärlig gräns): tomt igen
+      await page.reload(); await page.waitForSelector("#s1:not(.hidden)"); assert.equal(await page.inputValue("#t0"), ""); assert.equal(await page.isVisible("#receipt"), false);
+      // slutför: kontroll skapar ordern
+      await fillAndCheck(page, OFFERS);
+      assert.ok(await page.evaluate(() => localStorage.getItem("jamfor_order")));
       assert.deepEqual(errors, []);
     } finally { await ctx.close(); await h.close(); }
   });
 
-  test(`gratis→betald (${name}): PDF, foto (PNG/JPG) och text följer med byte för byte; startsidans CTA; ta bort; egen ändring släpper handoffen`, async () => {
+  test(`gratis→betald A2 (${name}): PDF, foto (PNG/JPG) och text följer med byte för byte till rätt dokumentplats; startsidans erbjudande; egen ändring tar bort märkningen`, async () => {
     const h = await startHarness();
     const { ctx, page, errors } = await freePage(h, w, hgt);
     const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n%âãÏÓ\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"), Buffer.from(Array.from({ length: 3000 }, (_, i) => (i * 37) % 256))]);
@@ -1474,74 +1474,64 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
     const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from(Array.from({ length: 4000 }, (_, i) => (i * 53 + 3) % 256)), Buffer.from([0xff, 0xd9])]);
     try {
       for (const [fname, mime, buf] of [["offert.pdf", "application/pdf", pdf], ["foto.png", "image/png", png], ["foto.jpg", "image/jpeg", jpg]]) {
-        await page.goto(h.base + "/#gratis"); await page.evaluate(() => sessionStorage.clear());
+        await page.goto(h.base + "/#gratis"); await page.reload();
         await page.setInputFiles("#file", { name: fname, mimeType: mime, buffer: buf });
         await page.waitForSelector("#filepreview.on");
-        await page.click("#cmpo-go"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#carry:not(.hidden)");
-        const got = await page.evaluate(async () => { const f = document.getElementById("f0").files[0]; if (!f) return null; const b = new Uint8Array(await f.arrayBuffer()); let s = ""; for (const x of b) s += String.fromCharCode(x); return { name: f.name, type: f.type, b64: btoa(s) }; });
-        assert.ok(got, fname + ": fil i första fältet"); assert.equal(got.name, fname); assert.equal(got.type, mime); assert.equal(got.b64, buf.toString("base64"), fname + ": byteexakt");
-        assert.match(await page.textContent("#fi0"), /följde med/); assert.match(await page.textContent("#carry"), new RegExp(fname.replace(".", "\\.")));
+        await page.click("#cmpo-go"); await page.waitForURL(/\/jamfor\/$/); await page.waitForSelector("#receipt:not(.hidden)");
+        assert.match(await page.textContent("#fi0"), /Följde med från gratisgranskningen/); assert.match(await page.textContent("#fi0"), new RegExp(fname.replace(".", "\\.")));
+        assert.match(await page.textContent("#receipt"), new RegExp(fname.replace(".", "\\.")));
+        // originalfilens bytes går till dokumentplats 0 (idx) vid aktiv start
+        const puts = []; page.on("request", (r) => { if (r.method() === "PUT" && /\/docs\/0$/.test(r.url())) puts.push(JSON.parse(r.postData())); });
+        await page.fill("#t1", OFFERS[1]); await page.check("#samejob"); await page.click("#check");
+        await page.waitForFunction(() => document.getElementById("offer") && !document.getElementById("offer").classList.contains("hidden") || document.getElementById("err") && !document.getElementById("err").classList.contains("hidden"), null, { timeout: 15000 });
+        assert.ok(puts.length >= 1, fname + ": dokument 0 skickades"); assert.equal(puts[0].dataBase64, buf.toString("base64"), fname + ": byteexakt original");
+        await page.evaluate(() => localStorage.removeItem("jamfor_order"));
       }
-      // ta bort den medföljande offerten
-      await page.click("#carry-drop"); assert.equal(await page.isVisible("#carry"), false); assert.equal(await page.evaluate(() => document.getElementById("f0").files.length), 0); assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null); assert.match(await page.textContent("#fi0"), /Ingen fil vald/);
-      assert.ok(!/fran=gratis/.test(page.url()));
-      // egen ändring av första fältet släpper den medföljande offerten
-      await page.goto(h.base + "/#gratis"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#cmpo-go"); await page.waitForSelector("#carry:not(.hidden)");
-      await page.fill("#t0", "Helt annan text"); assert.equal(await page.isVisible("#carry"), false); assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null);
-      assert.deepEqual(errors, []);
+      // egen ändring i första fältet tar bort märkningen "Följde med"
+      await page.goto(h.base + "/#gratis"); await page.reload(); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#cmpo-go"); await page.waitForSelector("#receipt:not(.hidden)");
+      await page.fill("#t0", "Helt annan text"); assert.doesNotMatch(await page.textContent("#fi0"), /Följde med/);
+      assert.deepEqual(errors.filter((e) => !/status of 4|Failed to load/.test(String(e))), []);
     } finally { await ctx.close(); await h.close(); }
   });
 
-  test(`gratis→betald (${name}): befintlig order skrivs aldrig över; exempeloffert följer inte med; tangentbord (Enter på CTA) och fokus`, async () => {
+  test(`gratis→betald A2 (${name}): befintlig order skrivs aldrig över; exempeloffert följer inte med; tangentbord (Enter på CTA) och fokus`, async () => {
     const h = await startHarness();
     const { ctx, page, errors, reqs } = await freePage(h, w, hgt);
     try {
-      // skapa en riktig order först
       await page.goto(h.base + "/jamfor/"); await page.waitForSelector("#s1:not(.hidden)"); await fillAndCheck(page, [OFFERS[0], OFFERS[1]]);
       const orderBefore = await page.evaluate(() => localStorage.getItem("jamfor_order")); assert.ok(orderBefore);
-      // från gratis med eget dokument
+      // från gratis med eget dokument: ordern är orörd och kvittot säger sanningen
       await page.goto(h.base + "/#gratis"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
       const n0 = reqs.length;
       await page.focus("#cmpr-go"); assert.equal(await page.evaluate(() => document.activeElement.id), "cmpr-go"); await page.keyboard.press("Enter");
-      await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#hoconf:not(.hidden)");
-      assert.match(await page.textContent("#hoconf"), /Du har redan en jämförelse igång/); assert.match(await page.textContent("#hoconf"), /orörd/);
+      await page.waitForURL(/\/jamfor\/$/); await page.waitForFunction(() => /påbörjade ordern/.test((document.getElementById("receipt") || {}).textContent || ""));
+      assert.match(await page.textContent("#receipt"), /orörd/);
       assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), orderBefore, "befintlig order orörd");
-      assert.equal(reqs.slice(n0).filter((r) => r === "POST /compare/orders").length, 0, "ingen ny order skapad"); assert.equal(await page.isVisible("#carry"), false);
+      assert.equal(reqs.slice(n0).filter((r) => r === "POST /compare/orders").length, 0, "ingen ny order skapad");
       assert.ok(await noSideScroll(page));
       await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_4_befintlig_order.png`), fullPage: true });
-      await page.reload(); await page.waitForSelector("#hoconf:not(.hidden)"); assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), orderBefore, "reload: fortfarande orörd");
-      await page.click("#hoconf-keep"); assert.equal(await page.isVisible("#hoconf"), false); assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null);
-      // exempeloffert: ingen medföljande offert
+      await page.reload(); await page.waitForTimeout(800); assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), orderBefore, "reload: fortfarande orörd");
+      // exempeloffert: ingenting följer med
       await page.goto(h.base + "/#gratis"); await page.evaluate(() => { localStorage.removeItem("jamfor_order"); }); await page.reload();
       await page.click("#demo"); await page.waitForSelector("#cmpcta:not([hidden])"); assert.match(await page.textContent("#cmpcta"), /exempeloffert och följer inte med/);
-      await page.click("#cmpr-go"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#s1:not(.hidden)");
-      assert.equal(await page.isVisible("#carry"), false); assert.equal(await page.inputValue("#t0"), ""); assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null);
+      await page.click("#cmpr-go"); await page.waitForURL(/\/jamfor\/$/); await page.waitForSelector("#s1:not(.hidden)");
+      assert.equal(await page.isVisible("#receipt"), false); assert.equal(await page.inputValue("#t0"), "");
       assert.deepEqual(errors, []);
     } finally { await ctx.close(); await h.close(); }
   });
 
-  test(`gratis→betald (${name}): ärliga fel – blockerad lagring, för stor text, gammal och trasig handoff; aldrig falsk "följer med"`, async () => {
+  test(`gratis→betald A2 (${name}): blockerad webbläsarlagring påverkar inte överföringen; äldre sessionsöverlämning fungerar som reservläsare med ärliga fel`, async () => {
     const h = await startHarness();
     const { ctx, page, errors } = await freePage(h, w, hgt);
     try {
-      // blockerad lagring på gratissidan
       await page.addInitScript(() => { if (location.pathname === "/") { Storage.prototype.setItem = function () { throw new DOMException("blocked", "SecurityError"); }; } });
       await page.goto(h.base + "/#gratis"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
-      await page.click("#cmpr-go"); await page.waitForSelector(".cmpfail");
-      assert.match(await page.textContent(".cmpfail"), /kunde inte följa med/); assert.ok(/127\.0\.0\.1:\d+\/(#gratis)?$/.test(page.url()), "stannar kvar");
-      assert.equal(await page.evaluate(() => document.activeElement.className), "cmpfail"); assert.equal(await page.getAttribute(".cmpfail a.btn", "href"), "/jamfor/");
-      await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_5_lagring_blockerad.png`), fullPage: true });
-      await page.click("[data-stay]"); assert.equal(await page.locator(".cmpfail").count(), 0);
-      // gå vidare utan offerten ⇒ tom jämförelse, inget falskt påstående
-      await page.click("#cmpr-go"); await page.waitForSelector(".cmpfail"); await page.click(".cmpfail a.btn"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#s1:not(.hidden)");
-      assert.equal(await page.isVisible("#carry"), false); assert.equal(await page.inputValue("#t0"), "");
+      await page.click("#cmpr-go"); await page.waitForURL(/\/jamfor\/$/); await page.waitForSelector("#receipt:not(.hidden)");
+      assert.equal(await page.inputValue("#t0"), DOC_TEXT, "minnesöverföring behöver ingen lagring");
+      assert.equal(await page.locator(".cmpfail").count(), 0);
     } finally { await ctx.close(); }
     const c2 = await freePage(h, w, hgt);
     try {
-      // för stor text (över handoff-gränsen)
-      await c2.page.goto(h.base + "/#gratis"); await c2.page.click("#paste"); await c2.page.evaluate(() => { document.getElementById("txt").value = "x".repeat(4600000); });
-      await c2.page.click("#cmpo-go"); await c2.page.waitForSelector(".cmpfail"); assert.match(await c2.page.textContent(".cmpfail"), /för stor/);
-      // gammal, trasig, ogiltig och saknad handoff på /jamfor/
       const seed = async (val) => { await c2.page.goto(h.base + "/jamfor/"); await c2.page.waitForSelector("#s1:not(.hidden)"); await c2.page.evaluate((v) => { if (v === null) sessionStorage.removeItem("sd_handoff_v1"); else sessionStorage.setItem("sd_handoff_v1", v); }, val); await c2.page.goto(h.base + "/jamfor/#fran=gratis"); await c2.page.reload(); await c2.page.waitForSelector("#carry:not(.hidden)"); };
       const cases = [
         [JSON.stringify({ v: 1, at: 1, exp: Date.now() - 1000, doc: { kind: "text", text: "gammal" } }), /finns inte kvar/],
@@ -1553,13 +1543,16 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
       for (const [val, re] of cases) {
         await seed(val);
         assert.equal((await c2.page.textContent("#carry-h")).trim(), "Ingen offert följde med"); assert.match(await c2.page.textContent("#carry"), re);
-        assert.notEqual((await c2.page.textContent("#carry-h")).trim(), "Din första offert följer med.");
         assert.equal(await c2.page.inputValue("#t0"), ""); assert.equal(await c2.page.evaluate(() => document.getElementById("f0").files.length), 0);
         assert.equal(await c2.page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null, "gammal/trasig handoff städad");
         assert.ok(await noSideScroll(c2.page));
       }
-      await c2.page.screenshot({ path: join(EVIDENCE, `gratis_${name}_6_handoff_saknas.png`), fullPage: true });
-      // blockerad läsning på /jamfor/
+      // giltig äldre överlämning (text) fungerar fortfarande som reserv
+      await c2.page.goto(h.base + "/jamfor/"); await c2.page.waitForSelector("#s1:not(.hidden)");
+      await c2.page.evaluate((t) => sessionStorage.setItem("sd_handoff_v1", JSON.stringify({ v: 1, at: Date.now(), exp: Date.now() + 60000, doc: { kind: "text", text: t } })), DOC_TEXT);
+      await c2.page.goto(h.base + "/jamfor/#fran=gratis"); await c2.page.reload(); await c2.page.waitForSelector("#carry:not(.hidden)");
+      assert.equal(await c2.page.inputValue("#t0"), DOC_TEXT);
+      await c2.page.screenshot({ path: join(EVIDENCE, `gratis_${name}_6_handoff_reserv.png`), fullPage: true });
       await c2.page.addInitScript(() => { if (location.pathname.startsWith("/jamfor")) { Storage.prototype.getItem = function (k) { if (k === "sd_handoff_v1") throw new DOMException("blocked", "SecurityError"); return null; }; } });
       await c2.page.goto(h.base + "/jamfor/#fran=gratis"); await c2.page.reload(); await c2.page.waitForSelector("#carry:not(.hidden)");
       assert.match(await c2.page.textContent("#carry"), /tillåter inte tillfällig lagring/);
@@ -1568,6 +1561,31 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
   });
 }
 
+test("A2: exakt 8 000 000 byte PDF följer med från gratis och skickas som dokument 0 (inte fast i gamla 4,5 M-tecken); över 8 MB ger lokalt besked i gratis", async () => {
+  const h = await startHarness();
+  const { ctx, page, errors } = await freePage(h, 390, 844);
+  try {
+    const head = Buffer.from("%PDF-1.4\n"), tail = Buffer.from("\n%%EOF\n");
+    const pdf8 = Buffer.concat([head, Buffer.alloc(8000000 - head.length - tail.length, 0x20), tail]); assert.equal(pdf8.length, 8000000);
+    await page.goto(h.base + "/#gratis");
+    await page.setInputFiles("#file", { name: "exakt8mb.pdf", mimeType: "application/pdf", buffer: pdf8 });
+    await page.waitForSelector("#filepreview.on"); assert.match(await page.textContent("#filepreview"), /exakt8mb\.pdf/);
+    await page.click("#cmpo-go"); await page.waitForURL(/\/jamfor\/$/); await page.waitForSelector("#receipt:not(.hidden)");
+    assert.match(await page.textContent("#fi0"), /exakt8mb\.pdf/); assert.match(await page.textContent("#fi0"), /Följde med/);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem("sd_handoff_v1")), null);
+    const sizes = []; page.on("request", (r) => { if (r.method() === "PUT" && /\/docs\/0$/.test(r.url())) sizes.push((r.postData() || "").length); });
+    await page.fill("#t1", OFFERS[1]); await page.check("#samejob"); await page.click("#check");
+    for (let i = 0; i < 80 && !sizes.length; i++) await new Promise((r) => setTimeout(r, 250));
+    assert.ok(sizes.length >= 1 && sizes[0] > 10_000_000, "dokument 0 på 8 MB skickades (base64 > 10 MB)");
+    // över 8 MB: tydligt lokalt besked, inget skickas
+    await page.goto(h.base + "/#gratis"); await page.reload();
+    await page.setInputFiles("#file", { name: "for-stor.pdf", mimeType: "application/pdf", buffer: Buffer.concat([pdf8, Buffer.from("x")]) });
+    await page.waitForSelector("#errbox.on"); assert.match(await page.textContent("#errbox"), /för stor \(max 8 MB\)/);
+    assert.equal(await page.isVisible("#filepreview.on"), false);
+    assert.deepEqual(errors.filter((e) => !/status of 4|Failed to load/.test(String(e))), []);
+  } finally { await ctx.close(); await h.close(); }
+});
+
 // Commit 1 – dataförlust vid antalbyte och återhämtning med väntande första offert (root-repro 9b287506).
 for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]]) {
   test(`gratis→betald (${name}): antalbyte raderar aldrig inskrivna offerter (2→3, redigerad medföljande 3→2→3, filer, namn); dolda skickas inte`, async () => {
@@ -1575,7 +1593,7 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
     const { ctx, page, errors } = await freePage(h, w, hgt);
     try {
       await page.goto(h.base + "/#gratis"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
-      await page.click("#cmpr-go"); await page.waitForURL("**/jamfor/**"); await page.waitForSelector("#carry:not(.hidden)");
+      await page.click("#cmpr-go"); await page.waitForURL(/\/jamfor\/$/); await page.waitForSelector("#receipt:not(.hidden)");
       await page.fill("#lab1", "Firma Två"); await page.fill("#t1", OFFERS[1]);
       await page.click('.seg button[data-n="3"]');
       assert.equal(await page.inputValue("#t0"), DOC_TEXT); assert.equal(await page.inputValue("#t1"), OFFERS[1]); assert.equal(await page.inputValue("#lab1"), "Firma Två");
@@ -1602,26 +1620,20 @@ for (const [name, w, hgt] of [["mobil390", 390, 844], ["desktop1280", 1280, 900]
     } finally { await ctx.close(); await h.close(); }
   });
 
-  test(`gratis→betald (${name}): gammal order med 404 blockerar inte handoff – ny offert tas upp explicit, Börja om behåller #fran=gratis, befintlig giltig order skyddas`, async () => {
+  test(`gratis→betald A2 (${name}): gammal order med 404 blockerar inte överföringen – offerten ligger kvar som Offert 1, ingen order skapas av återhämtningen`, async () => {
     const h = await startHarness();
     const { ctx, page, errors, reqs } = await freePage(h, w, hgt);
     try {
       await page.goto(h.base + "/jamfor/"); await page.evaluate(() => localStorage.setItem("jamfor_order", JSON.stringify({ id: "ord_finnsinte", token: "x".repeat(32) })));
       await page.goto(h.base + "/#gratis"); await page.click("#paste"); await page.fill("#txt", DOC_TEXT); await page.click("#run"); await page.waitForSelector("#cmpcta:not([hidden])");
-      await page.click("#cmpr-go"); await page.waitForURL("**/jamfor/**");
-      await page.waitForSelector("#carry:not(.hidden)", { timeout: 10000 });
+      await page.click("#cmpr-go"); await page.waitForURL(/\/jamfor\/$/);
+      await page.waitForSelector("#s1:not(.hidden)", { timeout: 10000 });
       assert.equal(await page.inputValue("#t0"), DOC_TEXT, "första offerten återtagen efter 404");
-      assert.match(await page.textContent("#carry"), /hittades inte/); assert.equal(await page.isVisible("#hoconf"), false); assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), null);
+      assert.match(await page.textContent("#receipt"), /hittades inte/); assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), null);
       assert.ok(await noSideScroll(page));
       await page.screenshot({ path: join(EVIDENCE, `gratis_${name}_8_gammal_order_404.png`), fullPage: true });
-      // reload: samma tillstånd, ingen gammal order
-      await page.reload(); await page.waitForSelector("#carry:not(.hidden)"); assert.equal(await page.inputValue("#t0"), DOC_TEXT);
-      // Börja om efter utgången order behåller väntande offert
-      await page.evaluate(() => { localStorage.setItem("jamfor_order", JSON.stringify({ id: "ord_finnsinte2", token: "y".repeat(32) })); });
-      await page.reload(); await page.waitForSelector("#t0"); await page.waitForTimeout(500);
-      assert.equal(await page.inputValue("#t0"), DOC_TEXT);
       assert.equal(reqs.filter((r) => r === "POST /compare/orders").length, 0, "ingen order skapad av återhämtningen");
-      assert.deepEqual(errors, []);
+      assert.deepEqual(errors.filter((e) => !/status of 4|Failed to load/.test(String(e))), []);
     } finally { await ctx.close(); await h.close(); }
   });
 
