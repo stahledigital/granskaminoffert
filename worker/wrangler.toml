@@ -96,8 +96,10 @@ COMPARE_MAIL_HTTP = "1"
 COMPARE_MAIL_HTTP_VERIFIED = "1"
 COMPARE_MAIL_FROM = "Granska min offert <hej@stahledigital.se>"
 COMPARE_MAIL_DAY_CAP = "20"
-COMPARE_REVIEWS = "0"
-COMPARE_REVIEWS_VERIFIED = "0"
+# D19 (2026-10-16): källvärdena synkade med faktisk produktion (BÅDA redan "1" live, API-UUID d88716f3-…, BUILD_ID 7cbe991).
+# Bevarar dagens erbjudande och samtyckeshash vid ordinarie släpp; aktiverar ingen ny funktion. keep_vars=true är oförändrat.
+COMPARE_REVIEWS = "1"
+COMPARE_REVIEWS_VERIFIED = "1"
 COMPARE_PREID = "0"
 COMPARE_AUTO_REFUND = "1"
 

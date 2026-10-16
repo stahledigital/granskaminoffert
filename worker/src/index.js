@@ -28,6 +28,7 @@ import { probeCreditOrg, creditExpired } from "./org_probe.js";
 import { handleExplain, explainCors, explainOrigins } from "./explain.js";
 
 import { ANTHROPIC_URL, ANTHROPIC_VERSION, readReview } from "./provider.js";
+import { normalizeClientEvent, clientDatapoint } from "./measure.js";
 
 // USD-priser per miljon tokens finns i models.js (en tabell, med källa). SEK-omräkning
 // är en grov, deklarerad uppskattning – kostnaden i USD är den mätta siffran, och för
@@ -441,24 +442,9 @@ export function normalizeChannel(c) {
   return SHARE_CHANNELS.includes(c) ? c : null;
 }
 
-// Klienthändelser för mätning (paket "säker mätning"). Bara tre namn, en kort
-// valfri detalj ur en fast lista och rollen. Aldrig text, belopp, filnamn eller id.
-// Namnen börjar med "klient_" så att de aldrig kan förväxlas med de serverbekräftade
-// händelserna (granskning_klar skrivs bara av servern efter ett lyckat anrop).
-const CLIENT_EVENTS = {
-  rapport_klar: [],
-  export: ["email", "sms", "copy"],
-  kontakt_cta: ["hemsida", "materialraknaren", "epost"],
-};
-export function normalizeClientEvent(body) {
-  if (!body || typeof body !== "object" || body.type !== "client") return null;
-  const ev = typeof body.event === "string" && Object.prototype.hasOwnProperty.call(CLIENT_EVENTS, body.event) ? body.event : null;
-  if (!ev) return null;
-  const allowed = CLIENT_EVENTS[ev];
-  const detail = typeof body.detail === "string" && allowed.includes(body.detail) ? body.detail : "";
-  if (allowed.length && !detail) return null;
-  return { event: ev, detail, role: normalizePath(body.role), test: body.test === true };
-}
+// Klienthändelser för mätning: kontraktet (fasta enum, klient_-prefix, ingen fritext) bor i measure.js.
+// Gamla namn (rapport_klar, export, kontakt_cta) är oförändrade; D19 lägger till nya slutna händelser.
+export { normalizeClientEvent };
 
 async function recordClientEvent(env, request, c) {
   // Valfri egen begränsning (bindning EVENT_RL): hindrar att datasetet översvämmas.
@@ -470,7 +456,7 @@ async function recordClientEvent(env, request, c) {
   }
   try {
     const lage = c.test || request.headers.get("X-SD-Test") === "1" ? "test" : "skarp";
-    env.GRANSKA_H?.writeDataPoint({ blobs: ["klient_" + c.event, c.detail, c.role], indexes: [lage] });
+    env.GRANSKA_H?.writeDataPoint(clientDatapoint(c, lage));
   } catch (e) { /* mätningen får aldrig störa sidan */ }
 }
 
@@ -896,7 +882,7 @@ export default {
       let channel = null, client = null;
       try {
         const raw = await request.text();
-        if (raw.length <= 1024) {
+        if (new TextEncoder().encode(raw).length <= 1024) { // gränsen gäller byte, inte tecken
           const body = JSON.parse(raw);
           channel = normalizeChannel(body && body.type === "share" ? body.channel : null);
           client = normalizeClientEvent(body);

@@ -583,7 +583,7 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
   }
 
   // ---- Per order ----
-  const m = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})(?:\/(docs\/([0-3])|checkout|report|withdraw|source-delivered|check|check\/export))?$/);
+  const m = path.match(/^\/compare\/orders\/(o_[0-9a-f]{32})(?:\/(docs\/([0-3])|checkout|report|withdraw|source-delivered|check|check\/export|close-draft))?$/);
   if (!m) return reply({ error: "Not found" }, 404);
   const id = m[1];
   const sub = m[2] || "";
@@ -636,6 +636,16 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
     if (r.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
     if (r.status === 409) return reply({ error: "Jämförelsen pågår. Vänta tills den är klar." }, 409);
     return reply({ ok: r.json.ok === true, order: r.json.order });
+  }
+
+  // D19 Avsluta utkastet: serverkontrollerad draft-only-radering. Vid race/aktiv kassa/betalning bevaras ordern (409) och kunden återupptar den.
+  if (sub === "close-draft") {
+    if (request.method !== "POST") return reply({ error: "Not found" }, 404);
+    const r = await orderCall(env, id, "/close-draft", { tokenHash, now: Date.now() });
+    if (r.status === 404) return reply({ error: "Ordern hittades inte." }, 404);
+    if (r.status === 409) return reply({ error: "Utkastet kan inte avslutas just nu. Ordern är kvar och du kan fortsätta med den.", kept: true, reason: r.json.reason, order: r.json.order }, 409);
+    if (r.status !== 200 || !r.json.ok) return reply({ error: "Tillfälligt fel. Ordern är kvar." }, 503);
+    return reply({ ok: true, closed: true, order: r.json.order });
   }
 
   // D17 Förkontroll: bekräftelser (revisioner), tilläggstexter och PDF-bilaga. Kräver orderns FULLA åtkomstnyckel (resultatlänkens token räcker aldrig).

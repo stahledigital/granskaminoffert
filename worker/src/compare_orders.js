@@ -28,6 +28,7 @@ import { evaluatePaidSession, refundOutcome, refundPayment, retrieveRefund } fro
 import { runPipeline } from "./compare_run.js";
 import { sourcesConfig, applyOp, emptySources, sourcesView, sourceCardsFor, LIM as SRC_LIM } from "./compare_sources.js";
 import { PREID_MAX_ATTEMPTS } from "./compare_preid.js";
+import { serverEvent, felOrsakServer } from "./measure.js"; // D19: best-effort serverdatapunkter, skrivs först efter lyckat beständigt beslut
 
 const MAX_EVENTS = 64;
 
@@ -226,6 +227,7 @@ export class CompareOrders {
         events: [], contentDeleted: false, reportKey: null, lastReconcileAt: 0, lastRefundCheckAt: 0, checkout: { attempt: 0, intent: null }, purgeKeys: [],
       };
       await this._save(o);
+      serverEvent(this.env, "order_skapad", o); // D19: efter första lyckade beständiga create
       return { body: { ok: true, order: publicView(o, now) }, after: async () => { if (this.state.storage.setAlarm) await this.state.storage.setAlarm(o.expiresAt + 65 * 60_000 + 10); } }; // D15: rensningslarm för obetalda ordrar
     }
     const o = await this._load();
@@ -419,9 +421,12 @@ export class CompareOrders {
       const totalBytes = next.reduce((a, d) => a + d.bytes, 0), totalTokens = next.reduce((a, d) => a + d.tokens, 0);
       const totalPages = next.reduce((a, d) => a + (d.pages || 0), 0);
       if (totalBytes > LIMITS.maxTotalBytes || totalTokens > LIMITS.maxTotalInputTokens || totalPages > LIMITS.maxPdfPagesTotal) return reject(413, "for_stort");
+      const wasComplete = o.docs.length === o.docCount; // D19: manifestets fullständighet före commit
       o.docs = next;
       if (o.docs.length === o.docCount) { o.status = "ready"; o.estimate = b.estimate || null; } else { o.status = "draft"; o.estimate = null; }
       await this._save(o);
+      if (!prev || prev.key !== clean.key) serverEvent(this.env, "underlag_mottaget", o, prev ? "ersatt" : "ny"); // samma fil igen (idempotent omsändning) är ingen ny mottagning
+      if (!wasComplete && o.docs.length === o.docCount) serverEvent(this.env, "underlag_kompletta", o, String(o.docCount)); // ofullständigt → fullständigt, inte generisk status===ready
       return { body: { ok: true, order: publicView(o, now), replaced: prev && prev.key && prev.key !== clean.key ? prev.key : null } };
     }
     if (path === "/accept") {
@@ -480,24 +485,49 @@ export class CompareOrders {
       const s = b.session;
       if (!s || typeof s.id !== "string" || typeof s.url !== "string") return { status: 400, body: { ok: false, error: "ogiltig" } };
       if (o.stripe && o.stripe.sessionId && o.stripe.sessionId !== s.id && o.stripe.expiresAt > now) return { body: { ok: true, url: o.stripe.url } }; // samtidig skapare: första vinner
+      const sameSession = !!(o.stripe && o.stripe.sessionId === s.id); // D19: återanvänd session är ingen ny checkoutsession
       o.stripe = { sessionId: s.id, url: s.url, expiresAt: s.expiresAt, methods: Array.isArray(s.methods) ? s.methods.filter((x) => typeof x === "string").slice(0, 4) : null, paymentIntentId: null, attempt: o.checkout.intent ? o.checkout.intent.attempt : null };
       o.status = "awaiting_payment";
       await this._save(o);
+      if (!sameSession) serverEvent(this.env, "checkout_skapad", o, o.checkout.intent && o.checkout.intent.attempt > 1 ? "ny" : "forsta");
       return { body: { ok: true, url: s.url } };
     }
     if (path === "/reconcile-mark") { o.lastReconcileAt = now; await this._save(o); return { body: { ok: true, sessionId: o.stripe && o.stripe.sessionId } }; }
     if (path === "/delete") {
       if (["paid", "running"].includes(o.status)) return { status: 409, body: { ok: false, error: "pagar" } };
-      const keys = [...new Set([...o.docs.map((d) => d.key).filter(Boolean), ...(o.purgeKeys || [])])].concat(o.reportKey ? [o.reportKey] : []);
-      for (const k of keys) { try { await this.env.REVIEWS_KV.delete(k); } catch { /* TTL tar resten */ } }
-      for (const d of Object.keys((o.work && o.work.steps && o.work.steps.ext) || {})) await this.state.storage.delete(`ext:${d}`);
-      await this.state.storage.delete("sources"); await this.state.storage.delete("preid"); await this.state.storage.delete("check");
-      o.docs = []; o.purgeKeys = []; o.reportKey = null; o.contentDeleted = true; o.estimate = null;
+      await this._wipeContent(o);
       if (["draft", "ready", "awaiting_payment", "expired"].includes(o.status)) o.status = "deleted";
       await this._save(o);
       return { body: { ok: true, order: publicView(o, now) } };
     }
+    // D19 "Avsluta utkastet": snäv, atomisk draft-only-semantik (BREDDAR INTE /delete, som även raderar andra tillstånd).
+    // Hela kontrollen och raderingen sker i samma serialiserade steg som /paid: ingen betalning kan hinna in mellan kontroll och radering.
+    // Avslag lämnar ordern helt orörd. Endast draft|ready utan betalning, ledger, Stripe-session eller påbörjad/pågående checkout.
+    if (path === "/close-draft") {
+      const ledger = await this.state.storage.get("ledger");
+      const reason = !["draft", "ready"].includes(o.status) ? "status"
+        : o.paidAt ? "betald"
+        : ledger ? "avtalspost"
+        : o.stripe ? "kassa"
+        : o.checkout && o.checkout.intent ? "kassa" // även en pågående checkout kan ännu stå som ready (session ännu inte knuten)
+        : o.contentDeleted ? "raderad"
+        : null;
+      if (reason) return { status: 409, body: { ok: false, error: "kan_inte_avslutas", reason, order: publicView(o, now) } };
+      await this._wipeContent(o);
+      o.status = "deleted";
+      await this._save(o);
+      return { body: { ok: true, closed: true, order: publicView(o, now) } };
+    }
     return NOT_FOUND;
+  }
+
+  // Raderar orderns innehåll (filer, extraktioner, källuppgifter, förköpsidentitet, bekräftelser). Gemensamt för /delete och /close-draft.
+  async _wipeContent(o) {
+    const keys = [...new Set([...o.docs.map((d) => d.key).filter(Boolean), ...(o.purgeKeys || [])])].concat(o.reportKey ? [o.reportKey] : []);
+    for (const k of keys) { try { await this.env.REVIEWS_KV.delete(k); } catch { /* TTL tar resten */ } }
+    for (const d of Object.keys((o.work && o.work.steps && o.work.steps.ext) || {})) await this.state.storage.delete(`ext:${d}`);
+    await this.state.storage.delete("sources"); await this.state.storage.delete("preid"); await this.state.storage.delete("check");
+    o.docs = []; o.purgeKeys = []; o.reportKey = null; o.contentDeleted = true; o.estimate = null;
   }
 
   _shouldReconcile(o, now) {
@@ -526,6 +556,7 @@ export class CompareOrders {
     const mail = confirmationMail(ledger);
     const entry = await outboxEntry(mail, { to: o.accept.contactEmail, now, secrets: { ANGERLANK: `${origin}/jamfor/angra/#t=${wt.token}`, KOPLANK: `${origin}/jamfor/kop/` } });
     await this._commit({ put: { ledger, [`outbox:${mail.id}`]: entry, order: o } }); // betald + avtalspost + bekräftelse: allt eller inget
+    serverEvent(this.env, "betalning_verifierad", o); // D19: först efter lyckad atomisk commit; dup/replay-grenen ovan når aldrig hit
     return { body: { ok: true, status: "paid" }, after: async () => { await this._ensureAlarm(o, now, true); await this._indexLedger(o.id, now); } };
   }
 
@@ -724,6 +755,7 @@ export class CompareOrders {
         o.docs = o.docs.map((d) => ({ ...d, key: null }));
         const rm = await this._reportMailPut(o, Date.now()); // rapport-klart-mejl köas atomiskt med leveransen
         await this._commit({ put: { order: o, ...(proof ? { deliveryproof: proof } : {}), ...rm } });
+        serverEvent(this.env, "leverans_klar", o); // D19: första commit som fryser leveransen
         wake = Object.keys(rm).length > 0;
         return null;
       }
@@ -741,6 +773,7 @@ export class CompareOrders {
       o.docs = o.docs.map((d) => ({ ...d, key: null }));
       refundCall = this._planRefund(o);
       await this._save(o);
+      serverEvent(this.env, "order_fel", o, felOrsakServer(o.work.error)); // D19: terminalt fel (retry ovan är inte det)
       return null;
     });
     if (retryAt) { await this.state.storage.setAlarm(retryAt); return; }
@@ -766,8 +799,10 @@ export class CompareOrders {
     await this._tx(async () => {
       const o = await this._load();
       if (!o) return;
+      const wasDone = o.refund.state === "done";
       this._applyRefund(o, res);
       await this._save(o);
+      if (!wasDone && o.refund.state === "done") serverEvent(this.env, "aterbetalning_bekraftad", o, o.refund.mode === "auto" ? "auto" : "manuell"); // D19
     });
   }
 
@@ -797,6 +832,7 @@ export class CompareOrders {
     if (o.refund.state === "done") return { body: { ok: true, dup: true } }; // lyckad är slutgiltig
     this._applyRefund(o, b.refund);
     await this._save(o);
+    if (o.refund.state === "done") serverEvent(this.env, "aterbetalning_bekraftad", o, o.refund.mode === "auto" ? "auto" : "manuell"); // D19: "done" var inte redan slutgiltig (dup-grenen ovan)
     return { body: { ok: true, state: o.refund.state } };
   }
 

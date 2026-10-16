@@ -74,6 +74,7 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
   const out = join(mkdtempSync(join(tmpdir(), "gmo-harness-")), "worker.mjs");
   await E.build({ entryPoints: [fileURLToPath(new URL("../src/index.js", import.meta.url))], bundle: true, format: "esm", target: "es2022", keepNames: true, charset: "ascii", outfile: out, logLevel: "silent" });
 
+  const points = []; // D19: Analytics Engine-datapunkter som den riktiga Workern/DO:erna skriver (lokal Miniflare har annars en no-op-bindning)
   const sessions = new Map(); // id -> session + urls
   const idemSeen = new Map();
   const stats = { preid: 0, anthropic: 0, stripeCreate: 0, webhooks: 0, refunds: 0, google: 0, tp: 0 };
@@ -83,7 +84,7 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
     const u = new URL(req.url, "http://x");
     try {
       if (u.pathname.startsWith("/dev/stripe/")) return await stripeDev(u, res);
-      if (u.pathname.startsWith("/compare/") || u.pathname === "/health") {
+      if (u.pathname.startsWith("/compare/") || u.pathname === "/health" || u.pathname === "/event" || u.pathname === "/review") { // D19: /event och /review når den RIKTIGA Workern (annars kan mätningen passera utan att något når den)
         const chunks = []; for await (const c of req) chunks.push(c);
         const r = await mf.dispatchFetch("http://localhost" + u.pathname + u.search, { method: req.method, headers: Object.fromEntries(Object.entries(req.headers).filter(([k]) => !["host", "connection", "content-length"].includes(k))), body: ["GET", "HEAD", "OPTIONS"].includes(req.method) ? undefined : Buffer.concat(chunks) });
         const buf = Buffer.from(await r.arrayBuffer());
@@ -129,8 +130,15 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
     FREE_PILOT_ENABLED: "1", FREE_PILOT_ID: "dev-harness-" + Date.now(), FREE_PILOT_CAP_MICRO: "20000000",
     FREE_PILOT_FROM: new Date(Date.now() - 86400000).toISOString().replace(/\.\d{3}Z$/, "Z"), FREE_PILOT_UNTIL: new Date(Date.now() + 30 * 86400000).toISOString().replace(/\.\d{3}Z$/, "Z"), FREE_PILOT_MANDATE: "DEV-HARNESS-ENDAST-LOKALT", ...vars,
   };
-  const mf = new miniflareMod.Miniflare({
-    modules: true, scriptPath: out, modulesRoot: path.dirname(out), compatibilityDate: "2026-08-01",
+  // Fångar GRANSKA_H.writeDataPoint: en omsluten bindning (wrappedBindings) vars inre tjänst skickar varje datapunkt till `points`.
+  const capture = {
+    name: "gmo-capture", modules: true,
+    script: `export default function (env) { return { writeDataPoint(dp) { env.SINK.fetch("http://sink/dp", { method: "POST", body: JSON.stringify(dp) }).catch(() => {}); } }; }`,
+    serviceBindings: { SINK: async (req) => { try { points.push(JSON.parse(await req.text())); } catch { /* ignorera */ } return new Response("ok"); } },
+  };
+  const mainOpts = {
+    name: "gmo-main", modules: true, scriptPath: out, modulesRoot: path.dirname(out), compatibilityDate: "2026-08-01",
+    wrappedBindings: { GRANSKA_H: "gmo-capture" },
     modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
     durableObjects: { COMPARE_ORDERS: { className: "CompareOrders", useSQLite: true }, COMPARE_BUDGET: { className: "CompareBudget", useSQLite: true }, QUOTA: { className: "QuotaCounter", useSQLite: true }, FREE_BUDGET: { className: "FreeBudget", useSQLite: true } },
     kvNamespaces: ["REVIEWS_KV"],
@@ -162,7 +170,7 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
           return Response.json(prev.obj);
         }
         const id = "cs_test_dev" + String(sessions.size + 1).padStart(7, "0");
-        const obj = { id, object: "checkout.session", url: `https://checkout.stripe.test/c/${id}`, expires_at: Number(p.get("expires_at")), mode: "payment", livemode: false, client_reference_id: p.get("client_reference_id"), currency: "sek", amount_total: Number(p.get("line_items[0][price_data][unit_amount]")), status: "open", payment_status: "unpaid", payment_intent: null, metadata: { order_id: p.get("metadata[order_id]") } };
+        const obj = { id, object: "checkout.session", url: `https://checkout.stripe.test/c/${id}`, expires_at: Number(p.get("expires_at")), mode: "payment", livemode: false, client_reference_id: p.get("client_reference_id"), currency: "sek", amount_total: Number(p.get("line_items[0][price_data][unit_amount]")), status: "open", payment_status: "unpaid", payment_intent: null, metadata: Object.fromEntries([...p.entries()].filter(([k]) => /^metadata\[[a-z_]+\]$/.test(k)).map(([k, v]) => [k.slice(9, -1), v])) } // som Stripe: alla skickade metadata-fält (order_id, offer, product);
         if (idem) idemSeen.set(idem, { body, obj });
         sessions.set(id, { obj, success: p.get("success_url").replace("{CHECKOUT_SESSION_ID}", id), cancel: p.get("cancel_url") });
         return Response.json(obj);
@@ -183,9 +191,10 @@ export async function startHarness({ vars = {}, anthropicDelayMs = 0 } = {}) {
       }
       return new Response("blockerad", { status: 502 });
     },
-  });
+  };
+  const mf = new miniflareMod.Miniflare({ workers: [mainOpts, capture] });
   await mf.ready;
-  return { base, port, mf, sessions, stats, ctl, sendWebhook, close: async () => { server.close(); await mf.dispose(); } };
+  return { base, port, mf, sessions, stats, ctl, points, sendWebhook, close: async () => { server.close(); await mf.dispose(); } };
 }
 
 // Testkassan som visas på https://checkout.stripe.test/c/<id> (Playwright routar den hit).
