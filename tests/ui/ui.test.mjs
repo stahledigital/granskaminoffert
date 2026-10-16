@@ -208,7 +208,7 @@ test("sammanfattning: inget grönt utan genomförd relevant kontroll", async () 
 });
 
 for (const role of ["mottagare", "hantverkare"]) {
-  test(`export (${role}): räknefel, prisfel och osäkerheter från samma resultat som skärmen – i e-post, SMS-länk och Kopiera`, async () => {
+  test(`export (${role}): full kopia bär alla fynd med neutral sifferrubrik; meddelandet är det som visas och skickas`, async () => {
     const { page, context } = await newPage({ width: 390, height: 844 });
     await page.click(`.pathcard[data-path=${role}]`);
     await runWithText(page);
@@ -216,20 +216,20 @@ for (const role of ["mottagare", "hantverkare"]) {
     await page.click("#copybtn");
     await page.waitForFunction(() => document.getElementById("copybtn").textContent === "Kopierat!");
     const clip = await page.evaluate(() => navigator.clipboard.readText());
-    for (const text of [mail, clip]) {
-      assert.match(text, /Räknefel och motsägelser/);
-      assert.match(text, /Summan stämmer inte/);
-      assert.match(text, /Prisregler som inte stämmer/);
-      assert.match(text, /ROT-belopp/);
-      assert.match(text, /Prisfrågor/);
-      assert.match(text, /Pristyp/);
-      assert.match(text, /Går inte att bedöma/);
-      assert.match(text, /Avläsningen/);
-      assert.match(text, /Startdatum/);
-      assert.match(text, /Räknekontrollens anteckning: Kontrollerade timmar × timpris\./); // F8/N19: skärmens räkneanteckning
-    }
-    if (role === "mottagare") assert.match(clip, /Vilket startdatum gäller\?/);
-    else assert.match(clip, /Punkter att förtydliga/);
+    // Full kopia: alla fynd, med AI-sifferfynd under neutral rubrik + förbehåll direkt före fynden (STATUS-03)
+    assert.doesNotMatch(clip, /Räknefel och motsägelser/);
+    assert.match(clip, /Sifferuppgifter att kontrollera mot originalet:\nAI-avläsningen visar möjliga avvikelser\. Jämför uppgifterna med originalofferten; detta är inte konstaterade fel\.\n– Summan stämmer inte: Raderna summerar till 42 820 kr men totalen är 45 000 kr\./);
+    for (const m of [/Prisregler som inte stämmer:\n– ROT-belopp: ROT-avdraget 9 000 kr/, /Prisfrågor:\n– Pristyp/, /Går inte att bedöma:\n– Avläsningen/, /Startdatum/, /Räknekontrollens anteckning: Kontrollerade timmar × timpris\./]) assert.match(clip, m);
+    if (role === "mottagare") assert.match(clip, /Vilket startdatum gäller\?/); else assert.match(clip, /Punkter att förtydliga/);
+    // Meddelandet: samma text som förhandsvisas i blocket; hälsning bara till mottagaren, aldrig till en själv
+    const items = await page.$$eval("#msgblock li", (l) => l.map((x) => x.textContent));
+    assert.ok(items.length >= 3);
+    for (const t of items) assert.ok(mail.includes(t), "förhandsvisad rad följer med: " + t);
+    assert.match(mail, /ROT-belopp: ROT-avdraget 9 000 kr stämmer inte/);
+    assert.match(mail, /inte konstaterade fel/);
+    assert.doesNotMatch(mail, /Räknefel och motsägelser/);
+    if (role === "mottagare") { assert.match(mail, /^Hej! Jag har några frågor om offerten innan jag skriver på:/); assert.match(mail, /Vilket startdatum gäller\?/); assert.equal((await page.textContent("#sendmail")).trim(), "Skicka frågorna"); }
+    else { assert.match(mail, /^Punkter att åtgärda innan offerten skickas:/); assert.doesNotMatch(mail, /Hej!/); assert.match(mail, /Startdatum: Inget startdatum anges\./); assert.equal((await page.textContent("#copymsg")).trim(), "Kopiera punkterna"); }
     // skärmen visar samma fynd
     const screen = await page.textContent("#res");
     for (const must of ["Summan stämmer inte", "ROT-belopp", "Pristyp", "Avläsningen"]) assert.ok(screen.includes(must), must);
@@ -254,21 +254,34 @@ test("F8/N18: bara formalia kontrollerat → inget positivt 'offerten verkar bes
   await context.close();
 });
 
-test("export: Kopiera ger hela texten, e-post och SMS förkortas tydligt när de blir för långa", async () => {
+test("export: Kopiera ger hela texten; e-post förkortas uttryckligen med synlig kortversion och förbehåll följer kvarvarande osäkra fynd", async () => {
   const r = clone(RESULT);
   r.clarify = Array.from({ length: 40 }, (_, i) => ({ key: `Punkt ${i + 1}`, text: "En ganska lång beskrivning av något som saknas i offerten och behöver förtydligas." }));
   r.priceReport.cannotAssess.push({ title: "SISTA_RADEN", text: "Sista osäkerheten.", source: "" });
   const { page, context } = await newPage({ width: 390, height: 844 }, { review: { status: 200, body: r } });
   await page.click(".pathcard[data-path=hantverkare]");
   await runWithText(page);
+  const n = (await page.$$eval("#msgblock ol li", (l) => l.length));
+  assert.ok(n > 40);
+  assert.match(await page.textContent("#msgcount"), new RegExp(`Alla ${n} punkter följer med`));
   const mail = decodeURIComponent((await page.getAttribute("#sendmail", "href")).split("body=")[1]);
   assert.ok(encodeURIComponent(mail).length <= 1900 + 50);
-  assert.match(mail, /Förkortad text/);
+  const m = mail.match(/\(Kortversion: (\d+) av (\d+) punkter ingår\.\)/);
+  assert.ok(m, "förkortningen står i texten");
+  assert.equal(Number(m[2]), n);
   assert.equal(await page.isVisible("#shortnote"), true);
+  const shown = await page.textContent("#shortnote pre");
+  assert.ok(shown.includes(mail.split("\n\nGranskat med")[0]), "kortversionen som visas är exakt den som öppnas");
+  assert.match(await page.textContent("#shortnote"), /bara de första \d+ av \d+ punkter följer med/);
+  // fullt meddelande och hel rapport går alltid att kopiera
+  await page.click("#copymsg");
+  await page.waitForFunction(() => document.getElementById("copymsg").textContent === "Kopierat!");
+  const full = await page.evaluate(() => navigator.clipboard.readText());
+  assert.doesNotMatch(full, /Kortversion/); assert.match(full, /Punkt 40/);
   await page.click("#copybtn");
   await page.waitForFunction(() => document.getElementById("copybtn").textContent === "Kopierat!");
   const clip = await page.evaluate(() => navigator.clipboard.readText());
-  assert.doesNotMatch(clip, /Förkortad text/);
+  assert.doesNotMatch(clip, /Kortversion/);
   assert.match(clip, /Punkt 40/);
   assert.match(clip, /SISTA_RADEN/);
   assert.match(mail, /Granskat med granskaminoffert\.se/);
@@ -355,7 +368,8 @@ async function cardFor(mut, vp = { width: 390, height: 844 }, path = "mottagare"
     counts: Object.fromEntries([...el.querySelectorAll(".gmo-counts [data-c]")].map((e) => [e.dataset.c, Number(e.querySelector("strong")?.textContent ?? 0)])),
     countText: el.querySelector(".gmo-counts").textContent,
     next: el.querySelector(".gmo-next p").textContent, gap: !!el.querySelector(".gmo-gap"), scope: el.querySelector(".gmo-scope")?.textContent || "",
-    bars: [...el.querySelectorAll(".gmo-control")].map((c) => ({ label: c.querySelector("span").textContent, empty: !!c.querySelector(".gmo-empty"), t: c.querySelector("strong").textContent, segs: [...c.querySelectorAll(".gmo-fill")].map((f) => ({ c: f.dataset.c, w: Number(f.dataset.w) })) })),
+    rows: [...el.querySelectorAll(".gmo-rows .st-row")].map((r) => ({ st: r.dataset.st, label: r.querySelector(".st-label").textContent, word: r.querySelector(".st-word").textContent.replace(/^·\s*/, ""), mark: r.querySelector(".st-mark").textContent, t: r.querySelector(".st-text")?.textContent || "" })),
+    bars: el.querySelectorAll(".gmo-track,.gmo-fill,.gmo-bars").length,
   }));
   return { page, context, card };
 }
@@ -368,11 +382,15 @@ test("resultatkort: röd bara vid beräknad prisregel som föll ut som fel; anta
   assert.deepEqual(card.counts, { green: 1, red: 1, amber: 4, grey: 1 }); // 1 stämmer, 1 ROT fel, (1 fråga+2 förtydliganden+1 AI-avläst siffra), 1 ej bedömd
   assert.match(card.h2, /Avvikelse/);
   assert.match(card.short, /Kontrollera mot originalet/);
-  assert.equal(card.bars.length, 4);
-  // prisregelstapeln: 1 grön? nej – ROT fel (röd), pristyp flagga (gul), en obedömd (grå): tre lika stora segment
-  const rules = card.bars[1];
-  assert.deepEqual(rules.segs.map((x) => x.c), ["amber", "red", "grey"]);
-  assert.ok(rules.segs.every((x) => Math.abs(x.w - 33.33) < 0.01));
+  assert.equal(card.bars, 0, "inga staplar/progress: bara statusrader");
+  assert.equal(card.rows.length, 4);
+  assert.deepEqual(card.rows.map((r) => r.st), ["bad", "bad", "ok", "ask"]);
+  assert.deepEqual(card.rows.map((r) => r.label), ["Räkningen", "Prisregler", "Jämförelse med referens", "Tydlighet i offerten"]);
+  assert.match(card.rows[0].t, /1 beräknad avvikelse · 1 möjlig avvikelse att kontrollera mot originalet/);
+  assert.match(card.rows[1].t, /0 av 3 stämmer · 1 avvikelse · 1 fråga · 1 ej bedömd/);
+  assert.match(card.rows[2].t, /1 av 1 inom referensintervall; ingen garanti om rimligt pris/);
+  assert.match(card.rows[3].t, /1 anges i offerten \(inte verifierat\) · 2 att förtydliga/);
+  assert.ok(card.rows.every((r) => r.word && r.mark), "ord och symbol på varje rad");
   await context.close();
 });
 
@@ -382,7 +400,9 @@ test("resultatkort: AI-avläst motsägelse ensam är gul 'Kontrollera siffrorna 
   assert.match(card.h2, /Kontrollera siffrorna i originalet/);
   assert.equal(card.counts.red, undefined);
   assert.equal(card.counts.amber, 1);
-  assert.deepEqual(card.bars[0].segs.map((x) => x.c), ["amber"]);
+  assert.equal(card.rows[0].st, "ask");
+  assert.match(card.rows[0].t, /1 möjlig avvikelse att jämföra med originalet; inget konstaterat fel/);
+  assert.ok(card.rows.every((r) => r.st !== "bad"), "AI-avläsning ensam är aldrig röd");
   await context.close();
 });
 
@@ -402,11 +422,13 @@ test("resultatkort: grön bara när allt bedömt stämmer och inget centralt är
   assert.match(card.short, /4 av 4 kontroller stämmer/);
   assert.match(card.scope, /Kontrollerat: räkningen, 2 prisregler, 1 jämförelse med referens/);
   assert.doesNotMatch(card.h2 + card.short, /offerten är bra|bra offert|poäng/i);
-  assert.ok(card.bars.every((b) => b.empty || b.segs.every((x) => x.c === "green" || x.c === "amber")));
+  assert.deepEqual(card.rows.map((r) => r.st), ["ok", "ok", "ok", "stated"]);
+  assert.equal(card.rows[3].word, "Anges, ej verifierat", "angivet i offerten är inte verifierat och inte grönt");
+  assert.notEqual(card.rows[3].mark, card.rows[0].mark);
   await context.close();
 });
 
-test("resultatkort: grå när räkningen inte kunde kontrolleras eller prisdelen är ofullständig – aldrig grön; Ej bedömd är tom streckad", async () => {
+test("resultatkort: grå när räkningen inte kunde kontrolleras eller prisdelen är ofullständig – aldrig grön; Ej bedömd har eget ord och symbol", async () => {
   for (const mut of [(r) => { clearMut(r); r.calcCoverage = "insufficient_data"; }, (r) => { clearMut(r); r.priceReport.partial = true; }, (r) => { clearMut(r); r.priceReport.cannotAssess = [{ title: "Belopp", text: "x", source: "" }]; }, (r) => { clearMut(r); delete r.priceReport; }]) {
     const { context, card } = await cardFor(mut);
     assert.equal(card.tone, "grey", JSON.stringify(card));
@@ -416,8 +438,8 @@ test("resultatkort: grå när räkningen inte kunde kontrolleras eller prisdelen
     await context.close();
   }
   const { context, card } = await cardFor((r) => { clearMut(r); r.calcCoverage = "insufficient_data"; });
-  const calc = card.bars[0];
-  assert.equal(calc.empty, true); assert.equal(calc.segs.length, 0); assert.match(calc.t, /Ej bedömd/);
+  const calc = card.rows[0];
+  assert.equal(calc.st, "unknown"); assert.equal(calc.word, "Ej bedömt"); assert.equal(calc.mark, "–"); assert.match(calc.t, /Ej bedömd/);
   await context.close();
 });
 
@@ -426,8 +448,8 @@ test("resultatkort: en jämförelse som inte kunde genomföras (ej_bedombar) är
   assert.equal(card.tone, "grey");
   assert.equal(card.counts.amber, undefined);
   assert.ok(card.counts.grey >= 1);
-  assert.equal(card.bars[2].empty, true, "bara en obedömd jämförelse: ingen verklig andel");
-  assert.match(card.bars[2].t, /1 ej bedömd/);
+  assert.equal(card.rows[2].st, "unknown");
+  assert.match(card.rows[2].t, /1 jämförelse ej bedömd; ingen prisfråga eller avvikelse/);
   await context.close();
 });
 
@@ -449,7 +471,7 @@ test("resultatkort: formalia ensamt ger inte grönt", async () => {
   await context.close();
 });
 
-test("resultatkort: segmenten följer verkliga antal och staplarna animeras utan att höjden ändras", async () => {
+test("resultatkort: statusrader utan staplar, procent eller rörelse; höjden ändras inte efter rendering", async () => {
   const r = clone(RESULT);
   const { page, context } = await newPage({ width: 390, height: 844 }, { review: { status: 200, body: r } });
   await runWithText(page);
@@ -457,8 +479,8 @@ test("resultatkort: segmenten följer verkliga antal och staplarna animeras utan
   await page.waitForTimeout(1000);
   const h1 = await page.$eval(".gmo-card", (e) => Math.round(e.getBoundingClientRect().height));
   assert.equal(h0, h1);
-  const tracks = await page.$$eval(".gmo-track:not(.gmo-empty)", (els) => els.map((t) => { const w = t.getBoundingClientRect().width; return { sum: [...t.children].reduce((a, f) => a + f.getBoundingClientRect().width, 0), w }; }));
-  assert.ok(tracks.every((t) => Math.abs(t.sum - t.w) < 2), "segmenten fyller hela den verkliga nämnaren: " + JSON.stringify(tracks));
+  assert.equal(await page.$$eval(".gmo-track,.gmo-fill,.gmo-bars,[role=progressbar],progress,meter", (e) => e.length), 0);
+  assert.doesNotMatch(await page.textContent(".gmo-rows"), /\d\s?%/, "ingen procent/poäng i raderna");
   assert.ok(await noHScroll(page));
   await context.close();
 });
@@ -468,10 +490,10 @@ test("resultat: ALLA fynd, frågor och prisrutor ligger bakom EN riktig öppning
   await runWithText(page);
   assert.equal(await page.$$eval("#res details", (d) => d.length), 1);
   assert.equal(await page.$eval("#res details.gmo-all", (d) => d.open), false);
-  for (const h of ["Motsägelser och räknefel", "Prisbild"]) assert.equal(await page.getByRole("heading", { name: h }).isVisible(), false, h + " ska vara dolt tills öppning");
+  for (const h of ["Sifferuppgifter att kontrollera mot originalet", "Prisbild"]) assert.equal(await page.getByRole("heading", { name: h }).isVisible(), false, h + " ska vara dolt tills öppning");
   assert.equal(await page.locator(".gmo-all summary").isVisible(), true);
   await page.click(".gmo-all summary");
-  for (const h of ["Motsägelser och räknefel", "Prisbild"]) assert.equal(await page.getByRole("heading", { name: h }).isVisible(), true, h);
+  for (const h of ["Sifferuppgifter att kontrollera mot originalet", "Prisbild"]) assert.equal(await page.getByRole("heading", { name: h }).isVisible(), true, h);
   assert.ok(await noHScroll(page));
   // Tangentbord: Enter på summary öppnar/stänger
   await page.focus(".gmo-all summary"); await page.keyboard.press("Enter");
@@ -497,7 +519,7 @@ test("övergång: skelett före anropet, resultatet byter innehåll på plats �
   await context.close();
 });
 
-test("resultatkort: prefers-reduced-motion stänger av stapelrörelsen", async () => {
+test("resultatkort: prefers-reduced-motion – ingen rörelse och inga staplar", async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
   const page = await context.newPage();
   await page.route("**/review", (route) => route.request().method() === "OPTIONS" ? route.fulfill({ status: 204, headers: CORS }) : route.fulfill({ status: 200, headers: { ...CORS, "content-type": "application/json" }, body: JSON.stringify(RESULT) }));
@@ -505,8 +527,9 @@ test("resultatkort: prefers-reduced-motion stänger av stapelrörelsen", async (
   await page.route(/cloudflareinsights/, (r) => r.abort());
   await page.goto(base + "/#gratis");
   await runWithText(page);
-  const tr = await page.$eval(".gmo-fill", (e) => getComputedStyle(e).transitionDuration);
-  assert.match(tr, /^0s$/);
+  const mov = await page.$$eval(".gmo-card, .gmo-card *", (els) => els.filter((e) => { const c = getComputedStyle(e); return c.animationName !== "none" || /[1-9]/.test(c.transitionDuration.replace(/0s|0ms|,/g, "")); }).length);
+  assert.equal(mov, 0, "ingen rörelse i resultatkortet");
+  assert.equal(await page.$$eval(".gmo-fill,.gmo-track", (e) => e.length), 0);
   await context.close();
 });
 

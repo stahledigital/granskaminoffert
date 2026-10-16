@@ -180,16 +180,14 @@ function calcSummaryFragment(result){
 function renderCalcSection(result){
   const items=result.contradictions||[];
   const note=escapeHtml(result.calcNote||'');
-  let head;
   if(items.length){
-    head=note;
-  }else if(result.calcCoverage==='insufficient_data'){
-    head=note||'Underlaget räcker inte för att kontrollera beräkningen.';
-  }else{
-    head='Inga räknefel upptäckta.'+(note?' '+note:'');
+    // AI-avläst: aldrig ett säkert fel. Rubrik och förbehåll står direkt vid fynden.
+    return `<h3>${AI_QUAL_HEAD}</h3><p class="calcnote aiqual">${AI_QUAL}</p>${note?`<p class="calcnote">${note}</p>`:''}${findingsList(items,'warn','!')}<p class="caveat">AI-utförd kontroll utifrån det som går att läsa i dokumentet – inte en garanterad matematisk verifiering.</p>`;
   }
-  const list=findingsList(items,'bad','✕');
-  return `<p class="calcnote">${head}</p>${list}<p class="caveat">AI-utförd kontroll utifrån det som går att läsa i dokumentet — inte en garanterad matematisk verifiering.</p>`;
+  let head;
+  if(result.calcCoverage==='insufficient_data')head=note||'Underlaget räcker inte för att kontrollera beräkningen.';
+  else head='Inga räknefel upptäckta.'+(note?' '+note:'');
+  return `<h3>Räknekontroll</h3><p class="calcnote">${head}</p><p class="caveat">AI-utförd kontroll utifrån det som går att läsa i dokumentet – inte en garanterad matematisk verifiering.</p>`;
 }
 
 function renderPrice(result){
@@ -256,13 +254,13 @@ function fullyAssessed(result){
   if(!pc)return false;
   return pc.okN>0&&pc.cannotN===0&&!pc.partial;
 }
-function ctaLabel(){
-  return chosenPath==='hantverkare' ? 'Kopiera punkter att förtydliga' : 'Kopiera frågor till hantverkaren';
-}
 
 const SIGN='\n\nGranskat med granskaminoffert.se – gratis granskning av hantverkarofferter';
+// AI-avlästa sifferfynd är avläsningar att kontrollera mot originalet, inte konstaterade fel (D19). Rubrik och förbehåll följer fynden i alla utdata.
+const AI_QUAL_HEAD='Sifferuppgifter att kontrollera mot originalet';
+const AI_QUAL='AI-avläsningen visar möjliga avvikelser. Jämför uppgifterna med originalofferten; detta är inte konstaterade fel.';
 // EN källa för både skärm och export: samma resultatobjekt, samma urval. Roll styr bara inledning och
-// huvudlista; räknefel, prisfel/prisfrågor och osäkerheter exporteras för båda rollerna.
+// huvudlista; AI-sifferfynd, beräknade prisfel/prisfrågor och osäkerheter exporteras för båda rollerna.
 function exportModel(result){
   const pr=result.priceReport;
   const checked=(pr&&pr.checked)||[],cmp=(pr&&pr.compared)||[],cannot=(pr&&pr.cannotAssess)||[];
@@ -270,19 +268,22 @@ function exportModel(result){
   const unsure=[];
   if(result.calcCoverage==='insufficient_data')unsure.push({title:'Räknekontroll',text:result.calcNote||'Underlaget räckte inte för att kontrollera beräkningen.'});
   cannot.forEach(c=>unsure.push(t(c)));
+  // En referensjämförelse som inte kunde göras är okänd, aldrig en prisfråga: den redovisas exakt en gång under "Går inte att bedöma".
+  cmp.filter(c=>c.mode==='ej_bedombar').forEach(c=>unsure.push(t(c)));
   if(!pr)unsure.push({title:'Prisgranskning',text:'Prisgranskningen saknas i det här svaret.'});
   return {
     calc:(result.contradictions||[]).map(i=>({title:i.key,text:i.text})),
     calcChecked:result.calcCoverage==='checked',
     calcNote:result.calcCoverage==='insufficient_data'?'':String(result.calcNote||'').trim(),
     priceBad:checked.filter(c=>c.status==='fel').map(t),
-    priceAsk:[...checked.filter(c=>c.status==='fraga'||c.status==='flagga'),...cmp.filter(c=>c.mode!=='inom')].map(t),
+    priceAsk:[...checked.filter(c=>c.status==='fraga'||c.status==='flagga'),...cmp.filter(c=>c.mode!=='inom'&&c.mode!=='ej_bedombar')].map(t),
     unsure,
     clarify:(result.clarify||[]).map(i=>({title:i.key,text:i.text})),
     questions:result.questions||[]
   };
 }
 const lines=(arr)=>arr.map(i=>`– ${i.title}: ${i.text}`).join('\n');
+// Hela granskningen (Kopiera hela granskningen): full sakrapport. Aldrig kanalkapad.
 function exportBody(result,path){
   const m=exportModel(result);
   const sec=[];
@@ -293,7 +294,7 @@ function exportBody(result,path){
     if(m.clarify.length)sec.push('Det som är otydligt i offerten:\n'+lines(m.clarify));
   }
   // Samma räkneanteckning som visas på skärmen följer med i exporten (F8/N19).
-  if(m.calc.length)sec.push('Räknefel och motsägelser:\n'+lines(m.calc)+(m.calcNote?'\nRäknekontrollens anteckning: '+m.calcNote:''));
+  if(m.calc.length)sec.push(AI_QUAL_HEAD+':\n'+AI_QUAL+'\n'+lines(m.calc)+(m.calcNote?'\nRäknekontrollens anteckning: '+m.calcNote:''));
   else if(m.calcChecked)sec.push('Räknekontroll: inga räknefel hittades i AI-kontrollen.'+(m.calcNote?' '+m.calcNote:''));
   else if(m.calcNote)sec.push('Räknekontrollens anteckning: '+m.calcNote);
   if(m.priceBad.length)sec.push('Prisregler som inte stämmer:\n'+lines(m.priceBad));
@@ -301,32 +302,80 @@ function exportBody(result,path){
   if(m.unsure.length)sec.push('Går inte att bedöma:\n'+lines(m.unsure));
   return sec.join('\n\n');
 }
-// Hela texten går alltid att Kopiera. E-post och SMS förkortas rad för rad om länken annars blir för lång,
-// och förkortningen anges i texten och på sidan.
-const SHORT_NOTE='\n\n[Förkortad text – hela listan finns under Kopiera på granskaminoffert.se-sidan.]';
-function fitText(body,maxEncoded){
-  const enc=t=>encodeURIComponent(t).length;
-  if(enc(body+SIGN)<=maxEncoded)return {text:body+SIGN,cut:false};
-  const out=[];
-  for(const ln of body.split('\n')){
-    if(enc(out.concat(ln).join('\n')+SHORT_NOTE+SIGN)>maxEncoded)break;
-    out.push(ln);
-  }
-  return {text:out.join('\n').replace(/\s+$/,'')+SHORT_NOTE+SIGN,cut:true};
-}
 function buildClipboardText(result,path){return exportBody(result,path)+SIGN;}
-function isMobile(){return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&innerWidth<900);}
-function renderActionList(result,path){
-  if(path==='hantverkare'){
-    const items=result.clarify||[];
-    const body=items.length?`<ol class="qs">${items.map(i=>`<li><b>${escapeHtml(i.key)}</b><small>${escapeHtml(i.text)}</small></li>`).join('')}</ol>`:(fullyAssessed(result)?'<p>Vi hittade inget som behöver förtydligas i det vi kontrollerar.</p>':'<p>Vi hittade inget att förtydliga, men delar av offerten gick inte att bedöma (se nedan), så det är inget besked om att allt är komplett.</p>');
-    return `<h3>Punkter att förtydliga innan du skickar</h3>${body}`;
-  }
-  const qs=result.questions||[];
-  const body=qs.length?`<ol class="qs">${qs.map(q=>`<li>${escapeHtml(q)}</li>`).join('')}</ol>`:(fullyAssessed(result)?'<p>Inga frågor genererades – offerten verkar besvara det vi kontrollerar.</p>':'<p>Inga frågor genererades, men delar av offerten gick inte att bedöma (se nedan). Det är inget besked om att offerten är komplett.</p>');
-  return `<h3>Frågor att ställa innan du skriver på</h3>${body}`;
+
+// ---- Meddelandet (D19): ett enda synligt block är både läsnytta och det som skickas. Slutna sakliga mallar per kontrollfynd, ingen ny AI;
+// dubbletter sammanförs bara här (fullrapportens fynd och globala antal rörs aldrig). Ordning: beräknade fynd, AI-sifferfynd, frågor, prisfrågor, förtydliganden.
+const MSG_AI_RECIP='Några siffror i offerten verkar inte gå ihop vid en automatisk avläsning. Det är inte konstaterade fel och avläsningen kan vara fel – kan du kontrollera dem mot originalet?';
+const MSG_AI_OWN='Jämför siffrorna med din offert: en automatisk avläsning visade belopp som kan skilja sig åt. Det är inte konstaterade fel och avläsningen kan vara fel.';
+const normTxt=s=>String(s||'').toLowerCase().replace(/[^a-zåäö0-9]+/g,' ').trim();
+const withAsk=(t,q)=>/\?\s*$/.test(t)?t:t+' '+q;
+function messageItems(result,path){
+  const m=exportModel(result),hant=path==='hantverkare',out=[],seen=new Set(),topics=new Set();
+  const add=(text,kind,topic,uncertain)=>{
+    const t=String(text||'').replace(/\s+/g,' ').trim();if(!t)return;
+    const k=normTxt(t);if(seen.has(k))return;seen.add(k);
+    if(topic)topics.add(normTxt(topic));
+    out.push({text:t,kind,uncertain:!!uncertain});
+  };
+  m.priceBad.forEach(i=>add(hant?`${i.title}: ${i.text}`:withAsk(`${i.title}: ${i.text}`,'Kan du förklara eller rätta det?'),'price',i.title));
+  if(m.calc.length)add(hant?MSG_AI_OWN:MSG_AI_RECIP,'calc','',true);
+  if(!hant)m.questions.forEach(q=>add(q,'question',''));
+  m.priceAsk.forEach(i=>add(hant?`${i.title}: ${i.text}`:withAsk(`${i.title}: ${i.text}`,'Kan du förtydliga?'),'price',i.title));
+  m.clarify.forEach(i=>{
+    const k=normTxt(i.title);if(!k||topics.has(k))return;
+    if(!hant){if(out.some(o=>normTxt(o.text).includes(k)))return;add(`Kan du förtydliga: ${i.title}?`,'clarify',i.title);}
+    else add(`${i.title}: ${i.text}`,'clarify',i.title);
+  });
+  return out;
 }
-function sendLabel(){return chosenPath==='hantverkare'?'Skicka punkterna till dig själv':'Skicka frågorna till hantverkaren';}
+const msgNoun=path=>path==='hantverkare'?['punkt','punkter']:['fråga','frågor'];
+function messageIntro(path){return path==='hantverkare'?'Punkter att åtgärda innan offerten skickas:':'Hej! Jag har några frågor om offerten innan jag skriver på:';}
+function messageText(items,path,k){
+  const n=msgNoun(path)[1];
+  let t=messageIntro(path)+'\n'+items.slice(0,k).map(i=>'– '+i.text).join('\n');
+  if(k<items.length)t+=`\n(Kortversion: ${k} av ${items.length} ${n} ingår.)`;
+  return t+SIGN;
+}
+// Uttrycklig förkortning: hela frågor, aldrig rad- eller teckenkapning, och förkortningen står i texten.
+function fitMessage(items,path,maxEncoded){
+  const enc=t=>encodeURIComponent(t).length;
+  const full=messageText(items,path,items.length);
+  if(enc(full)<=maxEncoded)return {k:items.length,text:full,cut:false};
+  let k=items.length;while(k>0&&enc(messageText(items,path,k))>maxEncoded)k--;
+  return {k,text:k?messageText(items,path,k):'',cut:true};
+}
+function isMobile(){return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&innerWidth<900);}
+const SHOWN_Q=5;
+function emptyMessageHtml(result,path){
+  const hant=path==='hantverkare';
+  const full=fullyAssessed(result);
+  const t=hant
+    ?(full?'Vi hittade inget att åtgärda i det vi kontrollerade. Det är inget besked om att offerten är komplett eller godkänd.':'Inga punkter att skicka, men delar av offerten gick inte att bedöma (se Ej bedömt ovan). Det är inget besked om att offerten är komplett.')
+    :(full?'Vi hittade inga frågor att ställa i det vi kontrollerade. Det säger inget om hantverkarens kvalitet eller om du har rätt till ROT-avdrag.':'Inga frågor att skicka, men delar av offerten gick inte att bedöma (se Ej bedömt ovan). Det är inget besked om att offerten är komplett.');
+  return `<section class="msgblock" id="msgblock" data-empty="1" aria-labelledby="msg-h"><h3 id="msg-h">${hant?'Punkter att åtgärda':'Frågor att ställa'}</h3><p id="msgempty">${t}</p></section>`;
+}
+function renderMessageBlock(result,path,items){
+  const hant=path==='hantverkare',n=items.length,[sg,pl]=msgNoun(path);
+  if(!n)return emptyMessageHtml(result,path);
+  const li=i=>`<li${i.uncertain?' data-uncertain="1"':''}>${escapeHtml(i.text)}</li>`;
+  const head=items.slice(0,SHOWN_Q).map(li).join('');
+  const rest=items.slice(SHOWN_Q).map(li).join('');
+  const list=`<ol class="qs" id="msglist">${head}</ol>`+(rest?`<details class="msgmore"><summary>Visa alla ${n} ${pl}</summary><ol class="qs" start="${SHOWN_Q+1}">${rest}</ol></details>`:'');
+  const h=hant?'Punkter att åtgärda innan du skickar':'Frågor att ställa';
+  const buttons=hant
+    ?`<button type="button" class="btn acc" id="copymsg">Kopiera punkterna</button><a class="btn" id="sendmail" href="#">Mejla punkterna till mig</a>${isMobile()?'<a class="btn" id="sendsms" href="#">Skicka som SMS till mig</a>':''}`
+    :`<a class="btn acc" id="sendmail" href="#">Skicka frågorna</a>${isMobile()?'<a class="btn" id="sendsms" href="#">Skicka som SMS</a>':''}<button type="button" class="btn ghost" id="copymsg">Kopiera frågorna</button>`;
+  return `<section class="msgblock" id="msgblock" aria-labelledby="msg-h">
+    <h3 id="msg-h">${h} <span class="msgn">(${n})</span></h3>
+    <p class="hint" id="msgcount">${n===1?`1 ${sg} följer med i meddelandet.`:`Alla ${n} ${pl} följer med i meddelandet.`}</p>
+    <p class="msgintro">${messageIntro(path)}</p>
+    ${list}
+    <p class="msgsign">${SIGN.trim()}</p>
+    <div class="send">${buttons}</div>
+    <div id="shortnote" class="shortbox" hidden></div>
+  </section>`;
+}
 
 
 // Resultatkortet. EN modell (verdictModel) ger färg, antal, staplar och nästa steg från samma resultatobjekt som listorna
@@ -394,25 +443,42 @@ function verdictModel(result,path){
     short=`${ok} av ${assessed} kontroller stämmer och inget att följa upp hittades. Avser bara det vi kunde kontrollera (se nedan).`;
     next=hant?'Inget att rätta i det vi kontrollerade. Läs ändå igenom offerten en gång till innan du skickar.':'Inget att följa upp i det vi kontrollerade. Läs ändå igenom offerten själv innan du skriver på.';
   }
-  // Staplar: verkliga segment (grön/gul/röd/grå) med gemensam nämnare per rad. total 0 = "Ej bedömd" (tom, streckad).
-  const mk=(label,text,g,a,r,n)=>({label,text,segs:g+a+r===0?[]:[['green',g],['amber',a],['red',r],['grey',n]].filter(x=>x[1]>0).map(x=>({c:x[0],n:x[1]})),total:g+a+r===0?0:g+a+r+n});
-  const bars=[];
-  bars.push(numericBad?mk('Räkningen',`${numericBad} ${numericBad===1?'beräknad avvikelse':'beräknade avvikelser'} – kontrollera originalet`,0,calcN,numericBad,0):calcUnknown?mk('Räkningen','Ej bedömd – kunde inte kontrolleras',0,0,0,0):mk('Räkningen',calcN?`${calcN} ${calcN===1?'möjlig avvikelse':'möjliga avvikelser'} att jämföra med originalet`:'Inga avvikelser hittades',calcOk,calcN,0,0));
-  {const t=rOk+rBad+rAsk,g=cannot.length;bars.push(mk('Prisregler',t||g?`${rOk} av ${t+g} stämmer${rBad?` · ${rBad} stämmer inte`:''}${rAsk?` · ${rAsk} ${rAsk===1?'fråga':'frågor'}`:''}${g?` · ${g} ej bedömda`:''}`:'Ej bedömd – ingen regel kunde kontrolleras',rOk,rAsk,rBad,g));}
-  bars.push(mk('Jämförelse med referens',cmp.length?`${cOk} av ${cmp.length} inom intervall${cAsk?` · ${cAsk} ${cAsk===1?'fråga':'frågor'}`:''}${cUnk?` · ${cUnk} ej bedömd${cUnk===1?'':'a'}`:''}`:'Ej bedömd – ingen jämförelse ingick',cOk,cAsk,0,cUnk));
-  bars.push(mk('Tydlighet i offerten',statedN+clarifyN?`${statedN} anges i offerten (inte verifierat) · ${clarifyN} att förtydliga`:'Ej bedömd – inget att bedöma',statedN,clarifyN,0,0));
+  // Statusrader (inga staplar): en rad per kontroll med symbol + ord + exakt antal. Per rad gäller samma nämnare som tidigare; ingen total, ingen poäng.
+  // Allvarligast vinner raden: avvikelse > fråga/kontrollera > ej (helt) bedömt > stämmer. Grönt (✓) betyder bara kontrollerat och stämmer.
+  const pl2=(n,a,b)=>n===1?a:b;
+  const rows=[];
+  if(numericBad&&calcN)rows.push({st:'bad',label:'Räkningen',text:`${numericBad} ${pl2(numericBad,'beräknad avvikelse','beräknade avvikelser')} · ${calcN} ${pl2(calcN,'möjlig avvikelse','möjliga avvikelser')} att kontrollera mot originalet`});
+  else if(numericBad)rows.push({st:'bad',label:'Räkningen',text:`${numericBad} ${pl2(numericBad,'beräknad avvikelse','beräknade avvikelser')} – kontrollera mot originalet`});
+  else if(calcUnknown)rows.push({st:'unknown',label:'Räkningen',text:'Ej bedömd – kunde inte kontrolleras'});
+  else if(calcN)rows.push({st:'ask',word:'Kontrollera',label:'Räkningen',text:`${calcN} ${pl2(calcN,'möjlig avvikelse','möjliga avvikelser')} att jämföra med originalet; inget konstaterat fel`});
+  else rows.push({st:'ok',label:'Räkningen',text:'Inga avvikelser hittades i den utförda kontrollen'});
+  {
+    const t=rOk+rBad+rAsk,g=cannot.length;
+    if(!pr)rows.push({st:'unknown',label:'Prisregler',text:'Ej bedömd – prisgranskningen saknas i det här svaret'});
+    else if(!t)rows.push({st:'unknown',label:'Prisregler',text:'Ej bedömd – ingen prisregel kunde kontrolleras'});
+    else{
+      const txt=(!rBad&&!rAsk&&!g)?`${rOk} av ${t} kontrollerade prisregler stämmer`:`${rOk} av ${t+g} stämmer${rBad?` · ${rBad} ${pl2(rBad,'avvikelse','avvikelser')}`:''}${rAsk?` · ${rAsk} ${pl2(rAsk,'fråga','frågor')}`:''}${g?` · ${g} ej ${pl2(g,'bedömd','bedömda')}`:''}`;
+      rows.push(rBad?{st:'bad',label:'Prisregler',text:txt}:rAsk?{st:'ask',label:'Prisregler',text:txt}:g?{st:'unknown',word:'Delvis bedömt',label:'Prisregler',text:txt}:{st:'ok',label:'Prisregler',text:txt});
+    }
+  }
+  if(!cmp.length)rows.push({st:'unknown',label:'Jämförelse med referens',text:'Ingen jämförelse ingick'});
+  else if(cUnk===cmp.length)rows.push({st:'unknown',label:'Jämförelse med referens',text:`${cUnk} ${pl2(cUnk,'jämförelse','jämförelser')} ej ${pl2(cUnk,'bedömd','bedömda')}; ingen prisfråga eller avvikelse`});
+  else{
+    const txt=`${cOk} av ${cmp.length} inom referensintervall${cAsk?` · ${cAsk} ${pl2(cAsk,'fråga','frågor')}`:''}${cUnk?` · ${cUnk} ej ${pl2(cUnk,'bedömd','bedömda')}`:''}${cOk&&!cAsk&&!cUnk?'; ingen garanti om rimligt pris':''}`;
+    rows.push(cAsk?{st:'ask',label:'Jämförelse med referens',text:txt}:cUnk?{st:'unknown',word:'Delvis bedömt',label:'Jämförelse med referens',text:txt}:{st:'ok',word:'Inom referens',label:'Jämförelse med referens',text:txt});
+  }
+  // Uppgift som står i offerten är inte kontrollerad som sann: egen symbol/ord (anges, ej verifierat), aldrig grönt.
+  if(statedN+clarifyN)rows.push({st:clarifyN?'ask':'stated',label:'Tydlighet i offerten',text:`${statedN} anges i offerten (inte verifierat) · ${clarifyN} att förtydliga`});
+  else rows.push({st:'unknown',label:'Tydlighet i offerten',text:'Ej bedömd – inget att bedöma'});
   const scope=[];
   if(!calcUnknown)scope.push('räkningen');
   if(rOk+rBad+rAsk)scope.push(`${rOk+rBad+rAsk} ${rOk+rBad+rAsk===1?'prisregel':'prisregler'}`);
   if(cmp.length-cUnk)scope.push(`${cmp.length-cUnk} ${cmp.length-cUnk===1?'jämförelse':'jämförelser'} med referens`);
-  return {tone,mark,title,short,next,ok,bad,attention,unknown,assessed,unknownParts,bars,scope};
+  return {tone,mark,title,short,next,ok,bad,attention,unknown,assessed,unknownParts,rows,scope};
 }
 function renderVerdictCard(result,isDemo,summary){
   const v=verdictModel(result,chosenPath);
-  const bars=v.bars.map(b=>{
-    const track=b.total?`<div class="gmo-track" aria-hidden="true">${b.segs.map(g=>`<span class="gmo-fill" data-c="${g.c}" data-w="${(100*g.n/b.total).toFixed(2)}"></span>`).join('')}</div>`:`<div class="gmo-track gmo-empty" aria-hidden="true"></div>`;
-    return `<div class="gmo-control"><div><span>${escapeHtml(b.label)}</span><strong>${escapeHtml(b.text)}</strong></div>${track}</div>`;
-  }).join('');
+  const rows=v.rows.map(r=>G.stRowHtml(r.st,r.label,r.text,r.word)).join('');
   const gap=v.unknown>0?`<p class="gmo-gap"><b>Ej bedömt:</b> ${escapeHtml(v.unknownParts.join(', '))} gick inte att bedöma.</p>`:'';
   const scope=`<p class="gmo-scope"><b>Kontrollerat:</b> ${v.scope.length?escapeHtml(v.scope.join(', ')):'ingenting'}.</p>`;
   const tonename={green:'kontrollerat',amber:'förtydliga',red:'avvikelse',grey:'ej bedömt'}[v.tone];
@@ -422,16 +488,29 @@ function renderVerdictCard(result,isDemo,summary){
   <div class="gmo-verdict"><div class="gmo-mark" aria-hidden="true">${v.mark}</div><div><div class="gmo-eyebrow">Ditt besked${isDemo?' · <span class="tag">Exempel</span>':''}</div><h2>${escapeHtml(v.title)}</h2><p class="gmo-short">${escapeHtml(v.short)}</p></div></div>
   <p class="gmo-counts">${counts||'<span data-c="grey"><i aria-hidden="true">–</i>Inget kunde räknas</span>'}</p>
   ${scope}${gap}
-  <div class="gmo-bars" role="group" aria-label="Utfall per kontroll">${bars}</div>
+  <ul class="st-rows gmo-rows" aria-label="Utfall per kontroll">${rows}</ul>
   <div class="gmo-next"><span>NÄSTA STEG</span><p>${escapeHtml(v.next)}</p></div>
   <p class="gmo-foot">Avser det vi kunde kontrollera i offerten. Granskningen bedömer inte hantverkarens arbete och är inget juridiskt utlåtande.</p>
 </section>`;
 }
-function animateBars(){
-  const fills=$('res').querySelectorAll('.gmo-fill');
-  const go=()=>fills.forEach(f=>{f.style.width=f.dataset.w+'%';});
-  if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches){go();return;}
-  requestAnimationFrame(()=>requestAnimationFrame(go));
+// Prisgrund (litet neutralt faktablock): vad som lästs ur offerten, momsbasen och vad referensen faktiskt kunde bedöma.
+// Okänd moms eller saknat referensintervall blir aldrig ett siffervärde eller en prisgaranti.
+function priceBasisHtml(result){
+  const p=result.price||{},pr=result.priceReport;
+  const fmt=x=>Number(x).toLocaleString('sv-SE');
+  const bits=[];
+  if(p.totalSumSek)bits.push(`totalsumma ${fmt(p.totalSumSek)} kr`);
+  if(p.hourlyRateSek)bits.push(`timpris ${fmt(p.hourlyRateSek)} kr/h`);
+  if(p.rotDeducted===true)bits.push('ROT-avdrag redovisat');
+  const rows=[['Avläst i offerten',bits.length?bits.join(' · '):'Inget pris kunde läsas ut.']];
+  const checked=(pr&&pr.checked)||[],cmp=(pr&&pr.compared)||[],cannot=(pr&&pr.cannotAssess)||[];
+  const mo=checked.find(c=>c.id==='moms');
+  rows.push(['Moms',mo?mo.text:(pr?'Momsbasen framgår inte av avläsningen – belopp som beror på moms kan inte bedömas.':'Prisgranskningen saknas i det här svaret.')]);
+  const cOk=cmp.filter(c=>c.mode==='inom').length,cUnk=cmp.filter(c=>c.mode==='ej_bedombar').length;
+  rows.push(['Referens',!cmp.length?'Ingen jämförelse mot referensintervall ingick, så ingen prisbedömning görs.':`${cOk} av ${cmp.length} ${cmp.length===1?'jämförelse':'jämförelser'} inom referensintervall${cUnk?` · ${cUnk} ej bedömd${cUnk===1?'':'a'}`:''}. Referensintervall är en uppskattning och ingen garanti om rimligt pris.`]);
+  const un=[...cannot.map(c=>c.title),...cmp.filter(c=>c.mode==='ej_bedombar').map(c=>c.title)].filter(Boolean);
+  if(un.length)rows.push(['Går inte att bedöma',un.join(', ')]);
+  return `<section class="pbasis" id="pbasis" aria-labelledby="pb-h"><h3 id="pb-h">Prisgrund</h3><dl>${rows.map(r=>`<div><dt>${escapeHtml(r[0])}</dt><dd>${escapeHtml(r[1])}</dd></div>`).join('')}</dl></section>`;
 }
 
 // ---- Övergång gratis → betald jämförelse/förkontroll (A2). Visas bara när respektive produkt är öppen enligt serverns config (annars oförändrad gratissida).
@@ -503,24 +582,21 @@ function render(result,isDemo,opts){
   const clarifyN=(result.clarify||[]).length;
   const statedN=(result.stated||[]).length;
   const clarifyWord=clarifyN===1?'sak att förtydliga':'saker att förtydliga';
-  const pc=priceCounts(result);
   const priceFrag=priceSummaryFragment(result);
   const summary=`${clarifyN} ${clarifyWord}, ${calcSummaryFragment(result)}${priceFrag}, ${statedN} ${statedN===1?'uppgift som framgår':'uppgifter som framgår'} tydligt.`;
+  const items=messageItems(result,chosenPath);
 
+  // Ordning (D19): kompakta statusrader + nästa steg → prisgrund → ETT fråge-/meddelandeblock med en primär handling → fullkopia → tekniska detaljer (stängda).
   $('res').innerHTML=`${renderVerdictCard(result,isDemo,summary)}
-  <div class="send">
-    <a class="btn acc" id="sendmail" href="#">${sendLabel()}</a>
-    ${isMobile()?'<a class="btn" id="sendsms" href="#">Skicka som SMS</a>':''}
-    <button type="button" class="btn ghost" id="copybtn">Kopiera</button>
-  </div>
-  <p class="caveat" id="shortnote" hidden>E-post- och SMS-texten är förkortad. Hela listan finns under Kopiera.</p>
-  <details class="gmo-all"><summary>Se alla fynd och frågor</summary>
+  ${priceBasisHtml(result)}
+  ${renderMessageBlock(result,chosenPath,items)}
+  <div class="fullcopy"><button type="button" class="btn ghost" id="copybtn">Kopiera hela granskningen</button><span class="hint">Alla fynd, räknekontroll och prisregler som text att spara eller dela.</span></div>
+  <details class="gmo-all"><summary>Se alla fynd och kontrollmetod</summary>
   <div class="summarybox"><p>${escapeHtml(summary)}</p></div>
-  ${renderActionList(result,chosenPath)}
-  <h3>Motsägelser och räknefel</h3>${renderCalcSection(result)}
-  ${chosenPath==='hantverkare'?'':`<h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):(fullyAssessed(result)?'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>':'<p>Inget otydligt hittades i det som kontrollerades, men delar gick inte att bedöma (se nedan).</p>')}`}
+  ${renderCalcSection(result)}
+  <h3>Behöver förtydligas</h3>${result.clarify&&result.clarify.length?findingsList(result.clarify,'warn','!'):(fullyAssessed(result)?'<p>Vi hittade inget som sticker ut som otydligt i det vi kontrollerar.</p>':'<p>Inget otydligt hittades i det som kontrollerades, men delar gick inte att bedöma (se Ej bedömt ovan).</p>')}
   <h3>Prisbild</h3>${renderPriceReport(result)}
-  <h3>Uppgifter som framgår (${statedN})</h3>${result.stated&&result.stated.length?findingsList(result.stated,'ok','✓'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}
+  <h3>Uppgifter som anges i offerten (${statedN}, inte verifierade)</h3>${result.stated&&result.stated.length?findingsList(result.stated,'stated','○'):'<p>Inga tydliga uppgifter av den här typen hittades i dokumentet.</p>'}
   </details>
   ${chosenPath==='hantverkare'||!cmpOpen?'':cmpCtaHtml(isDemo)}
   ${chosenPath==='hantverkare'&&fkOpen?fkCtaHtml():''}
@@ -532,13 +608,7 @@ function render(result,isDemo,opts){
     <a class="btn" href="https://stahledigital.se" rel="noopener" data-cta="hemsida">Se vad vi gör</a>
     <p class="sub">Ska du räkna material till jobbet? <a href="https://stahledigital.se/verkstaden/materialraknaren" rel="noopener" data-cta="materialraknaren">Materialräknaren är gratis.</a></p>
   </aside>`:''}`;
-  const body=exportBody(result,chosenPath);
-  const subj=chosenPath==='hantverkare'?'Punkter att förtydliga i offerten':'Frågor om offerten';
-  const mail=fitText(body,1900),sms=fitText(body,1200);
-  $('sendmail').href='mailto:?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(mail.text);
-  $('sendmail').addEventListener('click',()=>trackShare('email'));
-  if($('sendsms')){$('sendsms').href='sms:?&body='+encodeURIComponent(sms.text);$('sendsms').addEventListener('click',()=>trackShare('sms'));}
-  if(mail.cut||($('sendsms')&&sms.cut))$('shortnote').hidden=false;
+  wireMessage(items);
   $('res').querySelectorAll('[data-cta]').forEach(a=>a.addEventListener('click',()=>sendEvent({type:'client',event:'kontakt_cta',detail:a.dataset.cta})));
   $('res').removeAttribute('aria-busy');
   $('res').classList.add('on');
@@ -546,7 +616,6 @@ function render(result,isDemo,opts){
     $('announce').textContent=(isDemo?'Exempel. ':'Granskningen är klar. ')+summary;
     const h=$('res').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}
   }
-  animateBars();
   bindCmp();syncCmp();
   const db=$('demoback');if(db)db.addEventListener('click',leaveDemo);
   const ag=$('again');if(ag)ag.addEventListener('click',resetFree);
@@ -554,18 +623,46 @@ function render(result,isDemo,opts){
   if(!isDemo&&!opts.restore&&!opts.rerender){sendEvent({type:'client',event:'rapport_klar'});G.measure.event('result_view',{product:'free'});}
 
   const copyBtn=$('copybtn');
-  copyBtn.onclick=async()=>{
-    const text=buildClipboardText(lastResult,chosenPath);
-    try{
-      await navigator.clipboard.writeText(text);
-      trackShare('copy');
-      copyBtn.textContent='Kopierat!';
-      $('announce').textContent='Texten är kopierad.';
-      setTimeout(()=>{copyBtn.textContent='Kopiera';},1800);
-    }catch(e){
-      showError('Kunde inte kopiera automatiskt — markera och kopiera texten manuellt.');
-    }
+  copyBtn.onclick=()=>copyOut(buildClipboardText(lastResult,chosenPath),copyBtn,'Kopiera hela granskningen','Hela granskningen är kopierad.');
+}
+async function copyOut(text,btn,label,doneMsg){
+  try{
+    await navigator.clipboard.writeText(text);
+    trackShare('copy');
+    btn.textContent='Kopierat!';
+    $('announce').textContent=doneMsg;
+    setTimeout(()=>{btn.textContent=label;},1800);
+  }catch(e){
+    showError('Kunde inte kopiera automatiskt — markera och kopiera texten manuellt.');
+  }
+}
+// Kanalerna använder exakt det förhandsvisade meddelandet. Får det inte plats i en länk visas den faktiska kortversionen i blocket (aldrig tyst kapning),
+// och hela meddelandet går alltid att kopiera. Inget skickas automatiskt.
+function wireMessage(items){
+  if(!items.length)return;
+  const hant=chosenPath==='hantverkare',[sg,pl]=msgNoun(chosenPath),n=items.length;
+  const subj=hant?'Punkter att åtgärda i offerten':'Frågor om offerten';
+  const mail=fitMessage(items,chosenPath,1900),sms=fitMessage(items,chosenPath,1200);
+  const mailA=$('sendmail'),smsA=$('sendsms');
+  const link=(a,url,fit,ch)=>{
+    if(!a)return;
+    if(!fit.k){a.hidden=true;a.removeAttribute('href');return;}
+    a.href=url(fit.text);a.addEventListener('click',()=>trackShare(ch));
   };
+  link(mailA,t=>'mailto:?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(t),mail,'email');
+  link(smsA,t=>'sms:?&body='+encodeURIComponent(t),sms,'sms');
+  const shorts=[];
+  if(mail.cut)shorts.push(['E-post',mail]);
+  if(smsA&&sms.cut&&!(mail.cut&&mail.text===sms.text))shorts.push(['SMS',sms]);
+  const box=$('shortnote');
+  if(box&&shorts.length){
+    box.innerHTML=shorts.map(([ch,f])=>f.k
+      ?`<p><b>${ch}: kortversion.</b> Meddelandet är för långt för en länk, så bara de första ${f.k} av ${n} ${pl} följer med. Det här är texten som öppnas:</p><pre>${escapeHtml(f.text)}</pre>`
+      :`<p><b>${ch}:</b> Meddelandet är för långt för en länk. Kopiera hela meddelandet i stället.</p>`).join('')+`<p>Hela meddelandet med alla ${n} ${pl}: välj ${hant?'Kopiera punkterna':'Kopiera frågorna'}.</p>`;
+    box.hidden=false;
+  }
+  const cm=$('copymsg');
+  if(cm){const label=cm.textContent;cm.onclick=()=>copyOut(messageText(items,chosenPath,n),cm,label,'Meddelandet är kopierat.');}
 }
 
 // Mätning: bara räknare, aldrig innehåll. Exempeloffert och testkörningar skickar inget i skarpt läge.
