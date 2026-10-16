@@ -23,7 +23,7 @@ test("moms: blandad/okänd bas ⇒ ALDRIG kategorisk 6 000/50 %; båda tolkninga
   for (const v of ["blandat", "ej_angivet"]) {
     const R = rep(mkOffer(v, "inkl")); const t = txt(R);
     assert.match(t, /7 500|7 500/, v); assert.match(t, /om beloppet är inklusive moms|offerten anger inte/i, v);
-    assert.doesNotMatch(t, /50 ?%/, v + ": ingen kategorisk 50 %-rättelse");
+    assert.doesNotMatch(t, /räknat med 50 ?%/, v + ": ingen kategorisk 50 %-rättelse");
   }
 });
 test("moms: genuint inkl-rader + inkl-summa ⇒ 6 000 är den enda tolkningen när 50 % uttryckligen angetts", () => {

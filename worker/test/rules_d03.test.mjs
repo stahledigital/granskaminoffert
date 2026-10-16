@@ -128,7 +128,9 @@ test("T04: oetiketterad netto-total som entydigt stämmer av mot raderna godkän
   const x = { ...T04, totalSumSek: 36394 };
   assert.equal(resolveTotals(prep(x)).status, "belagd");
   assert.equal(resolveTotals(prep(x)).source, "rader");
-  const s = by(rules(x), "summa");
+  // D19: resor anges inte (null är inte 0) ⇒ full summering går inte att bedöma; med uttryckligt 0 för resor gäller det gamla beteendet
+  assert.equal(by(rules(x), "summa").status, "ej_bedombar");
+  const s = by(rules({ ...x, travelSumSek: 0 }), "summa");
   assert.equal(s.status, "ok");
   assert.match(s.text, /efter ROT-avdrag/);
   assert.match(s.text, /det stämmer/);
@@ -149,14 +151,15 @@ test("T04a: oetiketterad total med ROT och utan rader lovas aldrig som exakt kor
 });
 
 test("A1: uttryckliga fält går före gissning; stämmer inte raderna blir det fel mot rätt bas", () => {
-  const ok = rules({ ...T04, totalBeforeRotSek: 42820, totalVatBasis: "inkl" });
+  const T = { ...T04, travelSumSek: 0 }; // D19: alla fyra kategorier kända (uttryckligt 0 för resor)
+  const ok = rules({ ...T, totalBeforeRotSek: 42820, totalVatBasis: "inkl" });
   assert.equal(by(ok, "summa").status, "ok");
-  const bad = rules({ ...T04, totalBeforeRotSek: 50000, totalVatBasis: "inkl" });
+  const bad = rules({ ...T, totalBeforeRotSek: 50000, totalVatBasis: "inkl" });
   assert.equal(by(bad, "summa").status, "fel");
-  const pay = rules({ ...T04, amountToPaySek: 36394, totalVatBasis: "inkl" });
+  const pay = rules({ ...T, amountToPaySek: 36394, totalVatBasis: "inkl" });
   assert.equal(by(pay, "summa").status, "ok");
   // explicit summa utan momsbas och med exkl-rader: oklar bas -> fråga, aldrig ok
-  const oklar = rules({ ...T04, vatMode: "ej_angivet", totalBeforeRotSek: 42820 });
+  const oklar = rules({ ...T, vatMode: "ej_angivet", totalBeforeRotSek: 42820 });
   assert.notEqual(by(oklar, "summa")?.status, "ok");
 });
 
@@ -181,11 +184,11 @@ test("timpris: oklar momsbas jämförs i båda baserna – samma bedömning redo
 import { checkNormalAddons } from "../src/rules.js";
 
 test("F8/P02: båda tolkningarna ryms i toleransen → oklar, aldrig belagd", () => {
-  const x = prep({ vatMode: "inkl", laborSumSek: 10000, materialSumSek: 91000, totalSumSek: 100000, rotAmountSek: 2000 });
+  const x = prep({ vatMode: "inkl", laborSumSek: 10000, materialSumSek: 90000, totalSumSek: 100000, rotAmountSek: 2000 });
   const t = resolveTotals(x);
   assert.equal(t.status, "oklar");
   assert.equal(t.alternatives.length, 2);
-  const s = by(rules({ vatMode: "inkl", laborSumSek: 10000, materialSumSek: 91000, totalSumSek: 100000, rotAmountSek: 2000 }), "summa");
+  const s = by(rules({ vatMode: "inkl", laborSumSek: 10000, materialSumSek: 90000, travelSumSek: 0, otherSumSek: 0, totalSumSek: 100000, rotAmountSek: 2000 }), "summa");
   assert.equal(s.status, "fraga");
   // entydigt avgörande rader förblir belagda (N15 och F2-04)
   assert.equal(resolveTotals(prep({ vatMode: "exkl", laborSumSek: 10000, materialSumSek: 2000, totalSumSek: 15000, rotAmountSek: 3750, totalVatBasis: "inkl" })).status, "belagd");
@@ -239,7 +242,7 @@ test("F8/P04: explicit netto utan angivet ROT-belopp ometiketteras inte som för
   assert.equal(t.reason, "avdrag_okant");
   assert.equal(t.toPayIncl, 48000);
   assert.equal(t.alternatives.length, 2);
-  const s = by(rules(o), "summa");
+  const s = by(rules({ ...o, travelSumSek: 0, otherSumSek: 0 }), "summa"); // D19: alla fyra kategorier kända
   assert.equal(s.status, "fraga");
   assert.doesNotMatch(s.text, /totalen anges till 48\s000 kr före ROT/);
   assert.match(s.text, /12\s000 kr/);

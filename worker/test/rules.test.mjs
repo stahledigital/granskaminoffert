@@ -38,7 +38,9 @@ test("korrekt offert: alla regler ok, timpris inom, altan inom", () => {
   assert.equal(byId(r, "moms").status, "ok");
   assert.equal(byId(r, "rot_belopp").status, "ok");
   assert.equal(byId(r, "arbetssumma").status, "ok");
-  assert.equal(byId(r, "summa").status, "ok");
+  // D19: övrigt anges inte (null är inte 0) ⇒ full summering bedöms inte; med uttryckligt 0 för övrigt stämmer den
+  assert.equal(byId(r, "summa").status, "ej_bedombar");
+  assert.equal(byId(runRules({ ...FIXTURES.korrekt, otherSumSek: 0 }, REF), "summa").status, "ok");
   assert.equal(byId(r, "pristyp").status, "ok");
   assert.ok(!byId(r, "rot_material"));
   const a = checkNormalAddons(FIXTURES.korrekt, REF);
@@ -70,7 +72,7 @@ test("2025-offert med 50 % som betalas 2026: fel med Skatteverket-citat", () => 
   // Offertdatum 2025 men inget betaldatum: fråga, inte ok
   const r3 = runRules({ ...FIXTURES.offert2025Femtio, plannedPaymentDate: null }, REF);
   assert.equal(byId(r3, "rot_belopp").status, "fraga");
-  assert.match(byId(r3, "rot_belopp").text, /anger inte när betalningen sker/);
+  assert.match(byId(r3, "rot_belopp").text, /inte när betalningen sker/);
   const c = compareToBands(FIXTURES.offert2025Femtio, REF);
   assert.equal(byId(c, "tim_malare").mode, "inom");
   assert.equal(byId(c, "projekt").mode, "inom"); // arbete 24 000 / 60 m² = 400 kr/m²

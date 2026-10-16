@@ -10,6 +10,7 @@
 export const FORBIDDEN_WORDS = ["för dyrt", "överpris", "svart", "oseriöst", "oseriös", "fusk"];
 
 import { vatFactor, resolveTotals, rowsSumStated, rowsSumIncl, totalCandidates, laborCandidates, VAT_RATE } from "./amounts.js";
+import * as D from "./money.js";
 
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const pct = (v) => (num(v) === null ? null : v > 1 ? v / 100 : v);
@@ -94,65 +95,96 @@ export function runRules(x, ref) {
       "");
   }
 
-  // Ett datum för ROT-satsen: 50 % gällde bara betalning inom fönstret.
-  const oldRateText = (usedRate, expectedAmt, altAmt = null) => { // altAmt: andra tolkningen när momsbasen för arbetskostnaden är okänd – då anges båda, aldrig ett tvärsäkert belopp
-    const hasPay = Boolean(x.plannedPaymentDate);
-    const pay2025 = hasPay && inRange(x.plannedPaymentDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
-    const quote2025 = !hasPay && x.quoteDate && inRange(x.quoteDate, rot.oldRateWindow.from, rot.oldRateWindow.to);
-    const status = pay2025 ? (vatUnknown ? "fraga" : "ok") : quote2025 ? "fraga" : "fel";
-    const amtTxt = altAmt !== null ? `${kr(expectedAmt)} om arbetskostnaden är inklusive moms eller ${kr(altAmt)} om den är exklusive moms (offerten anger inte vilket)` : kr(expectedAmt);
-    const text = pay2025
-      ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %, vilket gällde för betalningar ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}. Betalningsdatumet i offerten ligger i det fönstret.${vatUnknown ? " Momsläget anges inte, så beloppet går inte att räkna efter." : ""}`
-      : quote2025
-      ? `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. Det gällde bara arbete som betalades ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}, och offerten anger inte när betalningen sker. Betalas arbetet 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${amtTxt} i stället för ${kr(rotAmt)}.`
-      : `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. ${rot.quote} För betalning 2026 är avdraget ${Math.round(rot.rate * 100)} %, alltså ${amtTxt} i stället för ${kr(rotAmt)}.`;
-    return { status, text };
-  };
+  // --- a) ROT: HÖGST 30 % (50 % för betalning inom oldRateWindow) av arbetskostnaden inklusive moms ---
+  // D19: kontrollen bedömer ÖVRE tillåtna beloppsgränser, inte likhet. Ett lägre belopp eller uttryckligt 0 är aldrig fel för att det
+  // understiger maxgränsen. Antal personer begränsar totalen (rot_tak) men höjer aldrig procenttaket. Jämförelsen är ren matematik på
+  // avlästa belopp: 0 tolerans, decimalsäker (money.js, D19_NUMERIK_PRECISION_V2). Det är inget besked om någons personliga rätt.
+  // Betalningsdatum styr satsen och okänd moms/okänt datum ger villkorade gränser, aldrig ett tvärsäkert belopp eller ett grönt besked.
+  function rotUpperBound() {
+    const title = "ROT-belopp";
+    const source = src(ref, "skatteverket_rot");
+    const win = rot.oldRateWindow;
+    const claim = D.dec(rotAmt);
+    const laborD = D.dec(labor);
+    let rates, dateKnown, dateWhy;
+    if (x.plannedPaymentDate) {
+      rates = [inRange(x.plannedPaymentDate, win.from, win.to) ? rot.oldRate : rot.rate]; dateKnown = true; dateWhy = "betalning";
+    } else if (x.quoteDate && x.quoteDate > win.to) {
+      rates = [rot.rate]; dateKnown = true; dateWhy = "offert";
+    } else {
+      rates = [rot.rate, rot.oldRate]; dateKnown = false; dateWhy = x.quoteDate ? "offert_tidig" : "inget";
+    }
+    const vatCands = f !== null
+      ? [{ factor: f, vatTxt: f === 1 ? "inklusive" : "exklusive" }]
+      : [{ factor: 1, vatTxt: "inklusive" }, { factor: 1 + VAT_RATE, vatTxt: "exklusive" }];
+    const cands = [];
+    for (const v of vatCands) for (const r of rates) {
+      const laborIncl = D.mul(laborD, D.dec(v.factor));
+      cands.push({ ...v, rate: r, laborIncl, ceiling: D.mul(laborIncl, D.dec(r)) });
+    }
+    const top = D.max(cands.map((c) => c.ceiling)), bottom = D.min(cands.map((c) => c.ceiling));
+    const pc = (r) => `${Math.round(r * 100)} %`;
+    const laborTxt = (c) => (c.factor === 1 ? `${D.fmtKr(laborD)} inklusive moms` : `${D.fmtKr(laborD)} exklusive moms (${D.fmtKr(c.laborIncl)} inklusive moms)`);
+    const vatKnownHere = vatCands.length === 1;
+    const describeRate = (r) => `${pc(r)}: ${cands.filter((c) => c.rate === r).map((c) => `${D.fmtKr(c.ceiling)}${vatKnownHere ? "" : ` om arbetskostnaden ${D.fmtKr(laborD)} är ${c.vatTxt} moms${c.factor !== 1 ? ` (${D.fmtKr(c.laborIncl)} inklusive moms)` : ""}`}`).join(" eller ")}`;
+    const describe = (c) => `${pc(c.rate)} av arbetskostnaden ${D.fmtKr(laborD)}${vatKnownHere ? "" : ` om den är ${c.vatTxt} moms`}${c.factor !== 1 ? ` (${D.fmtKr(c.laborIncl)} inklusive moms)` : ""} = ${D.fmtKr(c.ceiling)}`;
+    const limitsTxt = () => (vatKnownHere ? cands.map(describe).join("; ") : [...new Set(cands.map((c) => c.rate))].map(describeRate).join("; "));
+    const windowTxt = `${Math.round(rot.oldRate * 100)} % gällde bara för betalningar ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}`;
+    const disclaimer = "Det här är en kontroll av beräkningen på offertens siffror – inte av ditt personliga avdragsutrymme (tidigare ROT och RUT under året och skatteutrymme).";
+    const claimTxt = D.fmtKr(claim);
+    const rateTxt = rotRate !== null ? ` (${pc(rotRate)})` : "";
 
-  // --- a) ROT = 30 % av arbetskostnaden inkl. moms (tolerans 2 %) ---
+    if (D.gt(claim, top)) {
+      const excess = D.fmtKr(D.sub(claim, top));
+      const single = cands.length === 1 ? cands[0] : null;
+      const implied = rotRate !== null ? rotRate : Number(D.toNumber(claim)) / Math.max(D.toNumber(single ? single.laborIncl : D.max(cands.map((c) => c.laborIncl))), 1);
+      if (single && single.rate === rot.rate && Math.abs(implied - rot.oldRate) < 0.02 && x.plannedPaymentDate) {
+        add("rot_belopp", "fel", "ROT-sats",
+          `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. ${rot.quote} För betalning ${x.plannedPaymentDate.slice(0, 4)} är avdraget högst ${pc(rot.rate)}, alltså ${D.fmtKr(single.ceiling)} i stället för ${claimTxt} (${excess} över).`, source);
+      } else if (single) {
+        add("rot_belopp", "fel", title,
+          `ROT-avdraget är högst ${pc(single.rate)} av arbetskostnaden ${laborTxt(single)}, alltså högst ${D.fmtKr(single.ceiling)}. Offerten anger ${claimTxt}${rateTxt}, vilket är ${excess} över den gränsen. Avdraget får vara lägre än gränsen men inte högre.`, source);
+      } else {
+        add("rot_belopp", "fel", title,
+          `ROT-avdraget ${claimTxt}${rateTxt} är högre än den högsta möjliga gränsen under varje tolkning av moms och betalningsdatum: ${limitsTxt()}. Det är ${excess} över den högsta gränsen. Avdraget får vara lägre än gränsen men inte högre.`, source);
+      }
+      return;
+    }
+
+    const certain = vatKnownHere && dateKnown;
+    const maxRate = Math.max(...rates);
+    if (certain) {
+      const c = cands[0];
+      if (rotRate !== null && D.gt(D.dec(rotRate), D.dec(maxRate))) {
+        add("rot_belopp", "fraga", "ROT-sats",
+          `Offerten anger ROT-sats ${pc(rotRate)}, men högsta sats för den betalning som offerten anger är ${pc(maxRate)}. Beloppet ${claimTxt} ryms under gränsen (${D.fmtKr(c.ceiling)}), men den angivna satsen stämmer inte med regeln – fråga hur avdraget är räknat. ${disclaimer}`, source);
+        return;
+      }
+      add("rot_belopp", "ok", title,
+        `ROT-avdraget ${claimTxt} ligger inom gränsen: högst ${pc(c.rate)} av arbetskostnaden ${laborTxt(c)}, alltså högst ${D.fmtKr(c.ceiling)}.${c.rate === rot.oldRate ? ` ${windowTxt}, och betalningsdatumet i offerten ligger i det fönstret.` : ""} Ett lägre avdrag än gränsen är inte fel. ${disclaimer}`, source);
+      return;
+    }
+    const reasons = [];
+    if (!vatKnownHere) reasons.push("Offerten anger inte om arbetskostnaden är inklusive eller exklusive moms.");
+    if (!dateKnown) reasons.push(dateWhy === "offert_tidig" ? `Offerten anger bara offertdatum ${x.quoteDate} och inte när betalningen sker (${windowTxt}).` : `Offerten anger varken betalningsdatum eller offertdatum, och ROT-satsen styrs av när betalningen sker (${windowTxt}).`);
+    const fits = D.gt(claim, bottom) ? `Beloppet ${claimTxt} ryms under den högsta men inte under den lägsta gränsen.` : `Beloppet ${claimTxt} ligger under alla gränserna, men det räcker inte för att bekräfta det.`;
+    const asks = [!vatKnownHere ? "momsangivelse" : null, !dateKnown ? "betalningsdatum" : null].filter(Boolean).join(" och ");
+    add("rot_belopp", "fraga", title,
+      `ROT-avdraget går inte att kontrollera mot högsta tillåtna belopp. ${reasons.join(" ")} Högsta möjliga avdrag, ${limitsTxt()}. ${fits} Fråga efter ${asks}. ${disclaimer}`, source);
+  }
+
   if (rotAmt !== null) {
-    if (isHeatPump) {
+    if (rotAmt === 0) {
+      add("rot_belopp", "ok", "ROT-avdrag", "Offerten yrkar inget ROT-avdrag (0 kr). Det är inte ett fel: ROT-avdraget är en möjlighet, ingen skyldighet att utnyttja högsta möjliga belopp.", src(ref, "skatteverket_rot"));
+    } else if (isHeatPump) {
       heatPumpRule();
-    } else if (labor !== null && f !== null) {
-      const expected = laborInclVat * rot.rate;
-      const ok = withinTol(rotAmt, expected, rot.tolerance);
-      const usedRate = rotRate !== null ? rotRate : rotAmt / laborInclVat;
-      if (ok) {
-        add("rot_belopp", "ok", "ROT-belopp", `ROT-avdraget ${kr(rotAmt)} är ${Math.round(rot.rate * 100)} % av arbetskostnaden ${kr(laborInclVat)} inklusive moms.`, src(ref, "skatteverket_rot"));
-      } else if (Math.abs(usedRate - rot.oldRate) < 0.02) {
-        const r = oldRateText(usedRate, expected);
-        add("rot_belopp", r.status, "ROT-sats", r.text, src(ref, "skatteverket_rot"));
-      } else {
-        add("rot_belopp", "fel", "ROT-belopp",
-          `${Math.round(rot.rate * 100)} % av arbetskostnaden ${kr(laborInclVat)} inklusive moms är ${kr(expected)}. Offerten anger ${kr(rotAmt)}${rotRate !== null ? ` (${Math.round(rotRate * 100)} %)` : ""}.`,
-          src(ref, "skatteverket_rot"));
-      }
     } else if (labor !== null) {
-      // Okänd moms: beloppet kan stämma under den ena tolkningen. Det är en
-      // fråga, aldrig ett ok. Stämmer det under ingen tolkning är det ett fel.
-      const inclHit = withinTol(rotAmt, labor * rot.rate, rot.tolerance);
-      const exklHit = withinTol(rotAmt, labor * (1 + VAT_RATE) * rot.rate, rot.tolerance);
-      const usedRate = rotRate !== null ? rotRate : rotAmt / labor;
-      if (exklHit && !inclHit) {
-        add("rot_belopp", "fraga", "ROT-belopp",
-          `ROT-avdraget ${kr(rotAmt)} stämmer om arbetskostnaden ${kr(labor)} är angiven exklusive moms, men inte om den är inklusive moms. Offerten anger inte vilket – fråga efter det, så går beloppet att kontrollera.`,
-          src(ref, "skatteverket_rot"));
-      } else if (inclHit && !exklHit) {
-        add("rot_belopp", "fraga", "ROT-belopp",
-          `ROT-avdraget ${kr(rotAmt)} stämmer om arbetskostnaden ${kr(labor)} är angiven inklusive moms, men inte om den är exklusive moms. Offerten anger inte vilket – fråga efter det, så går beloppet att kontrollera.`,
-          src(ref, "skatteverket_rot"));
-      } else if (rotRate !== null && Math.abs(usedRate - rot.oldRate) < 0.02) { // okänd momsbas: en härledd andel (belopp/arbete) är ingen angiven sats ⇒ bara en uttryckligen angiven sats får tolkas som gamla 50 %
-        const r = oldRateText(usedRate, labor * rot.rate, labor * (1 + VAT_RATE) * rot.rate);
-        add("rot_belopp", r.status, "ROT-sats", r.text, src(ref, "skatteverket_rot"));
-      } else {
-        add("rot_belopp", "fel", "ROT-belopp",
-          `${Math.round(rot.rate * 100)} % av arbetskostnaden ${kr(labor)} blir ${kr(labor * rot.rate)} om beloppet är inklusive moms och ${kr(labor * (1 + VAT_RATE) * rot.rate)} om det är exklusive moms. Offerten anger ${kr(rotAmt)}, vilket inte stämmer med någon av tolkningarna.`,
-          src(ref, "skatteverket_rot"));
-      }
+      rotUpperBound();
     } else if (x.priceType !== "fast") {
       add("rot_belopp", "ej_bedombar", "ROT-belopp", "Arbetskostnaden anges inte separat, så ROT-beloppet går inte att räkna efter.", src(ref, "skatteverket_rot"));
     }
-
+  }
+  if (rotAmt !== null && rotAmt > 0) {
     // b) ROT på material eller resor
     if (x.rotOnMaterialOrTravel === true) {
       add("rot_material", "fel", "ROT på material eller resor", "ROT-avdrag får bara göras på arbetskostnaden, inte på material, resor eller servicebil. Offerten räknar avdrag på annat än arbete.", src(ref, "skatteverket_rot"));
@@ -164,7 +196,7 @@ export function runRules(x, ref) {
       }
     }
 
-    // d) Tak per person
+    // d) Tak per person. Personantalet begränsar totalbeloppet; det höjer aldrig procenttaket på arbetskostnaden.
     if (rotAmt > rot.maxPerPerson) {
       const need = Math.ceil(rotAmt / rot.maxPerPerson);
       if (persons === null) {
@@ -174,16 +206,13 @@ export function runRules(x, ref) {
       } else if (persons * rot.maxPerPerson < rotAmt) {
         add("rot_tak", "fel", "ROT-tak per person", `${persons} ${persons === 1 ? "person" : "personer"} ger högst ${kr(persons * rot.maxPerPerson)} i ROT-avdrag per år. Offerten räknar med ${kr(rotAmt)}.`, src(ref, "skatteverket_rot"));
       } else {
-        add("rot_tak", "flagga", "ROT-tak per person", `ROT-avdraget ${kr(rotAmt)} fördelas på ${persons} personer. Taket är ${kr(rot.maxPerPerson)} per person och år, och ROT och RUT tillsammans högst ${kr(rot.maxRotRut)} – tidigare avdrag under året minskar utrymmet.`, src(ref, "skatteverket_rot"));
+        add("rot_tak", "flagga", "ROT-tak per person", `ROT-avdraget ${kr(rotAmt)} fördelas på ${persons} personer. Taket är ${kr(rot.maxPerPerson)} per person och år, och ROT och RUT tillsammans högst ${kr(rot.maxRotRut)} – tidigare avdrag under året minskar utrymmet. Gränserna är tak, ingen personlig tilldelning.`, src(ref, "skatteverket_rot"));
       }
     }
 
-    // e) Undantagslista
-    const text = `${x.jobType || ""} ${x.workDescription || ""}`.toLowerCase();
-    const hit = (rot.exceptions || []).find((e) => e.keywords.some((k) => text.includes(k)));
-    if (hit) {
-      add("rot_undantag", "flagga", "ROT-berättigat arbete", `${hit.label} ger normalt inte rätt till ROT-avdrag enligt Skatteverkets lista. Offerten räknar med ROT – det behöver stämmas av.`, src(ref, "skatteverket_rot_undantag"));
-    }
+    // e) Undantag och arbetets sammanhang (D19). Bred ordträff får inte klassa reparation som nybyggnad; saknat sammanhang blir en
+    // konkret fråga, aldrig en uppfunnen klassificering eller ett grönt rättighetsbesked.
+    rotContextRule();
   }
 
   // --- Totalsummor som motsäger varandra ---
@@ -192,6 +221,60 @@ export function runRules(x, ref) {
     if (t0.conflict) {
       add("total_konflikt", "fel", "Summa före ROT och summa att betala",
         `Offerten anger både summa före ROT-avdrag (${kr(t0.before)}) och summa att betala (${kr(t0.toPay)}). ${rotAmt ? `Efter ROT-avdraget ${kr(rotAmt)} borde summan att betala vara ${kr(t0.expectedPay)}` : `Utan ROT-avdrag borde summan att betala vara ${kr(t0.expectedPay)}`}. Uppgifterna stämmer inte med varandra – be om en rättad offert.`, "");
+    }
+  }
+
+  // --- e) ROT: undantag och arbetets sammanhang ---
+  // Källa: Skatteverket (reference.json exceptions). Nybyggnad av en helt ny bostad ger aldrig ROT, men reparation och underhåll av en
+  // befintlig byggnad (även i ett nybyggt hus) kan göra det; särskilda regler finns för om- och tillbyggnad av bostad yngre än fem år.
+  // Garage/förråd som hör till småhuset är inte generellt uteslutna, och bostadsrätt + fönster/tak räcker inte ensamt som beslut: det
+  // beror på om arbetet gäller lägenhetens insida eller föreningens utsida/gemensamma delar. Därför ger sammanhang som saknas en FRÅGA.
+  function rotContextRule() {
+    const source = src(ref, "skatteverket_rot_undantag");
+    const text = `${x.jobType || ""} ${x.workDescription || ""}`.toLowerCase();
+    const exc = rot.exceptions || [];
+    const byKeyword = (kw) => exc.find((e) => (e.keywords || []).includes(kw));
+    const E_NEW = byKeyword("nybygg"), E_AGE = byKeyword("nyproducerad"), E_SMALL = byKeyword("friggebod"), E_BRF = byKeyword("trapphus");
+    const nature = x.workNature || null, loc = x.workLocation || null;
+    const repairish = ["reparation", "underhall", "ombyggnad", "tillbyggnad"].includes(nature);
+
+    // 1) Övriga undantag på ordlista (pool, staket, skadedjur, energideklaration, gemensamma ytor) – oförändrat flaggade.
+    const generic = exc.filter((e) => e !== E_NEW && e !== E_AGE && e !== E_SMALL);
+    const hit = generic.find((e) => (e.keywords || []).some((k) => text.includes(k)));
+    if (hit) {
+      add("rot_undantag", "flagga", "ROT-berättigat arbete", `${hit.label} ger normalt inte rätt till ROT-avdrag enligt Skatteverkets lista. Offerten räknar med ROT – det behöver stämmas av.`, source);
+      return;
+    }
+
+    const NEW_NOUN = /nybygg(?![dt])|nyproduktion|ny bostad|nytt hus|bygga hus/;   // nybyggnad som substantiv; "nybyggd/nybyggt" är en ålder, inte en arbetsart
+    const SMALL_RE = /friggebod|attefallshus|komplementbyggnad/;
+    const AGE_RE = /nyproducerad|yngre än (fem|5) år|nybygg[dt]/;
+    const isNewWork = nature === "nybyggnad" || (!repairish && NEW_NOUN.test(text));
+    const smallBuilding = SMALL_RE.test(text) || /garage|carport|förråd/.test(text);
+
+    // 2) Nybyggnad (uttrycklig eller på ordträff utan motsägande sammanhang): fråga, aldrig en tyst klassificering.
+    if (isNewWork || (!repairish && SMALL_RE.test(text))) {
+      if (smallBuilding) {
+        add("rot_undantag", "fraga", "ROT för nybyggd byggnad",
+          `Arbetet beskrivs som nybyggnad av en byggnad på tomten (till exempel garage eller friggebod). ${E_SMALL && E_SMALL.quote ? E_SMALL.quote + " " : ""}Reparation eller underhåll av en befintlig byggnad är något annat än att bygga en ny. Offerten räknar med ROT-avdrag – fråga hur entreprenören bedömt att avdrag får göras för just det här arbetet. Beräkningen av beloppet är en sak, om arbetet ger rätt till avdrag en annan.`, source);
+      } else {
+        add("rot_undantag", "fraga", "ROT för nybyggnad",
+          `Arbetet beskrivs som nybyggnad. ${E_NEW && E_NEW.quote ? E_NEW.quote + " " : ""}Reparation, underhåll, ombyggnad och tillbyggnad av en befintlig bostad kan däremot ge rätt till avdrag. Offerten räknar med ROT-avdrag – fråga vad arbetet avser och hur avdraget bedömts. Beräkningen av beloppet är en sak, om arbetet ger rätt till avdrag en annan.`, source);
+      }
+      return;
+    }
+
+    // 3) Ålder ("nybyggd villa") utan arbetsart som utesluter regeln: reparation och underhåll kan ge ROT oavsett husets ålder.
+    if (AGE_RE.test(text) && nature !== "reparation" && nature !== "underhall") {
+      add("rot_undantag", "fraga", "ROT i nybyggd bostad",
+        `Beskrivningen nämner en nybyggd eller nyproducerad bostad. Skatteverket skiljer nybyggnad och färdigställande, som inte ger ROT, från reparation och underhåll, som kan ge avdrag oavsett husets ålder; särskilda begränsningar gäller för om- och tillbyggnad av bostad yngre än fem år. Offerten anger inte om arbetet är en reparation eller något annat – fråga vad arbetet avser (till exempel reparation av en skada) och bostadens ålder.`, source);
+      return;
+    }
+
+    // 4) Bostadsrätt + arbete som kan gälla föreningens utsida: avgörs av insida/utsida och underhållsansvar, inte av jobbtypen.
+    if (x.propertyType === "bostadsratt" && ["tak", "fasad", "fonster"].includes(x.jobType) && loc !== "invandigt") {
+      add("rot_undantag", "fraga", "ROT i bostadsrätt",
+        `${E_BRF && E_BRF.quote ? E_BRF.quote + " " : ""}Arbete inne i lägenheten som ingår i innehavarens underhållsansvar kan däremot ge rätt till avdrag. Offerten anger inte om arbetet gäller lägenhetens insida eller föreningens utsida och gemensamma delar, eller vem som ansvarar för underhållet – fråga det innan ni räknar med avdraget.`, source);
     }
   }
 
@@ -233,10 +316,15 @@ export function runRules(x, ref) {
     // inte totalentreprenad. Regeln visar därför ett villkorat räkneexempel och
     // en fråga, aldrig "regeln stämmer" – och "fel" bara när alla villkor är
     // uttryckligen angivna och ingen momsbas ger det angivna avdraget.
-    const inclExpected = calc(t.beforeRotIncl);
-    const exklExpected = calc(t.beforeRotIncl / (1 + VAT_RATE));
-    const matchIncl = withinTol(rotAmt, inclExpected, rot.tolerance);
-    const matchExkl = withinTol(rotAmt, exklExpected, rot.tolerance);
+    // Schablonen är en ÖVRE gräns som ROT-underlag: ett lägre avdrag än schablonen är inte fel (0 tolerans, decimalsäkert).
+    const beforeD = D.dec(Number(t.beforeRotIncl.toFixed(2)));
+    const factor = D.mul(D.dec(String(share)), D.dec(String(rot.rate)));
+    const inclD = D.mul(beforeD, factor);
+    const exklD = D.mul(D.mul(beforeD, D.dec("0.8")), factor); // 1 / 1,25 = 0,8 exakt
+    const claimD = D.dec(rotAmt);
+    const inclExpected = D.toNumber(inclD), exklExpected = D.toNumber(exklD);
+    const matchIncl = D.eq(claimD, inclD), matchExkl = D.eq(claimD, exklD);
+    const overBoth = D.gt(claimD, D.max([inclD, exklD]));
     const missing = [];
     if (x.propertyType !== "smahus") {
       missing.push(x.propertyType ? "offerten gäller en annan bostadstyp än småhus, och schablonen kan inte användas för bostadsrätt" : "offerten anger inte bostadstyp (schablonen gäller småhus, inte bostadsrätt)");
@@ -244,8 +332,13 @@ export function runRules(x, ref) {
     if (x.totalContract !== "ja") {
       missing.push(x.totalContract === "nej" ? "offerten anger att arbetet inte är en totalentreprenad" : "offerten anger inte att företaget utför totalentreprenad (värmepump och installation i ett fast pris)");
     }
-    const example = `Av totalpriset ${kr(t.beforeRotIncl)} före ROT (${t.basis === "exkl" ? "angivet exklusive moms, omräknat med 25 % moms" : "inklusive moms"}) räknas ${sharePct} % som arbete och avdraget är ${ratePct} % av det: ${kr(inclExpected)} om schablonen räknas på pris inklusive moms, ${kr(exklExpected)} om den räknas exklusive moms. Offerten anger ${kr(rotAmt)}${matchIncl ? ", vilket stämmer med räkningen inklusive moms" : matchExkl ? ", vilket stämmer med räkningen exklusive moms" : ", vilket inte stämmer med någon av räkningarna"}. Skatteverkets sida anger inte vilken momsbas schablonen använder, så beloppet går inte att bekräfta – fråga hur avdraget är räknat.`;
-    if (!missing.length && !matchIncl && !matchExkl) {
+    const relation = matchIncl ? ", vilket stämmer med räkningen inklusive moms"
+      : matchExkl ? ", vilket stämmer med räkningen exklusive moms"
+      : overBoth ? ", vilket är högre än båda räkningarna"
+      : D.lt(claimD, D.min([inclD, exklD])) ? ", vilket ligger under båda räkningarna (ett lägre avdrag än schablonen är inte fel)"
+      : ", vilket ryms under den ena räkningen men inte den andra";
+    const example = `Av totalpriset ${kr(t.beforeRotIncl)} före ROT (${t.basis === "exkl" ? "angivet exklusive moms, omräknat med 25 % moms" : "inklusive moms"}) räknas ${sharePct} % som arbete och avdraget är högst ${ratePct} % av det: ${D.fmtKr(inclD)} om schablonen räknas på pris inklusive moms, ${D.fmtKr(exklD)} om den räknas exklusive moms. Offerten anger ${D.fmtKr(claimD)}${relation}. Skatteverkets sida anger inte vilken momsbas schablonen använder, så beloppet går inte att bekräfta – fråga hur avdraget är räknat.`;
+    if (!missing.length && overBoth) {
       add("rot_schablon", "fel", title, example, source);
       return;
     }
@@ -258,43 +351,82 @@ export function runRules(x, ref) {
     add("arbetssumma", ok ? "ok" : "fel", "Timmar × timpris",
       ok ? `${hours} timmar × ${kr(rate)} = ${kr(rate * hours)}, vilket stämmer med arbetssumman.` : `${hours} timmar × ${kr(rate)} = ${kr(rate * hours)}, men arbetssumman anges till ${kr(labor)}.`, "");
   }
-  if (labor !== null && material !== null) summaRule();
+  summaRule();
 
-  // Summering: raderna mot totalen. OK kräver belagd bas (explicit före ROT /
-  // att betala / momsbas, eller att raderna stämmer av mot exakt en tolkning).
+  // Summering: raderna mot totalen. D19: null betyder okänt, inte 0 – full exakt summakontroll kräver att alla fyra kategorier
+  // (arbete, material, resor, övrigt) är kända (uttryckligt 0 räknas som känd post) och att totalens bas är belagd. Är en kategori okänd
+  // visas en delsumma med tydlig täckning och summan blir ej fullt bedömd; överstiger delsumman redan totalen visas en konkret
+  // differensfråga (okänd rabatt, kredit eller justering kan förklara den), aldrig ett säkert räknefel eller en påhittad rättad total.
   function summaRule() {
+    const cats = [["arbete", x.laborSumSek], ["material", x.materialSumSek], ["resor", x.travelSumSek], ["övrigt", x.otherSumSek]]
+      .map(([label, v]) => ({ label, v: num(v) }));
+    const known = cats.filter((c) => c.v !== null), unknown = cats.filter((c) => c.v === null);
+    if (!known.length) return;                       // ingen uppdelning alls: redovisas av "uppdelning"
     const t = resolveTotals(x);
     if (t.status === "saknas") return;
-    if (t.conflict) return; // redovisas av total_konflikt
-    const rowsStated = rowsSumStated(x);
-    const rowsIncl = rowsSumIncl(x);
-    const rowsTxt = `arbete ${kr(labor)} + material ${kr(material)}${travel ? ` + resor ${kr(travel)}` : ""}${num(x.otherSumSek) ? ` + övrigt ${kr(num(x.otherSumSek))}` : ""}`;
+    if (t.conflict) return;                          // redovisas av total_konflikt
+    const ONE = D.dec(1);
+    const stated = D.sum(known.map((c) => D.dec(c.v)));
+    const fD = f === null ? null : D.dec(f);
+    const statedIncl = fD ? D.mul(stated, fD) : null;
+    const rowsTxt = known.map((c) => `${c.label} ${D.fmtKr(D.dec(c.v))}`).join(" + ");
     const hasRot = rotAmt !== null && rotAmt > 0;
-    if (t.status === "belagd" && rowsIncl !== null) {
-      const ok = withinTol(rowsIncl, t.beforeRotIncl, 0.02);
-      const after = hasRot && (t.source === "rader" || t.source === "explicit_att_betala") && withinTol(rowsIncl - rotAmt, t.toPayIncl, 0.02);
-      if (ok) {
-        add("summa", "ok", "Summering",
-          after
-            ? `Raderna summerar till ${kr(rowsIncl)}, och efter ROT-avdrag ${kr(rotAmt)} blir det ${kr(t.toPayIncl)} att betala – det stämmer.`
-            : `Raderna (${rowsTxt}) summerar till totalen ${kr(t.beforeRotIncl)}${f !== 1 ? " inklusive moms" : ""}.`, "");
-      } else {
+    const toD = (n) => D.dec(Number(n.toFixed(2)));
+    const alts = t.status === "belagd"
+      ? [{ label: "", incl: toD(t.beforeRotIncl) }]
+      : t.alternatives.map((a) => ({ label: a.label, incl: toD(a.beforeRotIncl) }));
+    const near = (a, b) => !D.gt(D.abs(D.sub(a, b)), ONE); // 1 kr: öresavrundning av momsrader, inga procenttoleranser
+    const unknownTxt = unknown.map((c) => c.label).join(" och ");
+    const vatNote = f === null ? " Radernas momsläge anges inte." : "";
+
+    if (!unknown.length) {
+      // Alla fyra kategorier kända.
+      const rowCands = statedIncl ? [statedIncl] : [stated, D.mul(stated, D.dec(1 + VAT_RATE))];
+      const matched = alts.filter((a) => rowCands.some((r) => near(r, a.incl)));
+      if (t.status === "belagd" && statedIncl) {
+        const total = alts[0].incl;
+        if (near(statedIncl, total)) {
+          const afterOk = hasRot && (t.source === "rader" || t.source === "explicit_att_betala") && near(D.sub(statedIncl, D.dec(rotAmt)), toD(t.toPayIncl));
+          add("summa", "ok", "Summering",
+            afterOk
+              ? `Raderna summerar till ${D.fmtKr(statedIncl)}, och efter ROT-avdrag ${D.fmtKr(D.dec(rotAmt))} blir det ${D.fmtKr(toD(t.toPayIncl))} att betala – det stämmer.`
+              : `Raderna (${rowsTxt}) summerar till totalen ${D.fmtKr(total)}${f !== 1 ? " inklusive moms" : ""}.`, "");
+        } else {
+          add("summa", "fel", "Summering",
+            `Raderna (${rowsTxt}) summerar till ${D.fmtKr(statedIncl)}${f !== 1 ? " inklusive moms" : ""}${hasRot ? ` (${D.fmtKr(D.sub(statedIncl, D.dec(rotAmt)))} efter ROT)` : ""}, men totalen anges till ${D.fmtKr(total)} före ROT-avdrag – en skillnad på ${D.fmtKr(D.abs(D.sub(statedIncl, total)))}. Alla fyra posterna (arbete, material, resor och övrigt) anges i offerten.`, "");
+        }
+        return;
+      }
+      if (!matched.length) {
         add("summa", "fel", "Summering",
-          `Raderna summerar till ${kr(rowsIncl)}${hasRot ? ` (${kr(rowsIncl - rotAmt)} efter ROT)` : ""}, men totalen anges till ${kr(t.beforeRotIncl)} före ROT-avdrag.`, "");
+          `Raderna (${rowsTxt}) summerar till ${D.fmtKr(rowCands[0])}${rowCands.length > 1 ? ` (${D.fmtKr(rowCands[1])} om raderna är exklusive moms)` : ""}, vilket inte stämmer med totalen under någon tolkning av om den är före eller efter ROT-avdrag eller vilket momsläge den har.`, "");
+      } else {
+        const rowTxt2 = f === null
+          ? `summerar till ${rowCands.map((r) => D.fmtKr(r)).join(" om raderna är inklusive moms och ")} om de är exklusive moms (25 % moms)`
+          : `stämmer med totalen om ${matched.map((m) => m.label || "momsläget är det som antagits").join(" respektive om ")}`;
+        add("summa", "fraga", "Summering",
+          `Raderna (${rowsTxt}) ${rowTxt2}. Offerten anger inte tydligt ${f === null ? "radernas momsläge" : "vilket"}${t.status === "belagd" ? ` och totalen före ROT-avdrag är ${D.fmtKr(alts[0].incl)}` : ""}, så summeringen kan inte bekräftas – be om ${f === null ? "momsangivelse för raderna" : "summa före ROT-avdrag, summa att betala och momsläge"}.`, "");
       }
       return;
     }
-    // Obelagd bas (radernas eller totalens moms, eller före/efter ROT, oklart).
-    const rowCands = rowsIncl !== null ? [rowsIncl] : [rowsStated, rowsStated * (1 + VAT_RATE)];
-    const alts = t.status === "belagd" ? [{ label: "", beforeRotIncl: t.beforeRotIncl }] : t.alternatives;
-    const matched = alts.filter((a) => rowCands.some((r) => withinTol(r, a.beforeRotIncl, 0.02)));
-    if (!matched.length) {
-      add("summa", "fel", "Summering",
-        `Raderna (${rowsTxt}) summerar till ${kr(rowCands[0])}${rowCands.length > 1 ? ` (${kr(rowCands[1])} om raderna är exklusive moms)` : ""}, vilket inte stämmer med totalen under någon tolkning av om den är före eller efter ROT-avdrag eller vilket momsläge den har.`, "");
-    } else {
+
+    // Minst en kategori är okänd: full summering går inte att göra.
+    const lowerBound = statedIncl || stated;            // med okänd radmoms är "inklusive"-delsumman minst den angivna
+    const totalTop = D.max(alts.map((a) => a.incl));
+    const totalsTxt = alts.length === 1 ? D.fmtKr(alts[0].incl) : alts.map((a) => D.fmtKr(a.incl)).join(" eller ");
+    if (D.gt(D.sub(lowerBound, totalTop), ONE)) {
+      const excess = D.sub(lowerBound, totalTop);
       add("summa", "fraga", "Summering",
-        `Raderna (${rowsTxt}) stämmer med totalen om ${matched.map((m) => m.label || "momsläget är det som antagits").join(" respektive om ")}. Offerten anger inte tydligt vilket, så summeringen kan inte bekräftas – be om summa före ROT-avdrag, summa att betala och momsläge.`, "");
+        `De poster som anges (${rowsTxt}) summerar till ${D.fmtKr(stated)}${statedIncl && f !== 1 ? ` (${D.fmtKr(statedIncl)} inklusive moms)` : ""}, vilket är minst ${D.fmtKr(excess)} mer än totalen ${totalsTxt} före ROT-avdrag. ${unknownTxt[0].toUpperCase()}${unknownTxt.slice(1)} anges inte, så en full summering går inte att göra, och skillnaden kan bero på något som inte avlästs – till exempel en rabatt, kredit eller justering – eller på en felläst rad.${vatNote} Fråga hur totalen är uppbyggd och vad skillnaden på minst ${D.fmtKr(excess)} beror på.`, "");
+      return;
     }
+    const rel = near(lowerBound, totalTop) && alts.length === 1
+      ? " Det är lika med totalen, men det visar inte att inga andra poster finns."
+      : alts.length === 1 && D.lt(lowerBound, totalTop)
+      ? ` Totalen är ${D.fmtKr(D.sub(totalTop, lowerBound))} högre, vilket kan vara de poster som inte anges.`
+      : "";
+    add("summa", "ej_bedombar", "Summering",
+      `Summan går inte att kontrollera fullt ut: ${unknownTxt} anges inte i offerten (en saknad uppgift räknas inte som 0 kr). De poster som anges (${rowsTxt}) summerar till ${D.fmtKr(stated)}${statedIncl && f !== 1 ? ` (${D.fmtKr(statedIncl)} inklusive moms)` : ""}, och totalen före ROT-avdrag är ${totalsTxt}.${rel}${vatNote} Be om en uppdelning som visar alla fyra posterna – arbete, material, resor och övrigt – så går summan att kontrollera.`, "");
   }
 
   // --- h2) Pristyp saknas ---
@@ -308,8 +440,19 @@ export function runRules(x, ref) {
     add("pristyp", "ok", "Pristyp", "Fast pris anges.", "");
   }
 
+  // --- Betalning före utfört arbete (D19) ---
+  // Bara när offerten UTTRYCKLIGEN kräver det (advancePayment === true). false/null ger ingen regel; en saknad uppgift är aldrig false.
+  // Konsumentverket rekommenderar att inte betala i förskott; konsumenttjänstlagen (1985:716) §§ 41 och 45: huvudregeln är betalning
+  // efter utfört arbete om inget annat avtalats, och § 52 ger småhusentreprenad särskilt skydd mot betalning för ännu inte utfört arbete.
+  // Regeln gissar aldrig att ett uppdrag är småhusentreprenad och stämplar inget som olagligt.
+  if (x.advancePayment === true) {
+    add("forskott", "fraga", "Betalning före utfört arbete",
+      "Offerten kräver betalning innan arbetet är utfört. Konsumentverket rekommenderar att inte betala i förskott och att avtala tydligt om betalningen. Enligt konsumenttjänstlagen är huvudregeln att betala efter utfört arbete om inget annat avtalats (§§ 41 och 45), och vid småhusentreprenad (§ 52) finns ett särskilt skydd mot att behöva betala för arbete som ännu inte är utfört. Offerten säger inte vilken typ av uppdrag det är, och det bedömer vi inte här. Fråga hur stor del av priset som ska betalas i förskott, vad som ska vara utfört före varje betalning och vilket skydd du har om arbetet inte blir av.",
+      "");
+  }
+
   if (!payDate && rotAmt !== null) {
-    add("betaldatum", "ej_bedombar", "Betalningsdatum", "Varken offertdatum eller planerad betalning anges. ROT-satsen styrs av när betalningen sker, så kontrollen ovan utgår från betalning i år.", src(ref, "skatteverket_rot"));
+    add("betaldatum", "ej_bedombar", "Betalningsdatum", "Varken offertdatum eller planerad betalning anges. ROT-satsen styrs av när betalningen sker, så ROT-beloppet går inte att kontrollera mot ett säkert högsta belopp förrän betalningsdatum framgår.", src(ref, "skatteverket_rot"));
   }
 
   return out;
