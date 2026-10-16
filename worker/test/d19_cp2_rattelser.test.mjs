@@ -150,3 +150,22 @@ test("CP2-3b offertdatum är kontext, inte betalningsdatum: HP och materialinfer
   assert.equal(get(run({ ...o, plannedPaymentDate: "2026-10-20" }), "rot_belopp").status, "fel");
   assert.equal(get(run({ ...o, plannedPaymentDate: "2025-12-15", quoteDate: "2026-10-16" }), "rot_belopp").status, "ok");   // QD04: explicit betalning styr
 });
+
+test("CP3-P2 materialinferens: ett lägre avdrag som ryms under möjlig arbetsgräns anklagar aldrig material (likhet med procent av hela summan räcker inte)", () => {
+  const o = { laborSumSek: 100000, materialSumSek: 20000, travelSumSek: 0, otherSumSek: 0, rotAmountSek: 36000, rotPersons: 1, plannedPaymentDate: null, quoteDate: "2026-10-16" };
+  const r = run(o, { vatMode: "inkl", priceType: "fast" });
+  assert.equal(get(r, "rot_belopp").status, "fraga");                         // 30 000/50 000 möjliga, 36 000 ryms under den högsta
+  assert.equal(get(r, "rot_material"), undefined, "36 000 kan vara ett legitimt lägre avdrag under 50 %-gränsen 50 000");
+  // samma belopp med uttryckligt betalningsdatum i 50 %-fönstret: ok, inget materialfel
+  const w = run({ ...o, plannedPaymentDate: "2025-12-15" }, { vatMode: "inkl", priceType: "fast" });
+  assert.equal(get(w, "rot_belopp").status, "ok"); assert.equal(get(w, "rot_material"), undefined);
+  // uttryckligt betalningsdatum efter fönstret: 36 000 är över max 30 000 och motsvarar 30 % av hela summan ⇒ verklig avvikelse består
+  const e = run({ ...o, plannedPaymentDate: "2026-10-20" }, { vatMode: "inkl", priceType: "fast" });
+  assert.equal(get(e, "rot_belopp").status, "fel"); assert.equal(get(e, "rot_material").status, "fel");
+  // uttryckligt belagt material/resa = true upptäcks fortfarande, även under maxgränsen och med okänt datum
+  const x = run({ ...o, rotOnMaterialOrTravel: true }, { vatMode: "inkl", priceType: "fast" });
+  assert.equal(get(x, "rot_material").status, "fel");
+  // verkligt över även den högsta möjliga arbetsgränsen och lika med procent av hela summan: fel kvarstår vid okänt datum
+  const ov = run({ ...o, rotAmountSek: 60000, laborSumSek: 100000, materialSumSek: 100000 }, { vatMode: "inkl", priceType: "fast" });   // 30 % av 200 000 = 60 000 > 50 000
+  assert.equal(get(ov, "rot_belopp").status, "fel"); assert.equal(get(ov, "rot_material").status, "fel");
+});

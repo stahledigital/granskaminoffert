@@ -199,10 +199,13 @@ export function runRules(x, ref) {
     if (x.rotOnMaterialOrTravel === true) {
       add("rot_material", "fel", "ROT på material eller resor", "ROT-avdrag får bara göras på arbetskostnaden, inte på material, resor eller servicebil. Offerten räknar avdrag på annat än arbete.", src(ref, "skatteverket_rot"));
     } else if (labor !== null && material !== null && !isHeatPump && f !== null) {
-      // Samma ROT-period som arbetsbeloppskontrollen: avdraget kan räknas med varje sats som perioden tillåter. "Fel" bara om avdraget
-      // motsvarar hela summan under någon tillåten sats och inte arbetskostnaden under någon tillåten sats.
+      // Samma ROT-period som arbetsbeloppskontrollen. Ett belopp som ryms under den högsta möjliga arbetsgränsen kan vara ett legitimt LÄGRE
+      // avdrag (ROT är en övre gräns, ingen likhet): likhet med en procentsats på hela summan räcker därför aldrig som belägg. "Fel" bara om
+      // beloppet motsvarar avdrag på hela summan under någon tillåten sats OCH överstiger arbetsgränsen under varje tillåten sats (decimalsäkert,
+      // 0 tolerans). Uttryckligt rotOnMaterialOrTravel === true hanteras ovan och oförändrat.
+      const laborCeilingMax = D.max(period.rates.map((r) => D.mul(D.mul(D.dec(labor), D.dec(f)), D.dec(r))));
       const onAll = period.rates.some((r) => withinTol(rotAmt, (laborInclVat + material * f + (travel === null ? 0 : travel * f)) * r, rot.tolerance));
-      const onLabor = period.rates.some((r) => withinTol(rotAmt, laborInclVat * r, rot.tolerance));
+      const onLabor = !D.gt(D.dec(rotAmt), laborCeilingMax);
       if (onAll && !onLabor) {
         add("rot_material", "fel", "ROT på material eller resor", "ROT-beloppet motsvarar avdrag på hela summan, inklusive material. Avdraget får bara räknas på arbetskostnaden.", src(ref, "skatteverket_rot"));
       }
