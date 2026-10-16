@@ -132,3 +132,94 @@ test("workerd/SQLite: avslut av utkast via riktiga vägen; senare PUT och kassa 
     assert.equal((await again.json()).reason, "status");
   } finally { await h.close(); }
 });
+
+// ---- P1 (Codex 2026-10-16): beständigt beslut FÖRE destruktiv städning; faultprov på sista save och efterföljande resume/checkout ----
+const failOrderPut = (env, id, { times = 1, skip = 0 } = {}) => {
+  const storage = env.COMPARE_ORDERS.peek(id).obj.state.storage; const real = storage.put.bind(storage);
+  let left = times, toSkip = skip;
+  storage.put = async (k, v) => { if (k === "order" && left > 0) { if (toSkip > 0) { toSkip--; } else { left--; throw new Error("injicerat skrivfel"); } } return real(k, v); };
+  return () => { storage.put = real; };
+};
+
+test("P1: fel på sista order-save raderar ingenting; ordern är kvar, återupptagbar och betalbar MED dokumentbytes", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv({}); const { orderId, token } = await readyOrder(env, [S(100000), S(110000)]);
+    const bytesBefore = docKeys(env, orderId).map((k) => [k, env.REVIEWS_KV.m.get(k)]);
+    assert.equal(bytesBefore.length, 2);
+    const restore = failOrderPut(env, orderId);
+    const r = await closeDraft(env, orderId, token);
+    assert.equal(r.status, 503, "ärligt fel");
+    assert.match(String(r.json.error), /Ordern är kvar/);
+    restore();
+    const o = stored(env, orderId).get("order");
+    assert.equal(o.status, "ready"); assert.equal(o.docs.length, 2); assert.notEqual(o.contentDeleted, true);
+    assert.deepEqual(docKeys(env, orderId).map((k) => [k, env.REVIEWS_KV.m.get(k)]), bytesBefore, "KV-dokumenten är oförändrade (byte för byte)");
+    // Återupptagning: ordern kan läsas och gå till kassa; kassan får aldrig sluta på en order utan underlag
+    const g = await api(env, "GET", `/compare/orders/${orderId}`, { token });
+    assert.equal(g.json.order.status, "ready"); assert.equal(g.json.order.docs.length, 2);
+    const co = await startCheckout(env, orderId, token);
+    assert.equal(co.status, 200);
+    const o2 = stored(env, orderId).get("order");
+    assert.equal(o2.status, "awaiting_payment"); assert.equal(o2.docs.length, 2);
+    assert.equal(docKeys(env, orderId).length, 2, "underlagen finns kvar när kassan öppnats");
+    // Och ett senare, lyckat avslut är fortfarande nekat av kassaguarden
+    assert.equal((await closeDraft(env, orderId, token)).status, 409);
+  } finally { f.restore(); }
+});
+
+test("P1: samma fel följt av nytt försök lyckas fullständigt (idempotent återhämtning)", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv({}); const { orderId, token } = await readyOrder(env, [S(100000), S(110000)]);
+    const restore = failOrderPut(env, orderId, { times: 1 });
+    assert.equal((await closeDraft(env, orderId, token)).status, 503);
+    restore();
+    const r = await closeDraft(env, orderId, token);
+    assert.equal(r.status, 200); assert.equal(r.json.order.status, "deleted");
+    assert.equal(docKeys(env, orderId).length, 0);
+    assert.equal((await startCheckout(env, orderId, token)).status === 200, false, "avslutad order går aldrig till kassa");
+  } finally { f.restore(); }
+});
+
+test("P1: fel på uppföljande sparning eller på KV-radering efter lyckat beslut: ordern är ändå beständigt avslutad, aldrig återupptagbar", async () => {
+  const f = installFetch();
+  try {
+    // (a) andra sparningen (purgeKeys-rensning) misslyckas
+    let env = makeEnv({}); let { orderId, token } = await readyOrder(env, [S(100000), S(110000)]);
+    let restore = failOrderPut(env, orderId, { times: 1, skip: 1 });
+    let r = await closeDraft(env, orderId, token); restore();
+    assert.equal(r.status, 200); assert.equal(r.json.order.status, "deleted");
+    let o = stored(env, orderId).get("order");
+    assert.equal(o.status, "deleted"); assert.equal(o.contentDeleted, true); assert.equal(o.docs.length, 0);
+    assert.equal(docKeys(env, orderId).length, 0);
+    assert.notEqual((await startCheckout(env, orderId, token)).status, 200);
+    // (b) KV-radering av ett dokument kastar: beslutet står, nyckeln ligger i purgeKeys (TTL är reservvägen)
+    env = makeEnv({}); ({ orderId, token } = await readyOrder(env, [S(100000), S(110000)]));
+    const keys = docKeys(env, orderId); const realDel = env.REVIEWS_KV.delete.bind(env.REVIEWS_KV);
+    env.REVIEWS_KV.delete = async (k) => { if (k === keys[1]) throw new Error("kv nere"); return realDel(k); };
+    r = await closeDraft(env, orderId, token);
+    assert.equal(r.status, 200); assert.equal(r.json.closed, true);
+    o = stored(env, orderId).get("order");
+    assert.equal(o.status, "deleted"); assert.equal(o.contentDeleted, true); assert.deepEqual(o.docs, []);
+    assert.deepEqual(o.purgeKeys, [keys[1]], "bara den misslyckade nyckeln återstår för TTL-reserven");
+    assert.equal((await upload(env, orderId, token, 0, S(100000))).status, 409);
+    assert.notEqual((await startCheckout(env, orderId, token)).status, 200);
+    assert.equal(stored(env, orderId).get("order").status, "deleted");
+  } finally { f.restore(); }
+});
+
+test("P1: befintliga /delete har samma säkra ordning men oförändrad policy och åtkomst", async () => {
+  const f = installFetch();
+  try {
+    const env = makeEnv({}); const { orderId, token } = await readyOrder(env, [S(100000), S(110000)]);
+    assert.equal((await startCheckout(env, orderId, token)).status, 200); // awaiting_payment: /delete får fortfarande radera (oförändrad policy)
+    const restore = failOrderPut(env, orderId);
+    const bad = await api(env, "DELETE", `/compare/orders/${orderId}`, { token });
+    assert.notEqual(bad.json.ok, true, "befintlig route svarar ok:false (oförändrat svarsformat)"); restore();
+    assert.equal(stored(env, orderId).get("order").status, "awaiting_payment"); assert.equal(docKeys(env, orderId).length, 2);
+    assert.equal((await api(env, "DELETE", `/compare/orders/${orderId}`, { token: "A".repeat(43) })).status, 404, "fel nyckel oförändrat");
+    const ok = await api(env, "DELETE", `/compare/orders/${orderId}`, { token });
+    assert.equal(ok.status, 200); assert.equal(ok.json.order.status, "deleted"); assert.equal(docKeys(env, orderId).length, 0);
+  } finally { f.restore(); }
+});

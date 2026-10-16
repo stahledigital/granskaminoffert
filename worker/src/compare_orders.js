@@ -495,9 +495,7 @@ export class CompareOrders {
     if (path === "/reconcile-mark") { o.lastReconcileAt = now; await this._save(o); return { body: { ok: true, sessionId: o.stripe && o.stripe.sessionId } }; }
     if (path === "/delete") {
       if (["paid", "running"].includes(o.status)) return { status: 409, body: { ok: false, error: "pagar" } };
-      await this._wipeContent(o);
-      if (["draft", "ready", "awaiting_payment", "expired"].includes(o.status)) o.status = "deleted";
-      await this._save(o);
+      await this._retireContent(o, ["draft", "ready", "awaiting_payment", "expired"].includes(o.status) ? "deleted" : null);
       return { body: { ok: true, order: publicView(o, now) } };
     }
     // D19 "Avsluta utkastet": snäv, atomisk draft-only-semantik (BREDDAR INTE /delete, som även raderar andra tillstånd).
@@ -513,21 +511,28 @@ export class CompareOrders {
         : o.contentDeleted ? "raderad"
         : null;
       if (reason) return { status: 409, body: { ok: false, error: "kan_inte_avslutas", reason, order: publicView(o, now) } };
-      await this._wipeContent(o);
-      o.status = "deleted";
-      await this._save(o);
+      await this._retireContent(o, "deleted");
       return { body: { ok: true, closed: true, order: publicView(o, now) } };
     }
     return NOT_FOUND;
   }
 
-  // Raderar orderns innehåll (filer, extraktioner, källuppgifter, förköpsidentitet, bekräftelser). Gemensamt för /delete och /close-draft.
-  async _wipeContent(o) {
+  // Avslutar/raderar orderns innehåll (filer, extraktioner, källuppgifter, förköpsidentitet, bekräftelser). Gemensamt för /delete och /close-draft.
+  // ORDNING (D19 P1): det beständiga beslutet FÖRST, destruktiv städning EFTER. Misslyckas den första sparningen kastas felet innan något raderats:
+  // ordern står kvar helt (ready, alla underlag, KV orörd) och kunden får ärligt 503 "Ordern är kvar". Lyckas den har ordern beständigt status
+  // deleted/contentDeleted och är varken återupptagbar eller betalbar; städningen därefter är best-effort och kan inte ångra beslutet.
+  // Nycklar vars radering misslyckas ligger kvar i purgeKeys och faller tillbaka på KV-dokumentens TTL (24 h, befintlig policy).
+  async _retireContent(o, finalStatus) {
     const keys = [...new Set([...o.docs.map((d) => d.key).filter(Boolean), ...(o.purgeKeys || [])])].concat(o.reportKey ? [o.reportKey] : []);
-    for (const k of keys) { try { await this.env.REVIEWS_KV.delete(k); } catch { /* TTL tar resten */ } }
-    for (const d of Object.keys((o.work && o.work.steps && o.work.steps.ext) || {})) await this.state.storage.delete(`ext:${d}`);
-    await this.state.storage.delete("sources"); await this.state.storage.delete("preid"); await this.state.storage.delete("check");
-    o.docs = []; o.purgeKeys = []; o.reportKey = null; o.contentDeleted = true; o.estimate = null;
+    const extIds = Object.keys((o.work && o.work.steps && o.work.steps.ext) || {});
+    o.docs = []; o.purgeKeys = keys; o.reportKey = null; o.contentDeleted = true; o.estimate = null;
+    if (finalStatus) o.status = finalStatus;
+    await this._save(o); // kastar vid fel INNAN något raderats
+    const failed = [];
+    for (const k of keys) { try { await this.env.REVIEWS_KV.delete(k); } catch { failed.push(k); } }
+    for (const d of extIds) { try { await this.state.storage.delete(`ext:${d}`); } catch { /* svepet vid utgång tar resten */ } }
+    for (const k of ["sources", "preid", "check"]) { try { await this.state.storage.delete(k); } catch { /* som ovan */ } }
+    if (failed.length !== keys.length) { o.purgeKeys = failed; try { await this._save(o); } catch { /* purgeKeys lämnas fullständig: TTL är reservvägen */ } }
   }
 
   _shouldReconcile(o, now) {
