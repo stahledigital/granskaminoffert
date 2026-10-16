@@ -125,6 +125,17 @@
     receipt: null
   };
 
+  // ---------- statusrader (delade av gratis, jämförelse, förkontroll och exempel) ----------
+  // Fem olika betydelser med olika ord OCH symbol: ok (kontrollerat stämmer), ask (förtydliga/fråga), bad (beräknad avvikelse),
+  // stated (anges i offerten men är inte verifierat), unknown (ej bedömt). Färg förstärker bara; ord och symbol bär betydelsen.
+  G.ST_WORD = { ok: 'Stämmer', ask: 'Förtydliga', bad: 'Avvikelse', stated: 'Anges, ej verifierat', unknown: 'Ej bedömt' };
+  G.ST_MARK = { ok: '✓', ask: '!', bad: '×', stated: '○', unknown: '–' };
+  G.stRowHtml = function (st, label, text) {
+    return '<li class="st-row" data-st="' + st + '"><span class="st-mark" aria-hidden="true">' + G.ST_MARK[st] + '</span><div class="st-main"><span class="st-label">' + G.escapeHtml(label) +
+      '</span><span class="st-word">· ' + G.ST_WORD[st] + '</span>' + (text ? '<span class="st-text">' + G.escapeHtml(text) + '</span>' : '') + '</div></li>';
+  };
+  G.stRow = function (st, label, text) { var t = document.createElement('template'); t.innerHTML = G.stRowHtml(st, label, text); return t.content.firstChild; };
+
   // ---------- explicit överföring av eget underlag mellan uppgifter (A2) ----------
   // Endast efter aktivt klick, endast eget underlag (aldrig exemplet), endast till TOMT mål (en påbörjad order i målet skyddas av målet självt:
   // underlaget ligger kvar i minnet men visas inte och skriver aldrig över ordern). Returnerar kvitto som målet visar.

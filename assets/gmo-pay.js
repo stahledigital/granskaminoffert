@@ -14,6 +14,17 @@ var TEMPLATE_COMPARE=`<p class="hint" id="scopenote">Tjänsten är avsedd för h
 
 <!-- STEG 1 -->
 <section id="s1" class="hidden" aria-labelledby="h-s1">
+  <section class="valuecard" id="value" aria-labelledby="value-h">
+    <h2 id="value-h">Det här får du</h2>
+    <p class="vprice"><b>49 kr totalt, inkl. moms</b> · engångsköp, ingen prenumeration</p>
+    <ul>
+      <li>Skillnader i omfattning, pris, moms och ROT sida vid sida, och frågor att ställa till varje hantverkare.</li>
+      <li>Före köp ser du vad vi kunde läsa ur dina offerter – det kostar inget. Själva jämförelsen får du efter köpet.</li>
+      <li>Ingen rekommendation om vem du ska välja.</li>
+    </ul>
+    <button type="button" class="btn ghost" id="exbtn" aria-expanded="false" aria-controls="exview">Se ett exempel</button>
+    <div id="exview" class="exview hidden" role="region" aria-labelledby="ex-h"></div>
+  </section>
   <ol class="steps" aria-label="Steg"><li aria-current="step">1 Offerter</li><li>2 Kontroll</li><li>3 Betala</li><li>4 Resultat</li></ol>
   <h2 id="h-s1">Hur många offerter vill du jämföra?</h2>
   <div class="seg" role="group" aria-label="Antal offerter"><button type="button" data-n="2" aria-pressed="true">2</button><button type="button" data-n="3" aria-pressed="false">3</button><button type="button" data-n="4" aria-pressed="false">4</button></div>
@@ -94,6 +105,17 @@ var TEMPLATE_CHECK=`<div id="receipt" class="receipt hidden" role="status" aria-
 <div id="guard" class="warnbox hidden" role="status"></div>
 
 <section id="s1" class="hidden" aria-labelledby="h-s1">
+  <section class="valuecard" id="value" aria-labelledby="value-h">
+    <h2 id="value-h">Det här får du</h2>
+    <p class="vprice"><b>49 kr per offert, inkl. moms</b> · engångsköp, ingen prenumeration</p>
+    <ul>
+      <li>Din egen offert kontrollerad före utskick: moms, ROT-underlag, pristyp, omfattning och tid, och frågor som en kund sannolikt ställer.</li>
+      <li>Efter att du själv bekräftat uppgifterna: färdiga tilläggstexter och en PDF-bilaga till kunden med samma uppgifter.</li>
+      <li>Inget läggs till som du inte bekräftat. Din originaloffert ändras aldrig.</li>
+    </ul>
+    <button type="button" class="btn ghost" id="exbtn" aria-expanded="false" aria-controls="exview">Se ett exempel</button>
+    <div id="exview" class="exview hidden" role="region" aria-labelledby="ex-h"></div>
+  </section>
   <ol class="steps" aria-label="Steg"><li aria-current="step">1 Din offert</li><li>2 Betala</li><li>3 Resultat</li></ol>
   <h2 id="h-s1">Ladda upp din offert</h2>
   <div class="card">
@@ -173,6 +195,62 @@ function cfgCard(kind,title,text,btn){
   c.setAttribute('data-cfg',kind);c.appendChild(el('h2',{text:title}));if(text)c.appendChild(el('p',{text:text}));
   if(btn)c.appendChild(btn);
   show('cfgstate',true);
+}
+// ---------- märkt syntetiskt exempel (read-only): inga anrop, ingen order, rör aldrig egna inmatningar ----------
+function exTable(head,rows){
+  var t=el('table',{});
+  t.appendChild(el('caption',{class:'srconly-cap',text:'Exempel: skillnader mellan två påhittade offerter'}));
+  var th=el('tr',{});head.forEach(function(h){th.appendChild(el('th',{scope:'col',text:h}))});
+  t.appendChild(el('thead',{},th));
+  var tb=el('tbody',{});
+  rows.forEach(function(r){var tr=el('tr',{});tr.appendChild(el('th',{scope:'row',text:r[0]}));for(var i=1;i<r.length;i++)tr.appendChild(el('td',{text:r[i]}));tb.appendChild(tr)});
+  t.appendChild(tb);return t;
+}
+function exampleCompare(){
+  var b=el('div',{});
+  b.appendChild(el('span',{class:'extag',text:'Exempel'}));
+  b.appendChild(el('h3',{id:'ex-h',text:'Så kan en jämförelse se ut'}));
+  b.appendChild(el('p',{class:'hint',text:'Påhittade uppgifter. Ingen riktig offert, ingen order, inget AI-anrop och ingen betalning.'}));
+  b.appendChild(exTable(['','Byggfirma Exempel AB','Snickeri Exempel'],[
+    ['Totalpris','118 000 kr inkl. moms','96 000 kr exkl. moms'],
+    ['Momsbas','Inkl. moms','Exkl. moms – jämförs först efter omräkning'],
+    ['Rivning och bortforsling','Ingår','Ingår inte'],
+    ['Material','Ingår','Ingår'],
+    ['Resor','Ingår','Framgår inte'],
+    ['Betalning','30 dagar efter slutfört arbete','50 % i förskott']]));
+  b.appendChild(el('h3',{text:'Frågor att ställa'}));
+  var ul=el('ul',{class:'exq'});
+  ['Byggfirma Exempel AB: Vilken garanti gäller på arbetet?','Snickeri Exempel: Ingår bortforsling av rivningsmaterial, och är 96 000 kr exklusive moms?','Snickeri Exempel: Vad omfattar förskottet på 50 %, och hur skyddas det?'].forEach(function(t){ul.appendChild(el('li',{text:t}))});
+  b.appendChild(ul);
+  b.appendChild(el('p',{class:'exnote',text:'Lägsta belopp visas bara när offerterna går att jämföra, och säger inget om kvalitet. Ingen automatisk vinnare.'}));
+  return b;
+}
+function exampleCheck(){
+  var b=el('div',{});
+  b.appendChild(el('span',{class:'extag',text:'Exempel'}));
+  b.appendChild(el('h3',{id:'ex-h',text:'Så kan en förkontroll se ut'}));
+  b.appendChild(el('p',{class:'hint',text:'Påhittade uppgifter. Ingen riktig offert, ingen order, inget AI-anrop och ingen betalning.'}));
+  var ul=el('ul',{class:'st-rows'});
+  ul.appendChild(G.stRow('stated','Moms','Priset anges inklusive moms.'));
+  ul.appendChild(G.stRow('ok','ROT-underlag','ROT-avdraget 12 000 kr är 30 % av arbetskostnaden 40 000 kr inklusive moms.'));
+  ul.appendChild(G.stRow('ask','Pristyp','Offerten säger inte om priset är fast, ungefärligt eller löpande. Din kund kommer att fråga.'));
+  ul.appendChild(G.stRow('ask','Tid','Inget startdatum eller ungefärlig period anges.'));
+  ul.appendChild(G.stRow('unknown','Garanti','Framgår inte av offerten och förblir okänt tills du själv fyller i det.'));
+  b.appendChild(ul);
+  b.appendChild(el('h3',{text:'Efter din bekräftelse'}));
+  b.appendChild(el('p',{class:'exnote',text:'Du får färdiga tilläggstexter att klistra in i offerten och en PDF-bilaga till kunden med exakt de uppgifter du bekräftat. Inget läggs till som du inte bekräftat.'}));
+  return b;
+}
+function wireExample(){
+  var btn=$('exbtn'),box=$('exview');if(!btn||!box)return;
+  function close(focus){box.classList.add('hidden');box.textContent='';btn.setAttribute('aria-expanded','false');btn.textContent='Se ett exempel';if(focus){try{btn.focus()}catch(e){}}}
+  btn.addEventListener('click',function(){
+    if(!box.classList.contains('hidden')){close(true);return}
+    box.textContent='';box.appendChild(KIND==='check'?exampleCheck():exampleCompare());
+    var a=el('div',{class:'actions'});var c=el('button',{type:'button',class:'btn ghost',id:'exclose',text:'Stäng exemplet'});c.addEventListener('click',function(){close(true)});a.appendChild(c);box.appendChild(a);
+    box.classList.remove('hidden');btn.setAttribute('aria-expanded','true');btn.textContent='Dölj exemplet';
+    G.measure.demoSeen=true;G.measure.event('example_view',{product:KIND});
+  });
 }
 // Kvitto efter aktiv överföring från en annan uppgift (G.transfer): säger exakt vad som följde med, eller varför inget gjorde det.
 function showReceipt(){
@@ -1622,6 +1700,7 @@ async function ckPay(){
 }
 
 showReceipt();
+wireExample();
 init();
 
   return {unmount:function(){dead=true;clearTimeout(state.timer);cleanups.forEach(function(f){try{f()}catch(e){}});cleanups=[];},busy:function(){return !!state.busy}};

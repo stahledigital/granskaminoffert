@@ -328,3 +328,59 @@ html{-webkit-text-size-adjust:100%}
 #app:not([data-task="free"]) .card,#app:not([data-task="free"]) details{break-inside:avoid}
 #app:not([data-task="free"]) details>*{display:block}
 }
+
+/* ---- uppgiftsval (D19): tre likvärdiga kort, ingen primär knapp före val ---- */
+.tasks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0 0 22px}
+.taskcard{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:16px;text-decoration:none;color:var(--ink);min-width:0}
+.taskcard b{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:700;font-size:24px;line-height:1.05}
+.taskcard .tk-price{font-weight:600;font-size:16px;color:var(--ink)}
+.taskcard .tk-text{color:var(--ink2);font-size:15px;flex:1;overflow-wrap:anywhere}
+.taskcard .tk-cta{display:block;margin-top:6px;border:1px solid var(--fl);border-radius:8px;padding:11px 14px;text-align:center;font-weight:600;font-size:16px;min-height:44px}
+.taskcard:hover,.taskcard:focus-visible{border-color:var(--acc)}
+.taskcard:hover .tk-cta,.taskcard:focus-visible .tk-cta{border-color:var(--acc);color:var(--acc-text)}
+@media (max-width:760px){.tasks{grid-template-columns:1fr;gap:10px}.taskcard{padding:14px}.taskcard b{font-size:22px}}
+#chooser .foot{margin-top:28px}
+.foot{font-size:14px;color:var(--ink2)}
+.foot a{color:var(--ink2)}
+
+/* ---- kvitto vid överföring, uppgiftsmeddelande ---- */
+.receipt{border:1px solid var(--line);border-left:4px solid var(--fl);background:var(--paper);border-radius:10px;padding:12px 14px;margin:0 0 16px;font-size:15px}
+.receipt p{margin:0}
+.receipt:focus{outline:none}
+#gmo-notice{border:1px solid var(--line);border-left:4px solid var(--gul);background:var(--paper);border-radius:10px;padding:12px 14px;margin:0 0 16px;font-size:15px}
+#gmo-notice.hidden{display:none}
+.hidden{display:none}
+
+/* ---- statusrader (D19): kompakta rader utan staplar; markör + ord + text. Färg bär aldrig betydelsen ensam. ---- */
+.st-rows{list-style:none;margin:0;padding:0}
+.st-row{display:grid;grid-template-columns:22px minmax(0,1fr);gap:0 10px;padding:10px 0;border-top:1px solid var(--line);align-items:start}
+.st-rows>.st-row:first-child{border-top:0}
+.st-mark{width:20px;height:20px;border-radius:50%;border:1.5px solid currentColor;display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1;font-weight:700;margin-top:2px;box-sizing:border-box}
+.st-row[data-st=ok] .st-mark,.st-row[data-st=ok] .st-word{color:var(--ok)}
+.st-row[data-st=ask] .st-mark,.st-row[data-st=ask] .st-word{color:var(--gul)}
+.st-row[data-st=bad] .st-mark,.st-row[data-st=bad] .st-word{color:var(--bad)}
+.st-row[data-st=stated] .st-mark,.st-row[data-st=stated] .st-word{color:var(--ink2)}
+.st-row[data-st=unknown] .st-mark{color:var(--ink2);border-style:dashed}
+.st-row[data-st=unknown] .st-word{color:var(--ink2)}
+.st-main{min-width:0;overflow-wrap:anywhere}
+.st-label{font-weight:600}
+.st-word{font-weight:600;margin-left:6px;font-size:14px;text-transform:none}
+.st-text{display:block;color:var(--ink2);font-size:15px;margin-top:2px}
+
+/* ---- värdeblock och exempel (D19) ---- */
+.valuecard{border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:16px;margin:0 0 18px}
+.valuecard h2{margin:0 0 6px;font-size:20px}
+.valuecard .vprice{margin:0 0 8px;font-size:17px}
+.valuecard ul{margin:0 0 12px;padding-left:20px;color:var(--ink2)}
+.valuecard li{margin:4px 0}
+.exview{margin:14px 0 0;border:1px dashed var(--fl);border-radius:10px;padding:14px;background:var(--bg)}
+.exview .extag{display:inline-block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;border:1px solid var(--fl);border-radius:6px;padding:2px 8px;color:var(--ink2);margin-bottom:8px}
+.exview h3{margin:6px 0 8px;font-size:18px}
+.exview table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px}
+.exview th,.exview td{border-top:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+.exview thead th{border-top:0;color:var(--ink2);font-weight:600}
+.exview tbody th{font-weight:600;width:28%}
+.exview .exnote{color:var(--ink2);font-size:14px;margin:10px 0 0}
+.exview .exq{margin:8px 0 0;padding-left:20px;font-size:15px}
+.exview .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.srconly-cap{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}

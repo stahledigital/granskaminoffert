@@ -12,10 +12,10 @@
       h1: ['Granska din hantverkaroffert.'], lead: 'För bygg, renovering och installation i hemmet. Hitta det som är oklart innan ni skriver på.' },
     compare: { hd: 'Jämför mina offerter', link: ['Granska en offert gratis', '/#gratis', 'free'],
       h1: ['Jämför 2–4 hantverkarofferter för samma arbete.', 'Se vad som skiljer.'],
-      lead: 'För bygg, renovering och installation i hemmet. Lägg in två till fyra hantverkarofferter på samma arbete. Du får en tydlig jämförelse av omfattning, pris, moms och ROT – och frågor att ställa till varje hantverkare.' },
+      lead: 'För bygg, renovering och installation i hemmet. Lägg in två till fyra hantverkarofferter på samma arbete.' },
     check: { hd: 'Förkontroll av min offert', link: ['Granska en offert gratis', '/#gratis', 'free'],
       h1: ['Kolla din egen offert', 'innan du skickar den.'],
-      lead: 'Vi läser din offert och visar vad en kund kommer att fråga om: moms, ROT-underlag, pristyp, omfattning och tid. Bekräfta det du själv står för och få färdiga tilläggstexter och en PDF-bilaga till kunden. Engångsköp 49 kr inklusive moms.' }
+      lead: 'För dig som ska skicka en hantverkaroffert: se vad en kund kommer att fråga om innan du skickar den.' }
   };
 
   function skeleton() {
