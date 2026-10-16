@@ -1,0 +1,880 @@
+{
+ "cases": [
+  {
+   "id": "S01_MIXED",
+   "input": {
+    "trade": "tak",
+    "calcCoverage": "checked",
+    "calcNote": "Kontrollerade timmar × timpris.",
+    "contradictions": [
+     {
+      "key": "Summan stämmer inte",
+      "text": "Raderna summerar till 42 820 kr men totalen är 45 000 kr."
+     }
+    ],
+    "clarify": [
+     {
+      "key": "Startdatum",
+      "text": "Inget startdatum anges."
+     },
+     {
+      "key": "Garanti",
+      "text": "Ingen garanti nämns."
+     }
+    ],
+    "stated": [
+     {
+      "key": "Moms",
+      "text": "Priser anges inklusive moms."
+     }
+    ],
+    "price": {
+     "hourlyRateSek": 595,
+     "totalSumSek": 42820,
+     "rotDeducted": true,
+     "comment": "Tydligt angivet."
+    },
+    "questions": [
+     "Vilket startdatum gäller?",
+     "Vilken garanti ingår?"
+    ],
+    "priceReport": {
+     "referenceVersion": "2026-10-09",
+     "checked": [
+      {
+       "id": "moms",
+       "status": "ok",
+       "title": "Moms",
+       "text": "Priserna anges inklusive moms, konsekvent.",
+       "source": ""
+      },
+      {
+       "id": "rot_belopp",
+       "status": "fel",
+       "title": "ROT-belopp",
+       "text": "ROT-avdraget 9 000 kr stämmer inte med 30 % av arbetskostnaden.",
+       "source": "Skatteverket"
+      },
+      {
+       "id": "pristyp",
+       "status": "flagga",
+       "title": "Pristyp",
+       "text": "Offerten anger inte pristyp.",
+       "source": ""
+      }
+     ],
+     "compared": [
+      {
+       "id": "tim_snickare",
+       "mode": "inom",
+       "title": "Marknad – timpris snickare",
+       "text": "Timpriset ligger inom intervallet.",
+       "source": "Byggahus"
+      }
+     ],
+     "cannotAssess": [
+      {
+       "title": "Avläsningen",
+       "text": "Följande uppgifter kunde inte läsas säkert: moms.",
+       "source": ""
+      }
+     ],
+     "partial": false,
+     "readIssues": [
+      "moms"
+     ],
+     "performed": {
+      "rules": 3,
+      "addons": 0,
+      "comparisons": 1
+     },
+     "disclaimer": "Referensintervallen är en uppskattning.",
+     "methodUrl": "x"
+    },
+    "meta": {
+     "model": "mock"
+    }
+   },
+   "legacyCounters": {
+    "ok": 1,
+    "bad": 1,
+    "attention": 4,
+    "unknown": 1,
+    "assessed": 4
+   },
+   "rows": [
+    {
+     "label": "Räkningen",
+     "text": "1 beräknad avvikelse ·1 möjlig avvikelse att kontrollera mot originalet",
+     "status": "computed_deviation_and_ai_uncertainty"
+    },
+    {
+     "label": "Prisregler",
+     "text": "0 av3 stämmer ·1 avvikelse ·1 fråga ·1 ej bedömd",
+     "status": "mixed"
+    },
+    {
+     "label": "Jämförelse med referens",
+     "text": "1 av1 inom referensintervall; ingen garanti om rimligt pris",
+     "status": "within_reference"
+    },
+    {
+     "label": "Tydlighet i offerten",
+     "text": "1 anges i offerten (inte verifierat) · 2 att förtydliga",
+     "status": "stated_and_clarify"
+    }
+   ]
+  },
+  {
+   "id": "S02_CHECKED_OK",
+   "input": {
+    "trade": "tak",
+    "calcCoverage": "checked",
+    "calcNote": "Kontrollerade timmar × timpris.",
+    "contradictions": [],
+    "clarify": [],
+    "stated": [
+     {
+      "key": "Moms",
+      "text": "Priser anges inklusive moms."
+     }
+    ],
+    "price": {
+     "hourlyRateSek": 595,
+     "totalSumSek": 42820,
+     "rotDeducted": true,
+     "comment": "Tydligt angivet."
+    },
+    "questions": [],
+    "priceReport": {
+     "referenceVersion": "2026-10-09",
+     "checked": [
+      {
+       "id": "rot_belopp",
+       "status": "ok",
+       "title": "ROT-belopp",
+       "text": "ok",
+       "source": ""
+      },
+      {
+       "id": "tim_x",
+       "status": "ok",
+       "title": "Timpris",
+       "text": "ok",
+       "source": ""
+      }
+     ],
+     "compared": [
+      {
+       "id": "tim_snickare",
+       "mode": "inom",
+       "title": "Marknad – timpris snickare",
+       "text": "Timpriset ligger inom intervallet.",
+       "source": "Byggahus"
+      }
+     ],
+     "cannotAssess": [],
+     "partial": false,
+     "readIssues": [
+      "moms"
+     ],
+     "performed": {
+      "rules": 3,
+      "addons": 0,
+      "comparisons": 1
+     },
+     "disclaimer": "Referensintervallen är en uppskattning.",
+     "methodUrl": "x"
+    },
+    "meta": {
+     "model": "mock"
+    }
+   },
+   "legacyCounters": {
+    "ok": 4,
+    "bad": 0,
+    "attention": 0,
+    "unknown": 0,
+    "assessed": 4
+   },
+   "rows": [
+    {
+     "label": "Räkningen",
+     "text": "Inga avvikelser hittades i den utförda kontrollen",
+     "status": "checked_ok"
+    },
+    {
+     "label": "Prisregler",
+     "text": "2 av2 kontrollerade prisregler stämmer",
+     "status": "checked_ok"
+    },
+    {
+     "label": "Jämförelse med referens",
+     "text": "1 av1 inom referensintervall; ingen garanti om rimligt pris",
+     "status": "within_reference"
+    },
+    {
+     "label": "Tydlighet i offerten",
+     "text": "1 anges i offerten (inte verifierat) · 0 att förtydliga",
+     "status": "stated_unverified"
+    }
+   ]
+  },
+  {
+   "id": "S03_AI_UNCERTAIN",
+   "input": {
+    "trade": "tak",
+    "calcCoverage": "checked",
+    "calcNote": "Kontrollerade timmar × timpris.",
+    "contradictions": [
+     {
+      "key": "Räknefel",
+      "text": "Modellen tror att beloppen skiljer."
+     }
+    ],
+    "clarify": [],
+    "stated": [
+     {
+      "key": "Moms",
+      "text": "Priser anges inklusive moms."
+     }
+    ],
+    "price": {
+     "hourlyRateSek": 595,
+     "totalSumSek": 42820,
+     "rotDeducted": true,
+     "comment": "Tydligt angivet."
+    },
+    "questions": [],
+    "priceReport": {
+     "referenceVersion": "2026-10-09",
+     "checked": [
+      {
+       "id": "rot_belopp",
+       "status": "ok",
+       "title": "ROT-belopp",
+       "text": "ok",
+       "source": ""
+      },
+      {
+       "id": "tim_x",
+       "status": "ok",
+       "title": "Timpris",
+       "text": "ok",
+       "source": ""
+      }
+     ],
+     "compared": [
+      {
+       "id": "tim_snickare",
+       "mode": "inom",
+       "title": "Marknad – timpris snickare",
+       "text": "Timpriset ligger inom intervallet.",
+       "source": "Byggahus"
+      }
+     ],
+     "cannotAssess": [],
+     "partial": false,
+     "readIssues": [
+      "moms"
+     ],
+     "performed": {
+      "rules": 3,
+      "addons": 0,
+      "comparisons": 1
+     },
+     "disclaimer": "Referensintervallen är en uppskattning.",
+     "methodUrl": "x"
+    },
+    "meta": {
+     "model": "mock"
+    }
+   },
+   "legacyCounters": {
+    "ok": 3,
+    "bad": 0,
+    "attention": 1,
+    "unknown": 0,
+    "assessed": 4
+   },
+   "rows": [
+    {
+     "label": "Räkningen",
+     "text": "1 möjlig avvikelse att jämföra med originalet; inget konstaterat fel",
+     "status": "ai_uncertain"
+    },
+    {
+     "label": "Prisregler",
+     "text": "2 av2 kontrollerade prisregler stämmer",
+     "status": "checked_ok"
+    },
+    {
+     "label": "Jämförelse med referens",
+     "text": "1 av1 inom referensintervall; ingen garanti om rimligt pris",
+     "status": "within_reference"
+    },
+    {
+     "label": "Tydlighet i offerten",
+     "text": "1 anges i offerten (inte verifierat) · 0 att förtydliga",
+     "status": "stated_unverified"
+    }
+   ]
+  },
+  {
+   "id": "S04_CALC_NOT_ASSESSED",
+   "input": {
+    "trade": "tak",
+    "calcCoverage": "insufficient_data",
+    "calcNote": "Underlaget räckte inte för att kontrollera beräkningen.",
+    "contradictions": [],
+    "clarify": [],
+    "stated": [
+     {
+      "key": "Moms",
+      "text": "Priser anges inklusive moms."
+     }
+    ],
+    "price": {
+     "hourlyRateSek": 595,
+     "totalSumSek": 42820,
+     "rotDeducted": true,
+     "comment": "Tydligt angivet."
+    },
+    "questions": [],
+    "priceReport": {
+     "referenceVersion": "2026-10-09",
+     "checked": [
+      {
+       "id": "rot_belopp",
+       "status": "ok",
+       "title": "ROT-belopp",
+       "text": "ok",
+       "source": ""
+      },
+      {
+       "id": "tim_x",
+       "status": "ok",
+       "title": "Timpris",
+       "text": "ok",
+       "source": ""
+      }
+     ],
+     "compared": [
+      {
+       "id": "tim_snickare",
+       "mode": "inom",
+       "title": "Marknad – timpris snickare",
+       "text": "Timpriset ligger inom intervallet.",
+       "source": "Byggahus"
+      }
+     ],
+     "cannotAssess": [],
+     "partial": false,
+     "readIssues": [
+      "moms"
+     ],
+     "performed": {
+      "rules": 3,
+      "addons": 0,
+      "comparisons": 1
+     },
+     "disclaimer": "Referensintervallen är en uppskattning.",
+     "methodUrl": "x"
+    },
+    "meta": {
+     "model": "mock"
+    }
+   },
+   "legacyCounters": {
+    "ok": 3,
+    "bad": 0,
+    "attention": 0,
+    "unknown": 1,
+    "assessed": 3
+   },
+   "rows": [
+    {
+     "label": "Räkningen",
+     "text": "Ej bedömd – kunde inte kontrolleras",
+     "status": "not_assessed"
+    },
+    {
+     "label": "Prisregler",
+     "text": "2 av2 kontrollerade prisregler stämmer",
+     "status": "checked_ok"
+    },
+    {
+     "label": "Jämförelse med referens",
+     "text": "1 av1 inom referensintervall; ingen garanti om rimligt pris",
+     "status": "within_reference"
+    },
+    {
+     "label": "Tydlighet i offerten",
+     "text": "1 anges i offerten (inte verifierat) · 0 att förtydliga",
+     "status": "stated_unverified"
+    }
+   ]
+  },
+  {
+   "id": "S05_REFERENCE_NOT_ASSESSED",
+   "input": {
+    "trade": "tak",
+    "calcCoverage": "checked",
+    "calcNote": "Kontrollerade timmar × timpris.",
+    "contradictions": [],
+    "clarify": [],
+    "stated": [
+     {
+      "key": "Moms",
+      "text": "Priser anges inklusive moms."
+     }
+    ],
+    "price": {
+     "hourlyRateSek": 595,
+     "totalSumSek": 42820,
+     "rotDeducted": true,
+     "comment": "Tydligt angivet."
+    },
+    "questions": [],
+    "priceReport": {
+     "referenceVersion": "2026-10-09",
+     "checked": [
+      {
+       "id": "rot_belopp",
+       "status": "ok",
+       "title": "ROT-belopp",
+       "text": "ok",
+       "source": ""
+      },
+      {
+       "id": "tim_x",
+       "status": "ok",
+       "title": "Timpris",
+       "text": "ok",
+       "source": ""
+      }
+     ],
+     "compared": [
+      {
+       "id": "projekt",
+       "mode": "ej_bedombar",
+       "title": "Projektpris",
+       "text": "Ingen säker jämförelse.",
+       "source": ""
+      }
+     ],
+     "cannotAssess": [],
+     "partial": false,
+     "readIssues": [
+      "moms"
+     ],
+     "performed": {
+      "rules": 3,
+      "addons": 0,
+      "comparisons": 1
+     },
+     "disclaimer": "Referensintervallen är en uppskattning.",
+     "methodUrl": "x"
+    },
+    "meta": {
+     "model": "mock"
+    }
+   },
+   "legacyCounters": {
+    "ok": 3,
+    "bad": 0,
+    "attention": 0,
+    "unknown": 1,
+    "assessed": 3
+   },
+   "rows": [
+    {
+     "label": "Räkningen",
+     "text": "Inga avvikelser hittades i den utförda kontrollen",
+     "status": "checked_ok"
+    },
+    {
+     "label": "Prisregler",
+     "text": "2 av2 kontrollerade prisregler stämmer",
+     "status": "checked_ok"
+    },
+    {
+     "label": "Jämförelse med referens",
+     "text": "1 jämförelse ej bedömd; ingen prisfråga eller avvikelse",
+     "status": "not_assessed"
+    },
+    {
+     "label": "Tydlighet i offerten",
+     "text": "1 anges i offerten (inte verifierat) · 0 att förtydliga",
+     "status": "stated_unverified"
+    }
+   ]
+  },
+  {
+   "id": "S06_FORMALIA_WITHOUT_PRICE_RULE",
+   "input": {
+    "trade": "tak",
+    "calcCoverage": "checked",
+    "calcNote": "Kontrollerade timmar × timpris.",
+    "contradictions": [],
+    "clarify": [],
+    "stated": [
+     {
+      "key": "Moms",
+      "text": "Priser anges inklusive moms."
+     }
+    ],
+    "price": {
+     "hourlyRateSek": 595,
+     "totalSumSek": 42820,
+     "rotDeducted": true,
+     "comment": "Tydligt angivet."
+    },
+    "questions": [],
+    "priceReport": {
+     "referenceVersion": "2026-10-09",
+     "checked": [
+      {
+       "id": "moms",
+       "status": "ok",
+       "title": "Moms",
+       "text": "ok",
+       "source": ""
+      }
+     ],
+     "compared": [
+      {
+       "id": "tim_snickare",
+       "mode": "inom",
+       "title": "Marknad – timpris snickare",
+       "text": "Timpriset ligger inom intervallet.",
+       "source": "Byggahus"
+      }
+     ],
+     "cannotAssess": [],
+     "partial": false,
+     "readIssues": [
+      "moms"
+     ],
+     "performed": {
+      "rules": 3,
+      "addons": 0,
+      "comparisons": 1
+     },
+     "disclaimer": "Referensintervallen är en uppskattning.",
+     "methodUrl": "x"
+    },
+    "meta": {
+     "model": "mock"
+    }
+   },
+   "legacyCounters": {
+    "ok": 2,
+    "bad": 0,
+    "attention": 0,
+    "unknown": 1,
+    "assessed": 2
+   },
+   "rows": [
+    {
+     "label": "Räkningen",
+     "text": "Inga avvikelser hittades i den utförda kontrollen",
+     "status": "checked_ok"
+    },
+    {
+     "label": "Prisregler",
+     "text": "Ej bedömd – ingen prisregel kunde kontrolleras",
+     "status": "not_assessed"
+    },
+    {
+     "label": "Jämförelse med referens",
+     "text": "1 av1 inom referensintervall; ingen garanti om rimligt pris",
+     "status": "within_reference"
+    },
+    {
+     "label": "Tydlighet i offerten",
+     "text": "1 anges i offerten (inte verifierat) · 0 att förtydliga",
+     "status": "stated_unverified"
+    }
+   ]
+  },
+  {
+   "id": "S07_ONLY_STATED",
+   "input": {
+    "trade": "tak",
+    "calcCoverage": "insufficient_data",
+    "calcNote": "Underlaget räckte inte för att kontrollera beräkningen.",
+    "contradictions": [],
+    "clarify": [],
+    "stated": [
+     {
+      "key": "Organisationsnummer",
+      "text": "Organisationsnummer anges i offerten."
+     },
+     {
+      "key": "Försäkring",
+      "text": "Firman skriver att ansvarsförsäkring finns."
+     }
+    ],
+    "price": {
+     "hourlyRateSek": 595,
+     "totalSumSek": 42820,
+     "rotDeducted": true,
+     "comment": "Tydligt angivet."
+    },
+    "questions": [],
+    "priceReport": {
+     "referenceVersion": "2026-10-09",
+     "checked": [],
+     "compared": [],
+     "cannotAssess": [],
+     "partial": false,
+     "readIssues": [],
+     "performed": {
+      "rules": 0,
+      "addons": 0,
+      "comparisons": 0
+     },
+     "disclaimer": "Referensintervallen är en uppskattning.",
+     "methodUrl": "x"
+    },
+    "meta": {
+     "model": "mock"
+    }
+   },
+   "legacyCounters": {
+    "ok": 0,
+    "bad": 0,
+    "attention": 0,
+    "unknown": 2,
+    "assessed": 0
+   },
+   "rows": [
+    {
+     "label": "Räkningen",
+     "text": "Ej bedömd – kunde inte kontrolleras",
+     "status": "not_assessed"
+    },
+    {
+     "label": "Prisregler",
+     "text": "Ej bedömd – ingen prisregel kunde kontrolleras",
+     "status": "not_assessed"
+    },
+    {
+     "label": "Jämförelse med referens",
+     "text": "Ingen jämförelse ingick",
+     "status": "not_assessed"
+    },
+    {
+     "label": "Tydlighet i offerten",
+     "text": "2 anges i offerten (inte verifierat) · 0 att förtydliga",
+     "status": "stated_unverified"
+    }
+   ]
+  },
+  {
+   "id": "S08_LIVE_DEMO_STATED7",
+   "input": {
+    "trade": "tak",
+    "contradictions": [],
+    "calcCoverage": "checked",
+    "calcNote": "Kontrollerade 36 h × 595 kr = 21 420 kr och att delposterna (21 420 + 18 900 + 2 500 kr) adderar till totalsumman 42 820 kr, samt att ROT-avdraget (6 426 kr) motsvarar 30 % av arbetskostnaden — allt stämmer.",
+    "clarify": [
+     {
+      "key": "Tidplan / startdatum",
+      "text": "Arbetstid (2 man, 3 dagar) anges men inget faktiskt startdatum eller ungefärlig period nämns."
+     },
+     {
+      "key": "ÄTA (ändringar och tillägg)",
+      "text": "Inget om hur tillkommande arbete eller ändringar prissätts."
+     },
+     {
+      "key": "Försäkring / garanti",
+      "text": "Varken ansvarsförsäkring, garantitid eller garanti på material/arbete nämns."
+     }
+    ],
+    "stated": [
+     {
+      "key": "F-skatt & org.nr",
+      "text": "Organisationsnummer och F-skattsedel anges."
+     },
+     {
+      "key": "Moms",
+      "text": "Priser anges inklusive moms."
+     },
+     {
+      "key": "ROT-avdrag",
+      "text": "ROT-avdrag på arbetskostnaden anges, med slutsumma efter avdrag."
+     },
+     {
+      "key": "Arbete och material separerat",
+      "text": "Arbete, material och bortforsling är specificerade var för sig."
+     },
+     {
+      "key": "Omfattning",
+      "text": "32 m² takpannor, läkt och underlagspapp anges tydligt."
+     },
+     {
+      "key": "Betalningsvillkor",
+      "text": "30 dagar efter slutfört arbete anges."
+     },
+     {
+      "key": "Giltighetstid",
+      "text": "Offerten gäller 30 dagar, vilket anges."
+     }
+    ],
+    "price": {
+     "hourlyRateSek": 595,
+     "totalSumSek": 42820,
+     "rotDeducted": true,
+     "comment": "Timpris och totalsumma anges tydligt, inklusive moms och ROT-avdrag."
+    },
+    "questions": [
+     "Vilket startdatum gäller – kan ni bekräfta det skriftligt?",
+     "Hur prissätts tillkommande arbete (ÄTA) om något oväntat upptäcks under rivningen?",
+     "Har ni ansvarsförsäkring och vilken garanti gäller på arbetet?",
+     "Ingår bortforsling av allt rivningsmaterial, eller bara det som nämns?"
+    ],
+    "priceReport": {
+     "checked": [
+      {
+       "id": "moms",
+       "status": "ok",
+       "title": "Moms",
+       "text": "Priserna anges inklusive moms, konsekvent.",
+       "source": ""
+      },
+      {
+       "id": "rot_belopp",
+       "status": "ok",
+       "title": "ROT-belopp",
+       "text": "ROT-avdraget 6 426 kr är 30 % av arbetskostnaden 21 420 kr inklusive moms.",
+       "source": "Skatteverket, Rot och rut, sidan ändrad 2026-03-03"
+      },
+      {
+       "id": "arbetssumma",
+       "status": "ok",
+       "title": "Timmar × timpris",
+       "text": "36 timmar × 595 kr = 21 420 kr, vilket stämmer med arbetssumman.",
+       "source": ""
+      },
+      {
+       "id": "summa",
+       "status": "ok",
+       "title": "Summering",
+       "text": "Raderna summerar till 42 820 kr, och efter ROT-avdrag 6 426 kr blir det 36 394 kr att betala – det stämmer.",
+       "source": ""
+      },
+      {
+       "id": "pristyp",
+       "status": "flagga",
+       "title": "Pristyp",
+       "text": "Offerten anger inte om priset är fast, ungefärligt eller löpande. Ett ungefärligt pris får överskridas med högst 15 %; ett löpande pris har inget tak.",
+       "source": "Konsumentverket, Anlita hantverkare, 2026"
+      }
+     ],
+     "compared": [
+      {
+       "id": "tim_snickare",
+       "mode": "inom",
+       "title": "Marknad – timpris snickare",
+       "text": "Timpriset 595 kr per timme inkl. moms ligger inom det intervall vi ser för snickare 2026 (550–800 kr per timme inkl. moms; Byggahus.se mars 2026, SCB lönestatistik 2025).",
+       "source": "Byggahus.se mars 2026, SCB lönestatistik 2025"
+      },
+      {
+       "id": "projekt",
+       "mode": "inom",
+       "title": "Totalpris takomläggning",
+       "text": "Totalpriset 1 338 kr per m² ligger inom det spann publika prisguider anger för takomläggning 2026 (1 200–3 000 kr per m², typiskt ~1 500 kr/m²; Byggstart 2026). Guiderna redovisar inte metod – se det som en grov referens.",
+       "source": "Byggstart 2026"
+      }
+     ],
+     "cannotAssess": [
+      {
+       "title": "Betalningsdatum",
+       "text": "Varken offertdatum eller planerad betalning anges. ROT-satsen styrs av när betalningen sker, så kontrollen ovan utgår från betalning i år.",
+       "source": "Skatteverket, Rot och rut, sidan ändrad 2026-03-03"
+      }
+     ],
+     "referenceVersion": "2026-10-09",
+     "disclaimer": "Referensintervallen bygger på offentliga källor och är en uppskattning, inte facit. Ett pris utanför intervallet är en fråga att ställa, inte ett fel."
+    },
+    "meta": {
+     "demo": true
+    }
+   },
+   "legacyCounters": {
+    "ok": 6,
+    "bad": 0,
+    "attention": 4,
+    "unknown": 1,
+    "assessed": 7
+   },
+   "rows": [
+    {
+     "label": "Räkningen",
+     "text": "Inga avvikelser hittades i den utförda kontrollen",
+     "status": "checked_ok"
+    },
+    {
+     "label": "Prisregler",
+     "text": "3 av5 stämmer ·1 fråga ·1 ej bedömd",
+     "status": "mixed"
+    },
+    {
+     "label": "Jämförelse med referens",
+     "text": "2 av2 inom referensintervall",
+     "status": "within_reference"
+    },
+    {
+     "label": "Tydlighet i offerten",
+     "text": "7 anges i offerten (inte verifierat) · 3 att förtydliga",
+     "status": "stated_and_clarify"
+    }
+   ]
+  }
+ ],
+ "exportTarget": {
+  "S01_MIXED": {
+   "mustContain": [
+    "Sifferuppgifter att kontrollera mot originalet",
+    "detta är inte konstaterade fel",
+    "Summan stämmer inte",
+    "Raderna summerar till 42 820 kr men totalen är 45 000 kr.",
+    "Prisregler som inte stämmer",
+    "ROT-avdraget 9 000 kr stämmer inte med 30 % av arbetskostnaden."
+   ],
+   "mustNotContainHeading": [
+    "Räknefel och motsägelser"
+   ],
+   "itemOccurrence": null
+  },
+  "S03_AI_UNCERTAIN": {
+   "mustContain": [
+    "Sifferuppgifter att kontrollera mot originalet",
+    "detta är inte konstaterade fel",
+    "Modellen tror att beloppen skiljer."
+   ],
+   "mustNotContainHeading": [
+    "Räknefel och motsägelser",
+    "Prisregler som inte stämmer"
+   ],
+   "itemOccurrence": null
+  },
+  "S05_REFERENCE_NOT_ASSESSED": {
+   "mustContain": [
+    "Går inte att bedöma",
+    "Projektpris",
+    "Ingen säker jämförelse."
+   ],
+   "mustNotContainHeading": [
+    "Prisfrågor",
+    "Prisregler som inte stämmer"
+   ],
+   "itemOccurrence": {
+    "text": "Ingen säker jämförelse.",
+    "count": 1
+   }
+  }
+ }
+}
