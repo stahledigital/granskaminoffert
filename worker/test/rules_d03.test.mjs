@@ -68,7 +68,7 @@ test("T01: värmepumpsfallet visar inte 'uppdelning saknas' bredvid en genomför
 
 // ---- T02: momsnormalisering ----
 test("T02: samma offert exklusive och inklusive moms ger samma bedömning", () => {
-  const inkl = { jobType: "tak", areaM2: 30, trades: ["snickare"], vatMode: "inkl", priceType: "fast", quoteDate: "2026-09-01",
+  const inkl = { jobType: "tak", areaM2: 30, trades: ["snickare"], vatMode: "inkl", priceType: "fast", quoteDate: "2026-09-01", plannedPaymentDate: "2026-09-15",
     hourlyRateSek: 800, hours: 50, laborSumSek: 40000, materialSumSek: 20000, rotAmountSek: 12000, totalBeforeRotSek: 60000, totalVatBasis: "inkl" };
   const exkl = { ...inkl, vatMode: "exkl", hourlyRateSek: 640, laborSumSek: 32000, materialSumSek: 16000, totalBeforeRotSek: 48000, totalVatBasis: "exkl" };
   const a = rules(inkl), b = rules(exkl);

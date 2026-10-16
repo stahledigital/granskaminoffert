@@ -138,3 +138,15 @@ test("CP2-6 HP07: okänd totalmoms behåller BÅDA osäkerheterna (200000/250000
   assert.match(r.text, /Skatteverkets sida anger inte vilken momsbas schablonen använder/);
   assert.doesNotMatch(r.text, /högst 21 000 kr|garanterat/);
 });
+
+test("CP2-3b offertdatum är kontext, inte betalningsdatum: HP och materialinferens med offert 2026 utan betalningsdatum förblir villkorliga", () => {
+  const hp = get(run({ ...HP, plannedPaymentDate: null, quoteDate: "2026-10-16", totalBeforeRotSek: 200000, rotAmountSek: 35000 }), "rot_schablon");
+  assert.equal(hp.status, "fraga");                    // inte säkert fel (30 %-taket 21000) – 50 %-räkningen 35000 är möjlig
+  assert.match(hp.text, /Ett offertdatum visar inte betalningsdatum/);
+  const o = { quoteDate: "2026-10-16", plannedPaymentDate: null, laborSumSek: 100000, materialSumSek: 66666.67, travelSumSek: 0, otherSumSek: 0, rotAmountSek: 50000, rotPersons: 1 };
+  assert.equal(get(run(o), "rot_material"), undefined);
+  assert.equal(get(run(o), "rot_belopp").status, "fraga");
+  // explicit betalning efter fönstret styr fortfarande: samma belopp är då säkert fel
+  assert.equal(get(run({ ...o, plannedPaymentDate: "2026-10-20" }), "rot_belopp").status, "fel");
+  assert.equal(get(run({ ...o, plannedPaymentDate: "2025-12-15", quoteDate: "2026-10-16" }), "rot_belopp").status, "ok");   // QD04: explicit betalning styr
+});

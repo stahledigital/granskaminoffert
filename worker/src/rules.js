@@ -100,21 +100,22 @@ export function runRules(x, ref) {
   // understiger maxgränsen. Antal personer begränsar totalen (rot_tak) men höjer aldrig procenttaket. Jämförelsen är ren matematik på
   // avlästa belopp: 0 tolerans, decimalsäker (money.js, D19_NUMERIK_PRECISION_V2). Det är inget besked om någons personliga rätt.
   // Betalningsdatum styr satsen och okänd moms/okänt datum ger villkorade gränser, aldrig ett tvärsäkert belopp eller ett grönt besked.
-  // EN gemensam ROT-period för alla ROT-grenar (arbetsbelopp, värmepumpsschablon, materialinferens): betalningsdatum avgör satsen;
-  // utan betalningsdatum avgör ett offertdatum efter fönstret; annars är båda satserna möjliga (okänt datum) och inget avgörs i förväg.
+  // EN gemensam ROT-period för alla ROT-grenar (arbetsbelopp, värmepumpsschablon, materialinferens): ENDAST ett uttryckligt betalningsdatum avgör
+  // satsen. Offertdatum är tidskontext, aldrig belägg för betalningsdatum (frysta ROTNUM-03: "Betalningsdatum styr; offertdatum/körklocka bevisar
+  // inte betaldatum"): ett senare offertdatum utesluter varken en tidigare delbetalning eller att beloppen följer en annan datering. Utan
+  // betalningsdatum är båda satserna möjliga (okänt datum) och inget avgörs i förväg – även när offertdatumet ligger efter 2025-fönstret.
   function rotPeriod() {
     const win = rot.oldRateWindow;
     if (x.plannedPaymentDate) {
       return { rates: [inRange(x.plannedPaymentDate, win.from, win.to) ? rot.oldRate : rot.rate], dateKnown: true, dateWhy: "betalning" };
     }
-    if (x.quoteDate && x.quoteDate > win.to) return { rates: [rot.rate], dateKnown: true, dateWhy: "offert" };
-    return { rates: [rot.rate, rot.oldRate], dateKnown: false, dateWhy: x.quoteDate ? "offert_tidig" : "inget" };
+    return { rates: [rot.rate, rot.oldRate], dateKnown: false, dateWhy: x.quoteDate ? "offert" : "inget" };
   }
   const period = rotPeriod();
   const pcOf = (r) => `${Math.round(r * 100)} %`;
   const windowText = () => `${Math.round(rot.oldRate * 100)} % gällde bara för betalningar ${rot.oldRateWindow.from} – ${rot.oldRateWindow.to}`;
-  const dateReason = () => (period.dateWhy === "offert_tidig"
-    ? `Offerten anger bara offertdatum ${x.quoteDate} och inte när betalningen sker (${windowText()}).`
+  const dateReason = () => (period.dateWhy === "offert"
+    ? `Offerten anger bara offertdatum ${x.quoteDate} och inte när betalningen sker (${windowText()}). Ett offertdatum visar inte betalningsdatum.`
     : `Offerten anger varken betalningsdatum eller offertdatum, och ROT-satsen styrs av när betalningen sker (${windowText()}).`);
 
   function rotUpperBound() {

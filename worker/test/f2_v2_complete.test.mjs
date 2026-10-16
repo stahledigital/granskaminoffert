@@ -14,8 +14,8 @@ const COMPLETE = [
   {
     id: "F2-01-komplett",
     base: "F2-01-brutto-fore-rot",
-    amendedText: byId["F2-01-brutto-fore-rot"].text + " Resor 0 kr, övrigt anges i containern. Offertdatum 2026-09-10.",
-    add: { travelSumSek: 0, quoteDate: "2026-09-10" },
+    amendedText: byId["F2-01-brutto-fore-rot"].text + " Resor 0 kr, övrigt anges i containern. Offertdatum 2026-09-10, betalning 2026-09-20.",
+    add: { travelSumSek: 0, quoteDate: "2026-09-10", plannedPaymentDate: "2026-09-20" },
     expect: { summa: "ok", rot_belopp: "ok" },
   },
   {
@@ -28,8 +28,8 @@ const COMPLETE = [
   {
     id: "F2-04-komplett",
     base: "F2-04-exkl-moms",
-    amendedText: byId["F2-04-exkl-moms"].text + " Resor 0 kr, övrigt 0 kr. Offertdatum 2026-09-10.",
-    add: { travelSumSek: 0, otherSumSek: 0, quoteDate: "2026-09-10" },
+    amendedText: byId["F2-04-exkl-moms"].text + " Resor 0 kr, övrigt 0 kr. Offertdatum 2026-09-10, betalning 2026-09-20.",
+    add: { travelSumSek: 0, otherSumSek: 0, quoteDate: "2026-09-10", plannedPaymentDate: "2026-09-20" },
     expect: { moms: "ok", rot_belopp: "ok", summa: "ok" },
   },
 ];
@@ -45,6 +45,7 @@ test("F2-integritet: originalinputs i f2/extra.mjs är inte berikade med påhitt
   for (const id of ["F2-01-brutto-fore-rot", "F2-02-endast-att-betala", "F2-04-exkl-moms"]) {
     assert.equal("travelSumSek" in EXTRA[id], false, `${id}: travelSumSek får inte läggas till i originalet`);
     assert.equal("quoteDate" in EXTRA[id], false, `${id}: quoteDate får inte läggas till i originalet`);
+    assert.equal("plannedPaymentDate" in EXTRA[id], false, `${id}: plannedPaymentDate får inte läggas till i originalet`);
   }
   assert.equal("otherSumSek" in EXTRA["F2-04-exkl-moms"], false);
 });

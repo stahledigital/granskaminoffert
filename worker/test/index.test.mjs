@@ -137,7 +137,7 @@ test("granskning räknas per väg", async () => {
 test("prislager i svaret, förbjudna ord tvättas, prisstatistik bara vid opt-in", async () => {
   const extracted = { jobType: "tak", trades: ["snickare"], hourlyRateSek: 595, hours: 36, laborSumSek: 21420, materialSumSek: 18900,
     travelSumSek: 0, otherSumSek: 2500, materialMarkupPct: null, rotAmountSek: 6426, rotRatePct: null, rotPersons: null, rotOnMaterialOrTravel: null,
-    priceType: null, vatMode: "inkl", totalSumSek: 36394, totalIncludesVat: true, quoteDate: "2026-09-10", plannedPaymentDate: null,
+    priceType: null, vatMode: "inkl", totalSumSek: 36394, totalIncludesVat: true, quoteDate: "2026-09-10", plannedPaymentDate: "2026-09-20",
     customerType: "privatperson", workDescription: "Byte av takpannor", county: "Kronoberg", areaM2: 32, unitCount: null };
   const dirty = { ...fakeReview, calcNote: "Detta verkar vara ett överpris, kanske svart.", extracted };
   const realFetch = globalThis.fetch;

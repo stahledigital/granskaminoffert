@@ -52,7 +52,7 @@ test("korrekt offert: alla regler ok, timpris inom, altan inom", () => {
 });
 
 test("ROT på material: fel med Skatteverket som källa", () => {
-  const r = runRules(FIXTURES.rotPaMaterial, REF);
+  const r = runRules({ ...FIXTURES.rotPaMaterial, plannedPaymentDate: "2026-08-25" }, REF); // uttryckligt betalningsdatum avgör satsen (offertdatum gör det inte)
   assert.equal(byId(r, "rot_material").status, "fel");
   assert.match(byId(r, "rot_material").source, /Skatteverket/);
   assert.equal(byId(r, "rot_belopp").status, "fel"); // 30 % av 120 000 = 36 000, inte 54 000
@@ -129,7 +129,7 @@ test("timpris 350 utan momsuppgift: fråga på ROT, ingen lönekostnadsrad, mark
 
 test("timpris 350 med uttryckligt inkl. moms: under referensgolvet med låst ordval", () => {
   const fx = { ...FIXTURES.timpris350, vatMode: "inkl", totalIncludesVat: true };
-  const r = runRules(fx, REF);
+  const r = runRules({ ...fx, plannedPaymentDate: "2026-09-20" }, REF); // uttryckligt betalningsdatum avgör satsen (offertdatum gör det inte)
   assert.equal(byId(r, "moms").status, "ok");
   assert.equal(byId(r, "rot_belopp").status, "ok");
   assert.equal(byId(r, "pristyp").status, "flagga");

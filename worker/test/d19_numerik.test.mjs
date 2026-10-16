@@ -73,7 +73,14 @@ test("ROT: okänd moms och okänt betalningsdatum ger villkorade gränser, aldri
   const rd4 = get(run({ ...L, plannedPaymentDate: "2026-02-01", quoteDate: "2025-11-20", rotAmountSek: 50000 }), "rot_belopp");   // RD04
   assert.equal(rd4.status, "fel"); assert.match(rd4.text, /30 000 kr/);
   assert.equal(st({ ...L, plannedPaymentDate: "2025-12-15", quoteDate: "2025-11-20", rotAmountSek: 40000 }, "rot_belopp"), "ok"); // RD05
-  assert.equal(st({ ...L, plannedPaymentDate: null, quoteDate: "2026-03-01", rotAmountSek: 30000 }, "rot_belopp"), "ok");       // offert 2026 ⇒ betalning 2026
+  // CP2-QA (offertdatum ≠ betalningsdatum, frysta ROTNUM-03): ett senare offertdatum avgör inte satsen – saknat betalningsdatum förblir villkorligt.
+  for (const amt of [30000, 50000]) {
+    const qd = get(run({ ...L, plannedPaymentDate: null, quoteDate: "2026-03-01", rotAmountSek: amt }), "rot_belopp");           // QD01/QD02
+    assert.equal(qd.status, "fraga", `offert 2026, betalningsdatum saknas, yrkat ${amt}`);
+    assert.match(qd.text.replace(/\u00a0/g, " "), /30 000 kr/); assert.match(qd.text.replace(/\u00a0/g, " "), /50 000 kr/);
+    assert.match(qd.text, /Ett offertdatum visar inte betalningsdatum/); assert.match(qd.text, /betalningsdatum/);
+  }
+  assert.equal(st({ ...L, plannedPaymentDate: null, quoteDate: "2026-03-01", rotAmountSek: 55000 }, "rot_belopp"), "fel");        // över båda möjliga gränserna
   assert.equal(st({ ...L, plannedPaymentDate: null, quoteDate: null, rotAmountSek: 55000 }, "rot_belopp"), "fel");               // över även 50 %-gränsen
 });
 
@@ -192,7 +199,7 @@ test("extraktionsfacit CONTEXT-01..03: avlästa fält → rätt regelutfall (det
   const r2 = run(c2);
   assert.equal(get(r2, "rot_undantag"), undefined);
   assert.equal(get(r2, "forskott"), undefined);
-  assert.equal(get(r2, "rot_belopp").status, "ok");
+  assert.equal(get(r2, "rot_belopp").status, "fraga");   // frysta CONTEXT-02: "Datum/individuell ROT kvar okända" – offertdatum bevisar inte betalningsdatum
   const c3 = { ...BASE, propertyType: "smahus", jobType: "annat", workNature: "nybyggnad", workLocation: "utvandigt", advancePayment: true,
     workDescription: "Nybyggnad av fristående garage", laborSumSek: 100000, materialSumSek: 30000, travelSumSek: 0, otherSumSek: 0, totalBeforeRotSek: 130000,
     rotAmountSek: 30000, rotPersons: 1, plannedPaymentDate: "2026-12-15" };
