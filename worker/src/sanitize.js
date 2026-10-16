@@ -24,6 +24,8 @@ export const VAT_MODES = new Set(["inkl", "exkl", "blandat", "ej_angivet"]);
 export const VAT_BASIS = new Set(["inkl", "exkl"]);
 export const PROPERTY_TYPES = new Set(["smahus", "bostadsratt", "flerbostadshus", "annat"]);
 export const TOTAL_CONTRACT = new Set(["ja", "nej"]);
+export const WORK_NATURES = new Set(["nybyggnad", "reparation", "underhall", "ombyggnad", "tillbyggnad"]);
+export const WORK_LOCATIONS = new Set(["invandigt", "utvandigt", "blandat"]);
 export const REVIEW_TRADES = new Set(["bygg", "tak", "vvs", "el", "malning", "mark", "okand"]);
 
 // Rimlighetsgränser. Värden utanför är inte "fel offert" utan "kan inte vara
@@ -68,6 +70,9 @@ export const FIELD_LABELS = {
   areaM2: "yta",
   unitCount: "antal enheter",
   otherSumSek: "övriga rader",
+  workNature: "arbetets art",
+  workLocation: "var arbetet utförs",
+  advancePayment: "betalning före utfört arbete",
   extracted: "avläsningen som helhet",
 };
 
@@ -174,6 +179,10 @@ export function sanitizeExtracted(raw) {
     areaM2: numField("areaM2", LIMITS.area),
     unitCount: numField("unitCount", LIMITS.count),
     otherSumSek: numField("otherSumSek", LIMITS.sek),
+    // D19: äldre sparade svar saknar fälten och blir null (okänt), aldrig false/standardvärde.
+    workNature: enumField("workNature", WORK_NATURES),
+    workLocation: enumField("workLocation", WORK_LOCATIONS),
+    advancePayment: boolField("advancePayment"),
   };
   return { x, issues };
 }

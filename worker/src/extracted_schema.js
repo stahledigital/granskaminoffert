@@ -13,6 +13,7 @@ export const EXTRACTED_SCHEMA = {
     "rotOnMaterialOrTravel", "priceType", "vatMode", "totalSumSek", "totalIncludesVat",
     "totalBeforeRotSek", "amountToPaySek", "totalVatBasis", "propertyType", "totalContract",
     "quoteDate", "plannedPaymentDate", "customerType", "workDescription", "county", "areaM2", "unitCount", "otherSumSek",
+    "workNature", "workLocation", "advancePayment",
   ],
   properties: {
     jobType: { type: ["string", "null"], enum: ["badrum", "altan", "fonster", "tak", "malning", "fasad", "kakel", "bergvarme", "luftvarmepump", "elcentral", "kok", "annat", null],
@@ -47,5 +48,12 @@ export const EXTRACTED_SCHEMA = {
     areaM2: { ...NUM_OR_NULL, description: "Yta i m² som arbetet avser, om den anges (badrum, tak, altan, målade väggar/tak, kakel, fasad). null annars." },
     unitCount: { ...NUM_OR_NULL, description: "Antal enheter om arbetet räknas per styck (t.ex. antal fönster). null annars." },
     otherSumSek: { ...NUM_OR_NULL, description: "Summa i kr för övriga rader som varken är arbete, material eller resor (t.ex. container, bortforsling, ställning, tillstånd). null om inga sådana rader." },
+    // D19: tre nullable, icke-personliga sammanhangsfält. Bara uttryckligt stöd i dokumentet; annars null (aldrig en gissning).
+    workNature: { type: ["string", "null"], enum: ["nybyggnad", "reparation", "underhall", "ombyggnad", "tillbyggnad", null],
+      description: "Arbetets art, bara om offerten uttryckligen visar den: nybyggnad (bygga något helt nytt), reparation (laga eller återställa ett fel eller en skada), underhall (löpande underhåll av befintligt), ombyggnad (ändra befintligt), tillbyggnad (bygga till en befintlig byggnad). null om arbetet blandar flera arter, är otydligt eller bara kan gissas. Gissa aldrig utifrån jobbtyp, byggnadens ålder eller ordet nybyggd." },
+    workLocation: { type: ["string", "null"], enum: ["invandigt", "utvandigt", "blandat", null],
+      description: "Var arbetet utförs, bara om offerten uttryckligen anger det: invandigt (inomhus/insidan), utvandigt (utomhus/utsidan) eller blandat (båda uttryckligen). null om det inte står. Gissa aldrig utifrån jobbtyp (tak, fönster, dörr)." },
+    advancePayment: { type: ["boolean", "null"],
+      description: "true om offerten uttryckligen kräver betalning (hel eller del, t.ex. förskott, handpenning, delbetalning vid avtal eller start) innan arbetet är utfört. false BARA om offerten uttryckligen säger att ingen betalning sker före utfört arbete. null om offerten inte säger något om saken – en saknad uppgift är aldrig false." },
   },
 };
