@@ -400,3 +400,17 @@ html{-webkit-text-size-adjust:100%}
 #app[data-task="free"] .fullcopy{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 0 14px}
 #app[data-task="free"] .fullcopy .hint{font-size:14px;color:var(--ink2)}
 @media(max-width:430px){#app[data-task="free"] .pbasis dl>div{grid-template-columns:1fr}}
+
+/* D19 WP-D: felrättning per offert, avsluta utkast, förslagsetiketter */
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+#app:not([data-task="free"]) .docrow{flex-wrap:wrap}
+.rowfix{position:relative;flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.rowfix.hidden{display:none}
+.rowfix label.btn{cursor:pointer}
+.rowfix label.btn:focus-within{outline:3px solid var(--acc);outline-offset:2px}
+.pastefix{flex-basis:100%}
+.pastefix textarea{width:100%;min-height:96px;margin:6px 0}
+.cdraft{margin-top:14px}
+.cktag{display:inline-block;font-size:13px;font-weight:600;margin:0 0 4px 8px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);background:var(--acc-soft)}
+.cktag[data-st="suggested"],.cktag[data-st="dirty"],.cktag[data-st="cleared"]{border-style:dashed}
+.cktag.hidden{display:none}

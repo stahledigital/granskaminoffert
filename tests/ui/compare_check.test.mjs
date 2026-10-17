@@ -94,6 +94,9 @@ test("förkontroll: ogiltiga värden avvisas (HTML, slut före start, bokstäver
   try {
     await mount(page, R, log); await page.reload(); await page.waitForSelector("#ckform");
     const puts = () => log.filter((l) => l.sub === "/check" && l.m === "PUT").length;
+    // Avlästa förslag förifylls (obekräftade); kunden tömmer dem själv ⇒ inget att bekräfta.
+    for (const id of ["ck-priceType", "ck-rotMode", "ck-cleaning", "ck-removal"]) await page.selectOption("#" + id, "");
+    for (const id of ["ck-laborInclVat", "ck-materialInclVat", "ck-otherInclVat", "ck-warranty"]) await page.fill("#" + id, "");
     await page.click("#cksave"); assert.match(await page.locator("#ckmsg").innerText(), /minst en uppgift/); assert.equal(puts(), 0);
     await page.fill("#ck-includes", "<script>alert(1)</script>"); await page.click("#cksave"); assert.match(await page.locator("#ckmsg").innerText(), /< eller >/); assert.equal(puts(), 0);
     await page.fill("#ck-includes", ""); await page.fill("#ck-plannedStart", "2026-11-06"); await page.fill("#ck-plannedEnd", "2026-11-02"); await page.click("#cksave");

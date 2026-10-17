@@ -110,7 +110,7 @@
     f = f || {};
     var ev = { event: name, entry: G.ENTRY, role: role(), product: (G.current && G.current.name) || 'none' };
     for (var k in f) if (f[k] !== undefined && f[k] !== null) ev[k] = f[k];
-    if (M.demoSeen && (name === 'submit' || name === 'result_view') && !ev.demo) ev.seen = 'sett_exempel';
+    if (M.demoSeen && (name === 'submit' || name === 'result_view') && !ev.demo) ev.seen = true; // servern normaliserar till 'sett_exempel' (worker/MATNING.md); flaggan är bool
     M.send(ev);
   };
   // Gamla fria händelser (rapport_klar/export/kontakt_cta) behåller exakt format och räknas av servern som förut.

@@ -17,7 +17,7 @@
     if(t.draft)document.getElementById('draftbox').hidden=false;
     box.appendChild(p('Villkorstext (version '+t.version+(t.draft?', UTKAST':'')+') – det här är exakt den text du godkänner vid köp.','h2'));
     var iu=t.seller&&t.seller.infoUrl;try{var xu=new URL(String(iu||''));if(xu.protocol==='https:'&&!xu.username&&!xu.password){document.querySelectorAll('a.fu').forEach(function(a){a.href=xu.href})}}catch(e){}
-    t.sections.forEach(function(s){var d=document.createElement('div');d.appendChild(p(s.title,'h2'));d.appendChild(p(s.text));box.appendChild(d)});
+    t.sections.forEach(function(s){var d=document.createElement('div');if(/^[a-z]+$/.test(String(s.id||'')))d.id=s.id;d.appendChild(p(s.title,'h2'));d.appendChild(p(s.text));box.appendChild(d)});
   }).catch(function(){box.appendChild(p('Villkorstexten kunde inte hämtas just nu. Försök igen senare.'))});
 })();
 </script></body></html>

@@ -14,6 +14,7 @@ const MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleW
 let browser, h;
 before(async () => { browser = await chromium.launch({ executablePath: CHROMIUM, args: ["--no-sandbox"] }); h = await startHarness({ vars: {} }); });
 after(async () => { await browser?.close(); await h?.close(); });
+import { normalizeClientEvent } from "../../worker/src/measure.js";
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const norm = (t) => t.replace(/[\s·]+/g, "").toLowerCase();
 
@@ -168,4 +169,14 @@ test("STATUS-02: 200 % textstorlek ger ingen sidoscroll i statusrader, prisgrund
   await page.waitForTimeout(150);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
   await ctx.close();
+});
+
+test("MEASURE-01 (gratis): alla klienthändelser i gratisflödet accepteras av serverns riktiga normalisering – inga innehåll", async () => {
+  const { page, ctx, events } = await open(clone(FX.cases[0].input)); await page.waitForTimeout(300);
+  try {
+    assert.ok(events.length >= 3, "landing/input/submit/result_view finns");
+    for (const e of events) { if (e.type !== "client") continue; assert.ok(normalizeClientEvent(e), "servern accepterar: " + JSON.stringify(e)); assert.ok(JSON.stringify(e).length <= 1024); }
+    assert.ok(!/Offert 42 820|42 820/.test(JSON.stringify(events)), "inget innehåll i mätningen");
+    for (const n of ["landing", "input_ready", "submit", "result_view"]) assert.ok(events.some((e) => e.event === n), n);
+  } finally { await ctx.close(); }
 });
