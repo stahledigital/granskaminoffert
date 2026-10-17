@@ -1899,6 +1899,7 @@ async function initCheck(rec){
 function ckToPay(resumed){
   show('s1',false);show('s2',true);ckFillOffer();$('declaration').checked=false;ckSync();
   if(resumed)$('docs').appendChild(el('p',{class:'hint',text:'Din offert är redan uppladdad. Ingenting har debiterats.'}));
+  var oc=$('cdraft');if(oc)oc.remove();$('s2').appendChild(closeDraftBlock()); // Avsluta utkastet även här (obetald order)
   $('h-s2').scrollIntoView({block:'start'});
 }
 function wireCheckInputs(){

@@ -282,6 +282,10 @@ test("PRIVACY-01 (förkontroll): kort sann info och länk före uppladdning; 8 M
     assert.match(await page.locator("#err").innerText(), /Tillfälligt fel/);
     await page.click("#go"); await page.waitForSelector("#s2:not(.hidden)");
     assert.equal(count(calls, /^POST \/compare\/orders$/), 1, "samma utkast återanvänds – ingen andra order"); assert.equal(count(calls, /^PUT \/compare\/orders\/o_X\/docs\/0$/), 2);
+    // Avsluta utkastet finns även på betalsteget; godkänd radering släpper ordern och behåller offerten lokalt
+    await page.route(/close-draft$/, (route) => route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify({ ok: true, closed: true }) }));
+    await page.click("#cdraft-open"); await page.click("#cdraft-yes"); await page.waitForSelector("#s1:not(.hidden)");
+    assert.equal(await page.inputValue("#t0"), "Offert 25 000 kr inkl. moms"); assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), null); assert.equal(count(calls, /close-draft$/), 1);
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); await h.close(); }
 });
