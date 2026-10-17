@@ -206,8 +206,14 @@ export function runRules(x, ref) {
       const laborCeilingMax = D.max(period.rates.map((r) => D.mul(D.mul(D.dec(labor), D.dec(f)), D.dec(r))));
       const onAll = period.rates.some((r) => withinTol(rotAmt, (laborInclVat + material * f + (travel === null ? 0 : travel * f)) * r, rot.tolerance));
       const onLabor = !D.gt(D.dec(rotAmt), laborCeilingMax);
-      if (onAll && !onLabor) {
-        add("rot_material", "fel", "ROT på material eller resor", "ROT-beloppet motsvarar avdrag på hela summan, inklusive material. Avdraget får bara räknas på arbetskostnaden.", src(ref, "skatteverket_rot"));
+      // D19-R1-P2: en talrelation (2 % eller exakt) är inget belägg för vad avdraget faktiskt räknats på. Den ger aldrig ett säkert
+      // rot_material-fel, bara en neutral underlagsfråga – och bara när det finns material eller resor som frågan kan gälla. Beloppsfelet
+      // (rot_belopp) bedöms separat och exakt. Uttryckligt rotOnMaterialOrTravel === false övertrumfas inte; true hanteras ovan.
+      const nonLabor = material + (travel === null ? 0 : travel);
+      if (onAll && !onLabor && x.rotOnMaterialOrTravel !== false && nonLabor > 0) {
+        add("rot_material", "fraga", "ROT-underlag",
+          "ROT-beloppet är högre än gränsen på arbetskostnaden och ligger nära en procentsats av arbete och material tillsammans. Offerten visar inte vad avdraget har räknats på. Fråga hur ROT-underlaget och procentsatsen har räknats – material, resor och servicebil får inte ingå.",
+          src(ref, "skatteverket_rot"));
       }
     }
 

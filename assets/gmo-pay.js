@@ -191,6 +191,8 @@ function later(fn,ms){return setTimeout(function(){if(!dead)fn()},ms)}
 function mEv(name,f){try{G.measure.event(name,Object.assign({product:KIND},f||{}))}catch(e){}}
 function mErr(reason,stage){mEv('client_error',{stage:stage||'submit',reason:reason})}
 function mbOf(n){return (Math.round(n/1e5)/10).toFixed(1).replace('.',',').replace(/,0$/,'')}
+// D19-R1-P2 (P3): avrundat lika med gränsen ⇒ "över 8 MB", aldrig "8 MB, högst 8 MB".
+function sizeOver(n,lim){var a=mbOf(n),b=mbOf(lim);return a===b?'över '+b+' MB':a+' MB, högst '+b+' MB'}
 function mResult(id,mode){var k='rv_'+id;if(G.measure.seen[k])return;G.measure.seen[k]=1;mEv('result_view',{stage:'result',mode:mode||'resume'})}
 function methodOfSlots(list){var h=false,f=false,t=false;list.forEach(function(s){if(!s)return;if(s.from==='free')h=true;else if(s.file)f=true;else if(s.text&&s.text.trim())t=true});return h?'handoff':f?'file':t?'text':'unknown'}
 function slotReady(s){return !!(s&&((s.text&&s.text.trim())||s.file))}
@@ -495,7 +497,7 @@ function makeSlot(i,host){
       var L=limitsOf();
       if(nf.size>L.file){ // för stor fil nekas direkt och tidigare inmatning är orörd
         info.textContent=slotReady(s)?info.textContent:'Ingen fil vald.';
-        slotErr(i,'Filen ”'+nf.name+'” är för stor ('+mbOf(nf.size)+' MB, högst '+mbOf(L.file)+' MB). Välj en mindre fil eller ta bara sidorna med pris och villkor.'+(slotReady(s)?' Det du hade lagt in här är kvar.':''));
+        slotErr(i,'Filen ”'+nf.name+'” är för stor ('+sizeOver(nf.size,L.file)+'). Välj en mindre fil eller ta bara sidorna med pris och villkor.'+(slotReady(s)?' Det du hade lagt in här är kvar.':''));
         file.value='';mErr('size','input');return}
       if(i===0)dropCarried();s.from='';s.gen=(s.gen||0)+1;s.file=nf;s.text='';ta.value='';info.textContent=s.file.name+' ('+Math.max(1,Math.round(s.file.size/1024))+' kB)';noteReady(i,'file')});
     var ta=el('textarea',{id:'t'+i,placeholder:'…eller klistra in offertens text här','aria-label':'Text för offert '+(i+1)});ta.value=s.text||'';
@@ -613,7 +615,7 @@ function rowFix(k,reason){
   var inp=el('input',{type:'file',id:'swap'+k,accept:'.pdf,image/*,.txt',class:'sr-only','aria-label':'Byt fil för offert '+(k+1)});
   inp.addEventListener('change',function(){
     var nf=inp.files[0];if(!nf)return;var L=limitsOf();
-    if(nf.size>L.file){setRow(k,'bad','Filen är för stor ('+mbOf(nf.size)+' MB, högst '+mbOf(L.file)+' MB). Välj en mindre fil eller ta bara sidorna med pris och villkor.');inp.value='';mErr('size','submit');return}
+    if(nf.size>L.file){setRow(k,'bad','Filen är för stor ('+sizeOver(nf.size,L.file)+'). Välj en mindre fil eller ta bara sidorna med pris och villkor.');inp.value='';mErr('size','submit');return}
     mEv('input_choose',{method:'file',stage:'input'});
     sl.gen=(sl.gen||0)+1;sl.file=nf;sl.text='';sl.from='';try{$('t'+k).value='';$('fi'+k).textContent=nf.name+' ('+G.fileKb(nf)+' kB)'}catch(e){}
     retryRow(k);
@@ -718,7 +720,7 @@ async function compareStart(){
   if(!$('samejob').checked){err('Bekräfta först att offerterna gäller samma jobb.');$('samejob').focus();return}
   for(var i=0;i<state.n;i++){var s=state.slots[i];if(!slotReady(s)){slotErr(i,'Offert '+(i+1)+' saknar fil eller text. Lägg in en fil eller klistra in texten.');try{$('f'+i).focus();$('se'+i).scrollIntoView({block:'nearest'})}catch(e){}return}}
   var L=limitsOf(),tot=0;for(var q=0;q<state.n;q++){var sq=state.slots[q];tot+=(sq.text&&sq.text.trim())?sq.text.length:(sq.file?sq.file.size:0)}
-  if(tot>L.total){err('Offerterna är tillsammans för stora ('+mbOf(tot)+' MB, högst '+mbOf(L.total)+' MB). Ta bort en fil eller ta bara sidorna med pris och villkor.');mErr('size','input');return}
+  if(tot>L.total){err('Offerterna är tillsammans för stora ('+sizeOver(tot,L.total)+'). Ta bort en fil eller ta bara sidorna med pris och villkor.');mErr('size','input');return}
   // Lås FÖRE första await: ett andra klick eller tangent når aldrig hit, och navigering är spärrad medan beställningen skapas och filerna läses in.
   state.starting=true;busy(true,'start');
   var btn=$('check');btn.disabled=true;btn.textContent='Kontrollerar…';
@@ -1908,7 +1910,7 @@ function wireCheckInputs(){
   function kReady(m){var r=slotReadyK();if(r&&!wsK.readyFired){wsK.readyFired=true;mEv('input_ready',{method:m,stage:'input'})}if(!r)wsK.readyFired=false}
   $('f0').addEventListener('change',function(){var f=$('f0').files[0];
     if(f){mEv('input_choose',{method:'file',stage:'input'});var L=limitsOf();
-      if(f.size>L.file){$('fi0').textContent='Filen ”'+f.name+'” är för stor ('+mbOf(f.size)+' MB, högst '+mbOf(L.file)+' MB). Välj en mindre fil eller ta bara sidorna med pris och villkor.'+(slotReadyK()?' Det du hade lagt in här är kvar.':'');$('f0').value='';mErr('size','input');return}
+      if(f.size>L.file){$('fi0').textContent='Filen ”'+f.name+'” är för stor ('+sizeOver(f.size,L.file)+'). Välj en mindre fil eller ta bara sidorna med pris och villkor.'+(slotReadyK()?' Det du hade lagt in här är kvar.':'');$('f0').value='';mErr('size','input');return}
       wsK.from='';wsK.file=f;wsK.text='';$('t0').value='';kReady('file')}
     $('fi0').textContent=kinfo()});
   $('t0').addEventListener('input',function(){if(!wsK.textChosen&&$('t0').value){wsK.textChosen=true;mEv('input_choose',{method:'text',stage:'input'})}if(!$('t0').value)wsK.textChosen=false;
@@ -1926,7 +1928,7 @@ async function ckGo(){
   if(!$('samejob').checked){err('Bekräfta först att offerten är din egen.');$('samejob').focus();return}
   if(!slotReadyK()){err('Välj en fil eller klistra in offertens text.');return}
   var L=limitsOf();
-  if(wsK.file&&!(wsK.text&&wsK.text.trim())&&wsK.file.size>L.file){err('Filen är för stor ('+mbOf(wsK.file.size)+' MB, högst '+mbOf(L.file)+' MB). Välj en mindre fil eller ta bara sidorna med pris och villkor.');mErr('size','input');return}
+  if(wsK.file&&!(wsK.text&&wsK.text.trim())&&wsK.file.size>L.file){err('Filen är för stor ('+sizeOver(wsK.file.size,L.file)+'). Välj en mindre fil eller ta bara sidorna med pris och villkor.');mErr('size','input');return}
   // Lås FÖRE första await (ett andra klick når aldrig hit); knappen och navigeringen är spärrade medan offerten läses in.
   state.starting=true;busy(true,'din offert läses in');
   var b=$('go');b.disabled=true;b.textContent='Läser in…';

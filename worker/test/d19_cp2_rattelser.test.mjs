@@ -103,9 +103,10 @@ test("CP2-3 materialinferens: arbete 100000 + material 66666,67 + ROT 50000 vid 
   assert.equal(get(run({ ...o, plannedPaymentDate: null, quoteDate: null }), "rot_material"), undefined);
 });
 
-test("CP2-3 materialinferens: efter fönstret (30 %) är ROT på hela summan fortfarande fel; uttryckligt rotOnMaterialOrTravel oförändrat", () => {
+test("CP2-3 materialinferens: efter fönstret (30 %) är beloppet säkert fel; talrelationen ger bara en neutral underlagsfråga (D19-R1-P2); uttryckligt rotOnMaterialOrTravel oförändrat", () => {
   const o = { plannedPaymentDate: "2026-10-16", laborSumSek: 100000, materialSumSek: 66666.67, travelSumSek: 0, otherSumSek: 0, rotAmountSek: 50000, rotPersons: 1 };
-  assert.equal(get(run(o), "rot_material").status, "fel");
+  assert.equal(get(run(o), "rot_belopp").status, "fel");
+  assert.equal(get(run(o), "rot_material").status, "fraga");   // D19-R1-P2: var "fel" t.o.m. ecfd5fc – en talrelation är inget belägg
   assert.equal(get(run({ ...o, rotAmountSek: 30000, rotOnMaterialOrTravel: true }), "rot_material").status, "fel");
 });
 
@@ -159,13 +160,14 @@ test("CP3-P2 materialinferens: ett lägre avdrag som ryms under möjlig arbetsgr
   // samma belopp med uttryckligt betalningsdatum i 50 %-fönstret: ok, inget materialfel
   const w = run({ ...o, plannedPaymentDate: "2025-12-15" }, { vatMode: "inkl", priceType: "fast" });
   assert.equal(get(w, "rot_belopp").status, "ok"); assert.equal(get(w, "rot_material"), undefined);
-  // uttryckligt betalningsdatum efter fönstret: 36 000 är över max 30 000 och motsvarar 30 % av hela summan ⇒ verklig avvikelse består
+  // uttryckligt betalningsdatum efter fönstret: 36 000 är över max 30 000 ⇒ beloppsfelet består; likheten med 30 % av hela summan ger bara en underlagsfråga (D19-R1-P2)
   const e = run({ ...o, plannedPaymentDate: "2026-10-20" }, { vatMode: "inkl", priceType: "fast" });
-  assert.equal(get(e, "rot_belopp").status, "fel"); assert.equal(get(e, "rot_material").status, "fel");
+  assert.equal(get(e, "rot_belopp").status, "fel"); assert.equal(get(e, "rot_material").status, "fraga");   // D19-R1-P2: var "fel"
   // uttryckligt belagt material/resa = true upptäcks fortfarande, även under maxgränsen och med okänt datum
   const x = run({ ...o, rotOnMaterialOrTravel: true }, { vatMode: "inkl", priceType: "fast" });
   assert.equal(get(x, "rot_material").status, "fel");
-  // verkligt över även den högsta möjliga arbetsgränsen och lika med procent av hela summan: fel kvarstår vid okänt datum
+  // verkligt över även den högsta möjliga arbetsgränsen: beloppsfel kvarstår vid okänt datum; materialorsak säker bara med uttryckligt belägg (D19-R1-P2)
   const ov = run({ ...o, rotAmountSek: 60000, laborSumSek: 100000, materialSumSek: 100000 }, { vatMode: "inkl", priceType: "fast" });   // 30 % av 200 000 = 60 000 > 50 000
-  assert.equal(get(ov, "rot_belopp").status, "fel"); assert.equal(get(ov, "rot_material").status, "fel");
+  assert.equal(get(ov, "rot_belopp").status, "fel"); assert.equal(get(ov, "rot_material").status, "fraga");   // D19-R1-P2: var "fel"
+  assert.equal(get(run({ ...o, rotAmountSek: 60000, laborSumSek: 100000, materialSumSek: 100000, rotOnMaterialOrTravel: true }, { vatMode: "inkl", priceType: "fast" }), "rot_material").status, "fel");
 });
