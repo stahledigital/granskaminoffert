@@ -326,3 +326,17 @@ test("LAYOUT-01: 375/390/1280 och ~200 % zoom utan sidoscroll genom start, felra
     }
   } finally { await h.close(); }
 });
+
+test("ORDER-01 (rollback-säkert): okänd väg (404 utan order-saknas-text) bevarar ordern; 404 'Ordern hittades inte.' släpper den", async () => {
+  const h = await startHarness(); const { ctx, page, errors } = await cmpPage(h);
+  try {
+    await page.route(/\/compare\/orders\/o_[0-9a-f]+\/docs\/1$/, (route) => route.request().method() === "PUT" ? route.fulfill({ status: 503, headers: CORS, contentType: "application/json", body: JSON.stringify({ error: "Tillfälligt fel hos tjänsten." }) }) : route.fallback());
+    await fillTwo(page); await page.click("#check"); await page.waitForSelector("#cdraft-open");
+    let body = { error: "Not found" };
+    await page.route(/close-draft$/, (route) => route.fulfill({ status: 404, headers: CORS, contentType: "application/json", body: JSON.stringify(body) }));
+    await page.click("#cdraft-open"); await page.click("#cdraft-yes"); await page.waitForFunction(() => /Ordern och det du lagt in är kvar/.test(document.getElementById("cdraft-msg").textContent));
+    assert.ok(await page.evaluate(() => !!JSON.parse(localStorage.getItem("jamfor_order") || "null")), "ordern bevarad");
+    body = { error: "Ordern hittades inte." }; await page.click("#cdraft-yes"); await page.waitForSelector("#s1:not(.hidden)");
+    assert.equal(await page.evaluate(() => localStorage.getItem("jamfor_order")), null); assert.deepEqual(errors, []);
+  } finally { await ctx.close(); await h.close(); }
+});

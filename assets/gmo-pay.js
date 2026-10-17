@@ -699,7 +699,8 @@ async function closeDraft(yes,no,msg){
     G.ws.closedDraft=KIND;
     restartHere(true);return;
   }
-  if(r.status===404){clearTimeout(state.timer);store('jamfor_order',null);state.order=null;restartHere(true);return}
+  // 404 med Workerns egen order-saknas-text = ordern finns inte längre (utgången/raderad). Annan 404 (t.ex. äldre Worker utan vägen) är ett fel: ordern bevaras.
+  if(r.status===404&&r.json&&r.json.error==='Ordern hittades inte.'){clearTimeout(state.timer);store('jamfor_order',null);state.order=null;restartHere(true);return}
   if(r.status===409){
     mErr('server','submit');
     var why={status:'Ordern har redan gått vidare och kan inte längre avslutas som utkast.',betald:'Ordern är betald och kan inte avslutas som utkast.',avtalspost:'Ordern har ett avtal och kan inte avslutas som utkast.',kassa:'Betalningen har påbörjats, så utkastet kan inte avslutas just nu.',raderad:'Ordern är redan raderad.'}[r.json&&r.json.reason];
