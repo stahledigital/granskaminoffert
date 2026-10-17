@@ -15,6 +15,9 @@ Backend: dubbelklicka `DEPLOY_GRANSKAMINOFFERT_WORKER.command` (wrangler deploy 
 ## Test
 `cd worker && node --test test/*.test.mjs` – workern utan nätverk, inkl. fem testofferter för prisreglerna och kontroll av förbjudna ord. Frontend verifieras headless på 375 och 1280 px (inga konsolfel, ingen sidoscroll, exempelflödet renderar).
 
+## UI-prov (D19)
+`tests/ui/*.test.mjs` körs med `node --test --test-concurrency=1 tests/ui/<fil>.test.mjs` mot den lokala Workern via `worker/dev/compare_harness.mjs` (Playwright + Chromium; modell och Stripe är attrapper). Visar sidlogik och layout, inte riktig mobil, skärmläsare eller VoiceOver (EJ TESTAT). Mätningen verifieras mot serverns riktiga `normalizeClientEvent`.
+
 ## Ändringslogg
 Se `CHANGELOG.md`.
 

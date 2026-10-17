@@ -88,3 +88,19 @@ retention är en plattformsinställning som inte är verifierad här; produkttex
 
 Worker med utökad `/event`-validering och serverdatapunkter släpps **före** frontenden och är kompatibel med nuvarande frontend
 (gamla händelser oförändrade). Rollback av Workern lämnar nya klienthändelser ignorerade (204) och påverkar inga ordrar.
+
+
+## Frontendens faktiska utlösare i D19-kandidaten (gmo-v23-d19)
+
+Klientmodulerna `gmo-core.js` (`G.measure`), `gmo-free.js`, `gmo-pay.js` och `gmo-app.js` skickar bara fält som står i tabellen ovan; övrigt ignoreras av servern.
+
+- `landing` (gmo-app): en gång per dokument; `mode=new|resume|readonly` ur adressens grova form.
+- `input_choose` (alla tre): aktivt filval (ändringshändelse med fil) respektive första inmatning i textfältet; kameraval i gratis. Ett nekat val (för stor fil) ger `client_error`, ingen `input_ready`.
+- `input_ready`: bara vid övergång från inget till giltigt aktuellt underlag per plats (`handoff` när underlaget följt med); `inputs_ready` (bara `compare`) när alla aktiva 2–4 platser är klara. Dolda platser räknas inte.
+- `submit`: efter klientvalidering och startlås, med `method` (`handoff` > `file` > `text`). Ett blockerat dubbelklick ger ingen extra händelse.
+- `client_error`: `stage` ∈ input|config|submit|checkout, `reason` ur den slutna listan (t.ex. `size` för 8/20 MB, `network`/`timeout`/`server`/`read`/`format`/`config`). Aldrig feltext.
+- `result_view`: när resultatet visas, högst en gång per order och dokument (`gmo-pay.js`) respektive per körning (`gmo-free.js`).
+- `checkout_open`: vid öppningsförsök av kassa (jämför och förkontroll), inte vid betalning.
+- Demoflaggan följer bara med händelser som sker i exempelläget; `seen` skickas som `true` och normaliseras av servern till `sett_exempel`.
+
+Kontrollerat i `tests/ui/d19_pay.test.mjs` och `tests/ui/d19_resultat.test.mjs`: varje klienthändelse i gratis-, jämför- och förkontrollflödena accepteras av `normalizeClientEvent`, är högst 1024 byte och saknar innehåll/ID.
