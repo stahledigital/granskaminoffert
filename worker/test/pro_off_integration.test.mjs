@@ -100,10 +100,10 @@ test("/pro utan snedstreck och /proX går inte till PRO-rutterna", async () => {
   }
 });
 
-test("wrangler.toml: off, sajtens origin och cron 17 * * * *, inget test/live och inga kampanjkoder", () => {
+test("wrangler.toml: avgränsad TEST enligt nattmandatet, samma origin/cron och inga kampanjkoder", () => {
   const t = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
   assert.match(t, /^\[triggers\]\ncrons = \["17 \* \* \* \*"\]$/m);
-  assert.match(t, /^PRO_PAYMENTS = "off"$/m);
+  assert.match(t, /^PRO_PAYMENTS = "test"$/m); // Endast verklig Stripe-testkedja före eventuell livebetalning.
   assert.match(t, /^PRO_ALLOWED_ORIGIN = "https:\/\/stahledigital\.se"$/m);
   assert.equal((t.match(/^PRO_PAYMENTS\s*=/gm) || []).length, 1);
   assert.doesNotMatch(t, /^PRO_KAMPANJKODER\s*=/m);

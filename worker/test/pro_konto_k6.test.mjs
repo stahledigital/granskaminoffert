@@ -79,9 +79,9 @@ const projekt = (id) => ({ format: "materialraknaren-pro-projekt", version: 1, p
 const put = (e, cookie, id, rev) => f(e, `/pro/konto/projekt/${id}`, { method: "PUT", cookie, body: projekt(id), headers: { "If-Match": String(rev) } });
 const allaFel = (e) => [...(e.PRO_REGISTER.fel || []), ...(e.PRO_KONTON.fel || [])];
 
-test("wrangler.toml K6: PRO_KONTO inbjudna och PRO_DO_JURISDIKTION eu; PRO_PAYMENTS off, PRO_OWNER_EMAIL oförändrad, PRO_TEST_MEJL saknas; inga nya bindningar eller migrationer", () => {
+test("wrangler.toml K6: PRO_KONTO inbjudna och PRO_DO_JURISDIKTION eu; PRO_PAYMENTS test för avgränsad nattverifiering, PRO_OWNER_EMAIL oförändrad, PRO_TEST_MEJL saknas; inga nya bindningar eller migrationer", () => {
   assert.equal(VARS.PRO_KONTO, "inbjudna"); assert.equal(VARS.PRO_DO_JURISDIKTION, "eu");
-  assert.equal(VARS.PRO_PAYMENTS, "off"); assert.equal(VARS.PRO_OWNER_EMAIL, "anders@stahledigital.se");
+  assert.equal(VARS.PRO_PAYMENTS, "test"); assert.equal(VARS.PRO_OWNER_EMAIL, "anders@stahledigital.se");
   assert.ok(!/^\s*PRO_TEST_MEJL\s*=/m.test(TOML) && !("PRO_TEST_MEJL" in VARS), "PRO_TEST_MEJL är inte satt i wrangler.toml (= av)");
   assert.equal((TOML.match(/^\[\[durable_objects\.bindings\]\]/gm) || []).length, 7, "samma 7 DO-bindningar som K5");
   assert.equal((TOML.match(/^\[\[migrations\]\]/gm) || []).length, 5, "samma 5 migrationer (v1–v5)");
