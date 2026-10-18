@@ -80,10 +80,10 @@ test("K2 A3: off-svaret för /pro/konto/* har X-Robots-Tag noindex, nofollow, no
   assert.equal(await a.text(), await b.text());
 });
 
-test("wrangler.toml: PRO_KONTO inbjudna (K6, tidigare off), ägaradress, granskad PRO_PAYMENTS test, två nya SQLite-klasser i migration v5", () => {
+test("wrangler.toml: PRO_KONTO inbjudna (K6, tidigare off), ägaradress, granskad PRO_PAYMENTS live, två nya SQLite-klasser i migration v5", () => {
   const t = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
   assert.match(t, /^PRO_KONTO = "inbjudna"$/m); // K6 konto enligt specen; off-vägen provas fortsatt med env i proven.
-  assert.match(t, /^PRO_OWNER_EMAIL = "anders@stahledigital\.se"$/m); assert.match(t, /^PRO_PAYMENTS = "test"$/m); // Anders nattmandat, endast testbetalningar.
+  assert.match(t, /^PRO_OWNER_EMAIL = "anders@stahledigital\.se"$/m); assert.match(t, /^PRO_PAYMENTS = "live"$/m); // Anders nattmandat, verifierad treplansresa före live.
   assert.match(t, /name = "PRO_REGISTER"\nclass_name = "ProRegister"/); assert.match(t, /name = "PRO_KONTON"\nclass_name = "ProKonto"/);
   assert.match(t, /tag = "v5"\nnew_sqlite_classes = \["ProRegister", "ProKonto"\]/);
   assert.equal((t.match(/^\[\[migrations\]\]$/gm) || []).length, 5);

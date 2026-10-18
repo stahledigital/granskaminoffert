@@ -179,7 +179,7 @@ test("A4: jurisdiktion är förberedd men av: utan var används vanlig namnrymd;
   const t = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
   // K6 (Donatello 2026-10-18): påslagen i wrangler.toml tillsammans med PRO_KONTO="inbjudna" (pro_konto_k6.test.mjs prövar att all åtkomst går via nr()).
   assert.match(t, /^PRO_DO_JURISDIKTION = "eu"$/m, "påslagen i wrangler.toml (K6)");
-  assert.match(t, /^PRO_KONTO = "inbjudna"$/m); assert.match(t, /^PRO_PAYMENTS = "test"$/m); // Anders nattmandat: separat verifieringsrelease, inga riktiga debiteringar.
+  assert.match(t, /^PRO_KONTO = "inbjudna"$/m); assert.match(t, /^PRO_PAYMENTS = "live"$/m); // Anders nattmandat: separat granskad liveöppning efter hostedTEST.
 });
 
 // ---------------- B: synk ----------------
