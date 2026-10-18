@@ -111,6 +111,10 @@ COMPARE_AUTO_REFUND = "1"
 # Läget test/live sätts först efter separat QA och SLÄPPREDO (PRO_INTEGRATION D.3–D.4). PRO_KAMPANJKODER är av när den saknas.
 PRO_PAYMENTS = "off"
 PRO_ALLOWED_ORIGIN = "https://stahledigital.se"
+# KONTO-SYNK K1 (KP-2026-10-16-01): konto, engångskod och sessioner under /pro/konto/*. off = 503 för allt där, inga mejl, inga DO-anrop.
+# "inbjudna" = koder bara till ägaren och aktiva testbevis; övriga får samma 202 utan mejl. Läget ändras först i K6 enligt specen.
+PRO_KONTO = "off"
+PRO_OWNER_EMAIL = "anders@stahledigital.se"
 
 [[durable_objects.bindings]]
 name = "QUOTA"
@@ -193,3 +197,16 @@ class_name = "CompareBudget"
 [[migrations]]
 tag = "v4"
 new_sqlite_classes = ["CompareOrders", "CompareBudget"]
+
+# KONTO-SYNK K1: kontoregister (EN instans) och ett objekt per konto (enheter och sessioner). SQLite-backade, ingen ny molnresurs utöver klasserna.
+[[durable_objects.bindings]]
+name = "PRO_REGISTER"
+class_name = "ProRegister"
+
+[[durable_objects.bindings]]
+name = "PRO_KONTON"
+class_name = "ProKonto"
+
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["ProRegister", "ProKonto"]

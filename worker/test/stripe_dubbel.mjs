@@ -1,5 +1,7 @@
 // Delade testdubblar för P3 (Stripe med tillstånd, KV) – används av pro_routes.test.mjs och e2e. Inga nätanrop.
 import { STRIPE_VERSION } from "../src/pro_routes.js";
+import { ProRegister, ProKonto } from "../src/pro_konto.js";
+import { namnrymd } from "./helpers/pro_do_dubbel.mjs";
 const DAG = 86400;
 export function kv() {
   const m = new Map();
@@ -13,7 +15,8 @@ export const SALJARE = { COMPARE_SELLER_FORM: "ENSKILD", COMPARE_SELLER_NAME: "S
 export const ENV = (extra = {}) => ({ PRO_PAYMENTS: "test", STRIPE_TEST_SECRET_KEY: "sk_test_DUBBEL", STRIPE_TEST_WEBHOOK_SECRET: "whsec_TESTDUBBEL0123456789",
   STRIPE_SECRET_KEY: "sk_live_DUBBEL", STRIPE_WEBHOOK_SECRET: "whsec_LIVEDUBBEL0123456789", PRO_ALLOWED_ORIGIN: "https://stahledigital.se",
   COMPARE_MAIL_HTTP: "1", COMPARE_MAIL_HTTP_VERIFIED: "1", COMPARE_MAIL_FROM: "Granska min offert <hej@stahledigital.se>", COMPARE_MAIL_DAY_CAP: "50",
-  COMPARE_MAIL_API_KEY: "re_TESTDUBBEL0123456789", COMPARE_MAIL_WEBHOOK_SECRET: "whsec_" + "A".repeat(32), REVIEWS_KV: kv(), ...SALJARE, ...extra });
+  COMPARE_MAIL_API_KEY: "re_TESTDUBBEL0123456789", COMPARE_MAIL_WEBHOOK_SECRET: "whsec_" + "A".repeat(32), REVIEWS_KV: kv(),
+  PRO_REGISTER: namnrymd(ProRegister), PRO_KONTON: namnrymd(ProKonto), ...SALJARE, ...extra }); // K1: login-noncen ligger i ProRegister
 // ---------- Stripe-dubbel med tillstånd ----------
 export function fakeStripe({ nuS = () => Math.floor(Date.now() / 1000) } = {}) {
   const st = { taxRates: [], prices: [], sessions: new Map(), subs: new Map(), invoices: new Map(), customers: new Map(), refunds: [], portals: [], idem: new Map(), anrop: [], n: 0, felPa: null };

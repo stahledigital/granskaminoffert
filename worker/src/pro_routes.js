@@ -20,6 +20,7 @@ import { hmacSha256Hex, timingSafeEqual, b64url, randomToken, sha256Hex, jsonRes
 import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./compare_mailer.js";
 import { sellerInfo, sellerLines } from "./compare_config.js";
 import { SAMTYCKE_VERSION, VILLKOR_VERSION, SAMTYCKE_TEXT, MEJL, fyll, planNamn } from "./pro_texter.js";
+import { register } from "./pro_konto.js";
 
 const API = "https://api.stripe.com/v1";
 export const STRIPE_VERSION = "2024-06-20";
@@ -174,7 +175,7 @@ async function prenToken(env, kund, sub, nowS) {
   const slut = periodSlut(sub) ?? nowS + DAG, exp = Math.min(slut, nowS + PREN_MAX_S);
   return { token: await signToken(env, { t: "pren", c: kund, exp }), plan: "pren", exp };
 }
-async function aktivPren(env, kund, fetchImpl) {
+export async function aktivPren(env, kund, fetchImpl) {
   if (!/^cus_[A-Za-z0-9]{6,}$/.test(String(kund))) return null;
   const l = await stripe(env, `/subscriptions?customer=${encodeURIComponent(kund)}&status=all&limit=20`, { fetchImpl });
   return (l && Array.isArray(l.data) ? l.data : []).find((s) => AKTIV.has(s.status) && arPro(s)) || null;
@@ -430,7 +431,8 @@ export async function handlePro(request, env, ctx, { fetchImpl = fetch, now = ()
       }
       if (!kund) return kvitt;
       const nonce = randomToken(18);
-      await env.REVIEWS_KV.put(`pro:login:${nonce}`, kund, { expirationTtl: LOGIN_S + 60 });
+      const sp = await register(env, "nonce_spara", { nu: nowS, n: nonce, kund, ttl: LOGIN_S + 60 }); // K1: atomiskt i ProRegister (tidigare KV)
+      if (!sp || !sp.ok) throw Object.assign(new Error("nonce kunde inte sparas"), { status: 502 });
       const t = await signToken(env, { t: "login", c: kund, n: nonce, exp: nowS + LOGIN_S });
       const ret = returUrl(env), sep = ret.includes("?") ? "&" : "?";
       await skickaMejl(env, { till: epostRa, nyckel: `login-${nonce}`, tak: true, amne: MEJL.login_amne, text: fyll(MEJL.login, { lank: `${ret}${sep}pro=login&t=${encodeURIComponent(t)}` }) });
@@ -457,9 +459,8 @@ export async function handlePro(request, env, ctx, { fetchImpl = fetch, now = ()
     if (url.pathname === "/pro/inloggning/bekrafta" && request.method === "POST") {
       const b = await lasKropp(request, TOKEN_MAX + 64); const t = b && (await verifyToken(env, b.t, nowS));
       if (!t || t.t !== "login" || typeof t.n !== "string") return svar({ status: "ogiltig_lank" }, 401);
-      const k = `pro:login:${t.n}`; const lagrad = env.REVIEWS_KV ? await env.REVIEWS_KV.get(k) : null;
-      if (lagrad !== t.c) return svar({ status: "lank_anvand_eller_utgangen" }, 401);
-      await env.REVIEWS_KV.delete(k);
+      const los = await register(env, "nonce_los", { nu: nowS, n: t.n, kund: t.c }); // K1: läs, jämför och radera i EN transaktion (exakt en vinnare)
+      if (!los || !los.ok) return svar({ status: "lank_anvand_eller_utgangen" }, 401);
       const sub = await aktivPren(env, t.c, fetchImpl); if (!sub) return svar({ status: "pren_ej_aktiv" }, 402);
       return svar(await prenToken(env, t.c, sub, nowS));
     }
