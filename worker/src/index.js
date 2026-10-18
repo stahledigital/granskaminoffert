@@ -31,7 +31,7 @@ import { handleExplain, explainCors, explainOrigins } from "./explain.js";
 import { ANTHROPIC_URL, ANTHROPIC_VERSION, readReview } from "./provider.js";
 import { normalizeClientEvent, clientDatapoint } from "./measure.js";
 import { handlePro, proSchema, aktivPren, proMode } from "./pro_routes.js";
-import { handleKonto } from "./pro_konto.js";
+import { handleKonto, kontoSchema } from "./pro_konto.js";
 
 // USD-priser per miljon tokens finns i models.js (en tabell, med källa). SEK-omräkning
 // är en grov, deklarerad uppskattning – kostnaden i USD är den mätta siffran, och för
@@ -914,6 +914,7 @@ export default {
 
   // MR PRO-schema (cron "17 * * * *" i wrangler.toml). I läge off gör proSchema ingenting (inga anrop, ingen KV).
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(proSchema(env).catch(() => {}));
+    // KONTO-SYNK K2: kontoSchema (avisering/radering/efterrensning) i samma waitUntil. PRO_KONTO off → returnerar direkt utan att röra något.
+    ctx.waitUntil(Promise.all([proSchema(env).catch(() => {}), kontoSchema(env, { aktivPren, proMode }).catch(() => {})]));
   },
 };

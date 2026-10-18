@@ -40,7 +40,8 @@ function req(path, { method = "GET", origin = SAJT, xmr = true, body, cookie, ip
   if (cookie) h.Cookie = cookie;
   return new Request(API + path, { method, headers: h, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) });
 }
-const f = (env, path, o) => worker.fetch(req(path, o), env, ctx());
+// K2 (A2): kodmejlet går i ctx.waitUntil. Hjälpen väntar in waitUntil efter svaret, som körtiden gör.
+const f = async (env, path, o) => { const c = ctx(); const r = await worker.fetch(req(path, o), env, c); await Promise.all(c.v); return r; };
 const kodUr = (m) => /\n {4}(\d{6})\n/.exec(m.text)[1];
 const lankUr = (m) => /#pro-konto=([0-9a-f]{32}\.\d{6})/.exec(m.text)[1];
 const cookieUr = (r) => { const s = r.headers.get("set-cookie"); return s ? s.split(";")[0] : null; };
@@ -70,10 +71,13 @@ test("PRO_KONTO off (och saknad/okänd): allt under /pro/konto/* ger 503 stangt,
   assert.equal(mejl.length, 0); assert.deepEqual(natAnrop, []);
 });
 
-test("off-svaret för /pro/konto/* har samma headers som basens /pro/* i off (CORS för sajten, vary)", async () => {
+// K2 A3 ersätter K1:s krav på samma headers som basens /pro/* i off: konto-svar har noindex/no-store och ALDRIG CORS, även i off.
+test("K2 A3: off-svaret för /pro/konto/* har X-Robots-Tag noindex, nofollow, no-store och ingen Access-Control-* eller vary; kroppen som basens off", async () => {
   const e = kEnv({ PRO_KONTO: "off" });
   const a = await f(e, "/pro/konto/kod", { method: "POST", body: {} }), b = await f(e, "/pro/checkout", { method: "POST", body: {} });
-  assert.deepEqual([...a.headers], [...b.headers]); assert.equal(await a.text(), await b.text());
+  assert.deepEqual([...a.headers], [["cache-control", "no-store"], ["content-type", "application/json; charset=utf-8"], ["x-robots-tag", "noindex, nofollow"]]);
+  assert.equal(b.headers.get("access-control-allow-origin"), SAJT, "basens /pro/* är oförändrad");
+  assert.equal(await a.text(), await b.text());
 });
 
 test("wrangler.toml: PRO_KONTO off, ägaradress, PRO_PAYMENTS off, två nya SQLite-klasser i migration v5", () => {
@@ -112,7 +116,7 @@ test("ägaren får kod + länk med samma engångsvärde; okänd adress får samm
   assert.equal(r2.status, 202); assert.equal(await r2.text(), j1, "samma kropp"); assert.equal(mejl.length, 1);
   for (const b of [{ epost: "inte-en-adress" }, {}, "x".repeat(5000)]) { const r = await f(e, "/pro/konto/kod", { method: "POST", body: b }); assert.equal(r.status, 202); }
   assert.equal(mejl.length, 1);
-  assert.equal(r1.headers.get("access-control-allow-origin"), null); assert.equal(r1.headers.get("x-robots-tag"), "noindex");
+  assert.equal(r1.headers.get("access-control-allow-origin"), null); assert.equal(r1.headers.get("x-robots-tag"), "noindex, nofollow"); // K2 A3
   // registret har aldrig e-posten i klartext
   const db = [...e.PRO_REGISTER.inst.values()][0].storage.sql;
   const dump = JSON.stringify(["konton", "koder", "grans", "testbevis"].map((t) => db.exec(`SELECT * FROM ${t}`).toArray()));

@@ -17,6 +17,8 @@ export function sqlState() {
   };
   const storage = {
     sql,
+    // K2: deleteAll tar bort ALL lagring (alla tabeller), som i SQLite-backade DO.
+    async deleteAll() { for (const { name } of db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).all()) db.exec(`DROP TABLE "${name}"`); },
     transactionSync(fn) {
       if (djup > 0) return fn();
       db.exec("BEGIN"); djup++;
@@ -27,11 +29,13 @@ export function sqlState() {
 }
 
 // Namnrymd som env.X: idFromName, get(id).fetch(url, init). Instanser lever per namn (som en riktig DO).
-export function namnrymd(Klass, env = {}) {
-  const inst = new Map(), anrop = [];
+export function namnrymd(Klass, env = {}, { prefix = "", delad = null } = {}) {
+  const inst = delad ? delad.inst : new Map(), anrop = delad ? delad.anrop : [], jur = delad ? delad.jur : [];
   return {
-    inst, anrop,
-    idFromName: (n) => ({ toString: () => "id:" + n, namn: String(n) }),
+    inst, anrop, jur,
+    idFromName: (n) => ({ toString: () => "id:" + prefix + n, namn: prefix + String(n) }),
+    // K2 A4: jurisdiction("eu") ger en subnamnrymd med egna id:n (samma namn → annat objekt), som i Cloudflare.
+    jurisdiction(j) { jur.push(j); return namnrymd(Klass, env, { prefix: j + "|", delad: { inst, anrop, jur } }); },
     get(id) {
       const n = id.namn;
       if (!inst.has(n)) inst.set(n, new Klass(sqlState(), env));

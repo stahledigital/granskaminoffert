@@ -47,7 +47,14 @@ function boot(extra = {}) {
   return { mf, ut };
 }
 const H = (o = {}) => ({ Origin: SAJT, "X-MR-Pro": "1", "content-type": "application/json", "CF-Connecting-IP": o.ip || "203.0.113.9", ...(o.cookie ? { Cookie: o.cookie } : {}) });
-const post = (mf, p, body, o) => mf.dispatchFetch("http://localhost" + p, { method: "POST", headers: H(o), body: JSON.stringify(body) });
+// K2 (A2): kodmejlet går i waitUntil efter svaret. Efter /kod väntar vi (högst 3 s) tills registret och mejlet hunnit köras.
+const vantaMejl = async (ut, fore) => { for (let i = 0; i < 60 && (ut.mejl || []).length <= fore; i++) await new Promise((r) => setTimeout(r, 50)); };
+const post = async (mf, p, body, o) => {
+  const ut = o && o.ut; const fore = ut ? (ut.mejl || []).length : 0;
+  const r = await mf.dispatchFetch("http://localhost" + p, { method: "POST", headers: H(o), body: JSON.stringify(body) });
+  if (ut && p === "/pro/konto/kod") await vantaMejl(ut, fore);
+  return r;
+};
 const kodUr = (m) => /\n {4}(\d{6})\n/.exec(m.text)[1];
 const ck = (r) => (r.headers.get("set-cookie") || "").split(";")[0];
 
@@ -65,7 +72,7 @@ test("workerd: PRO_KONTO off – allt under /pro/konto/* 503 stangt, 0 utgående
 test("workerd: ägaren loggar in med kod, cookie exakt, jag = ägare; 6 parallella inlösen → exakt en vinnare", { skip }, async () => {
   const { mf, ut } = boot(); await mf.ready;
   try {
-    let r = await post(mf, "/pro/konto/kod", { epost: AGARE }); assert.equal(r.status, 202);
+    let r = await post(mf, "/pro/konto/kod", { epost: AGARE }, { ut }); assert.equal(r.status, 202);
     assert.equal(ut.mejl.length, 1); const kod = kodUr(ut.mejl[0]);
     const svar = await Promise.all(Array.from({ length: 6 }, () => post(mf, "/pro/konto/logga-in", { epost: AGARE, kod })));
     const st = svar.map((x) => x.status).sort(); assert.deepEqual(st, [200, 401, 401, 401, 401, 401]);
@@ -81,7 +88,7 @@ test("workerd: ägaren loggar in med kod, cookie exakt, jag = ägare; 6 parallel
 test("workerd: 5 fel spärrar koden; 403 utan Origin eller X-MR-Pro", { skip }, async () => {
   const { mf, ut } = boot(); await mf.ready;
   try {
-    await post(mf, "/pro/konto/kod", { epost: AGARE }); const kod0 = kodUr(ut.mejl[0]); const fel = kod0 === "000000" ? "111111" : "000000";
+    await post(mf, "/pro/konto/kod", { epost: AGARE }, { ut }); const kod0 = kodUr(ut.mejl[0]); const fel = kod0 === "000000" ? "111111" : "000000";
     for (let i = 0; i < 5; i++) assert.equal((await post(mf, "/pro/konto/logga-in", { epost: AGARE, kod: fel })).status, 401);
     assert.equal((await post(mf, "/pro/konto/logga-in", { epost: AGARE, kod: kod0 })).status, 401, "spärrad");
     assert.equal((await mf.dispatchFetch("http://localhost/pro/konto/logga-in", { method: "POST", headers: { Origin: SAJT, "content-type": "application/json" }, body: "{}" })).status, 403);
@@ -93,7 +100,7 @@ test("workerd: 5 fel spärrar koden; 403 utan Origin eller X-MR-Pro", { skip }, 
 test("workerd: fjärde enheten 409 med lista (koden förbrukas inte); utloggning med koden; nytt försök lyckas; utloggad cookie 401", { skip }, async () => {
   const { mf, ut } = boot(); await mf.ready;
   try {
-    await post(mf, "/pro/konto/kod", { epost: AGARE });
+    await post(mf, "/pro/konto/kod", { epost: AGARE }, { ut });
     const a = await post(mf, "/pro/konto/logga-in", { epost: AGARE, kod: kodUr(ut.mejl[0]), namn: "A" }); assert.equal(a.status, 200);
     const kontoId = (await (await mf.dispatchFetch("http://localhost/pro/konto/jag", { headers: { Cookie: ck(a) } })).json()).konto;
     // fyll kontot till 3 enheter direkt i den riktiga ProKonto-instansen (samma operation som logga-in använder), i stället för att vänta ut e-postgränsen
@@ -102,7 +109,7 @@ test("workerd: fjärde enheten 409 med lista (koden förbrukas inte); utloggning
       const r = await (await stub.fetch("https://pro-konto/skapa", { method: "POST", body: JSON.stringify({ nu: Math.floor(Date.now() / 1000), kontoId, sess: i.repeat(64), namn: n }) })).json();
       assert.equal(r.ok, true);
     }
-    await post(mf, "/pro/konto/kod", { epost: AGARE }); const kod = kodUr(ut.mejl[1]);
+    await post(mf, "/pro/konto/kod", { epost: AGARE }, { ut }); const kod = kodUr(ut.mejl[1]);
     const r4 = await post(mf, "/pro/konto/logga-in", { epost: AGARE, kod, namn: "D" });
     assert.equal(r4.status, 409); const j = await r4.json(); assert.equal(j.status, "enhetsgrans"); assert.deepEqual(j.enheter.map((x) => x.namn).sort(), ["A", "B", "C"]);
     const idA = j.enheter.find((x) => x.namn === "A").id;
