@@ -3,6 +3,11 @@ main = "src/index.js"
 compatibility_date = "2026-09-01"
 keep_vars = true
 
+# MR PRO-schema (KP-2026-10-16-01): bekräftelser, förnyelsekvitton, årspåminnelser och nya försök med ångeråtgärder.
+# I PRO_PAYMENTS="off" returnerar proSchema direkt utan nätanrop och utan KV.
+[triggers]
+crons = ["17 * * * *"]
+
 # KV-namespace för 24h felsökningslagring och anonyma räknare.
 # Id:t fylls i automatiskt av DEPLOY_GRANSKAMINOFFERT_WORKER.command
 # (letar upp namespace med "REVIEWS" i namnet på kontot). Skapa annars med:
@@ -102,6 +107,10 @@ COMPARE_REVIEWS = "1"
 COMPARE_REVIEWS_VERIFIED = "1"
 COMPARE_PREID = "0"
 COMPARE_AUTO_REFUND = "1"
+# MR PRO (KP-2026-10-16-01), /pro/* i src/pro_routes.js. off = köp stängt: /pro/status svarar, övriga /pro/* 503, inga Stripe-/Resend-anrop.
+# Läget test/live sätts först efter separat QA och SLÄPPREDO (PRO_INTEGRATION D.3–D.4). PRO_KAMPANJKODER är av när den saknas.
+PRO_PAYMENTS = "off"
+PRO_ALLOWED_ORIGIN = "https://stahledigital.se"
 
 [[durable_objects.bindings]]
 name = "QUOTA"

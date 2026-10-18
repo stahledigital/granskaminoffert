@@ -29,6 +29,7 @@ import { handleExplain, explainCors, explainOrigins } from "./explain.js";
 
 import { ANTHROPIC_URL, ANTHROPIC_VERSION, readReview } from "./provider.js";
 import { normalizeClientEvent, clientDatapoint } from "./measure.js";
+import { handlePro, proSchema } from "./pro_routes.js";
 
 // USD-priser per miljon tokens finns i models.js (en tabell, med källa). SEK-omräkning
 // är en grov, deklarerad uppskattning – kostnaden i USD är den mätta siffran, och för
@@ -824,6 +825,12 @@ export default {
       if (r) return r;
     }
 
+    // MR PRO (KP-2026-10-16-01): egna rutter och egen CORS, bara under /pro/. PRO_PAYMENTS="off" = stängt utom /pro/status.
+    if (url.pathname.startsWith("/pro/")) {
+      const r = await handlePro(request, env, ctx);
+      if (r) return r;
+    }
+
     if (request.method === "OPTIONS" && url.pathname === "/explain") {
       return new Response(null, { status: 204, headers: explainCors(origin, explainOrigins(env)) });
     }
@@ -899,5 +906,10 @@ export default {
     }
 
     return jsonResponse({ error: "Not found" }, 404, corsHeaders(origin, allowedOrigins));
+  },
+
+  // MR PRO-schema (cron "17 * * * *" i wrangler.toml). I läge off gör proSchema ingenting (inga anrop, ingen KV).
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(proSchema(env).catch(() => {}));
   },
 };
