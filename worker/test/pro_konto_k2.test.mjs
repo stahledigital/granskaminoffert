@@ -177,8 +177,9 @@ test("A4: jurisdiktion är förberedd men av: utan var används vanlig namnrymd;
   const utan = kEnv({ PRO_DO_JURISDIKTION: "eu" }); delete utan.PRO_REGISTER.jurisdiction;
   assert.equal((await f(utan, "/pro/konto/logga-in", { method: "POST", body: { epost: AGARE, kod: "123456" } })).status, 503, "fail closed");
   const t = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
-  assert.ok(!/PRO_DO_JURISDIKTION/.test(t), "inte påslagen i wrangler.toml");
-  assert.match(t, /^PRO_KONTO = "off"$/m); assert.match(t, /^PRO_PAYMENTS = "off"$/m);
+  // K6 (Donatello 2026-10-18): påslagen i wrangler.toml tillsammans med PRO_KONTO="inbjudna" (pro_konto_k6.test.mjs prövar att all åtkomst går via nr()).
+  assert.match(t, /^PRO_DO_JURISDIKTION = "eu"$/m, "påslagen i wrangler.toml (K6)");
+  assert.match(t, /^PRO_KONTO = "inbjudna"$/m); assert.match(t, /^PRO_PAYMENTS = "off"$/m);
 });
 
 // ---------------- B: synk ----------------

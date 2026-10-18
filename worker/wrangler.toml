@@ -113,8 +113,13 @@ PRO_PAYMENTS = "off"
 PRO_ALLOWED_ORIGIN = "https://stahledigital.se"
 # KONTO-SYNK K1 (KP-2026-10-16-01): konto, engångskod och sessioner under /pro/konto/*. off = 503 för allt där, inga mejl, inga DO-anrop.
 # "inbjudna" = koder bara till ägaren och aktiva testbevis; övriga får samma 202 utan mejl. Läget ändras först i K6 enligt specen.
-PRO_KONTO = "off"
+# K6 (KP-2026-10-16-01, Anders GO 08:45 och 11:51/14:23, betalning off): "inbjudna". Bara inloggningskoden (MEJL_KONTO) går ut;
+# PRO_TEST_MEJL saknas = av, så inget inbjudningsmejl skickas. Testarna har inga testbevis förrän Anders väljer adresser.
+PRO_KONTO = "inbjudna"
 PRO_OWNER_EMAIL = "anders@stahledigital.se"
+# K6: DO-id:n för ProRegister och ProKonto i jurisdiktionen "eu" (via nr() i src/pro_konto.js). Valet görs före första kontot live;
+# samma namn ger andra id:n än utan jurisdiktion. Saknas eller kastar jurisdiction() svarar /pro/konto/* 503 (fail closed).
+PRO_DO_JURISDIKTION = "eu"
 
 [[durable_objects.bindings]]
 name = "QUOTA"

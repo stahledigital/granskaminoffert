@@ -18,8 +18,8 @@
 //   A2 kodmejlet (och hela registerarbetet) i ctx.waitUntil, så att svarstiden inte skiljer inbjuden från okänd adress,
 //   A3 ALLA svar under /pro/konto/* (även off-503, fel, 401/403/409) har X-Robots-Tag: noindex, nofollow och Cache-Control: no-store,
 //      och ingen Access-Control-*-header,
-//   A4 EU-jurisdiktion för DO-id:n är förberedd bakom var PRO_DO_JURISDIKTION="eu" men INTE påslagen: lokal workerd svarar
-//      "Jurisdiction restrictions are not implemented in workerd" (provat 2026-10-18), så den kan inte provas före live. BLOCKED-punkt i K2/LEVERANS.md.
+//   A4 EU-jurisdiktion för DO-id:n bakom var PRO_DO_JURISDIKTION="eu": lokal workerd svarar "Jurisdiction restrictions are not
+//      implemented in workerd" (provat 2026-10-18), så den provas i node-dubbeln och live. K6 slår på den i wrangler.toml (se nr()).
 import { hmacSha256Hex, timingSafeEqual, randomToken, randomHex, sha256Hex, jsonResponse } from "./compare_util.js";
 import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./compare_mailer.js";
 import { MEJL } from "./pro_texter.js";
@@ -43,8 +43,9 @@ const KONTO_RE = /^k_[0-9a-f]{32}$/, SESS_RE = /^[A-Za-z0-9_-]{22}$/, ENHET_RE =
 const REGISTER_NAMN = "register:v1";
 
 // Systemtexter (Dons, inte S4g). Zlata ersätter i K5.
+// K6: kodmejlets ämne är Zlatas login.mejl_amne ordagrant (STOD/KONTO_TEXTER/strings.sv.json 49f3ef4e…). Brödtexten är oförändrad.
 export const KONTO_TEXT = Object.freeze({
-  kod_amne: "Din inloggningskod till Materialräknaren PRO",
+  kod_amne: "Din inloggningskod till Materialräknaren",
   kod: [
     "Hej!",
     "",
@@ -139,14 +140,19 @@ export const rensaCookie = () => `${COOKIE}=; Path=/; Max-Age=0; Secure; HttpOnl
 const rader = (cur) => (cur && typeof cur.toArray === "function" ? cur.toArray() : []);
 const forsta = (cur) => rader(cur)[0] || null;
 async function svarJson(resp) { if (!resp || !resp.ok) { const e = new Error("do " + (resp && resp.status)); e.status = 502; throw e; } return resp.json(); }
-// A4 (förberedd, av): PRO_DO_JURISDIKTION="eu" ger subnamnrymd jurisdiction("eu"). Saknas metoden → 503 (fail closed), aldrig tyst utan EU.
+// A4 (K2 förberedd, K6 påslagen i wrangler.toml): PRO_DO_JURISDIKTION="eu" ger subnamnrymd jurisdiction("eu"). Saknas eller kastar metoden
+// → 503 (fail closed), aldrig tyst utan EU. ALL åtkomst till PRO_REGISTER och PRO_KONTON går hit (provat i pro_konto_k6.test.mjs).
 // OBS: samma namn ger ANDRA id:n med jurisdiktion, så valet ska göras innan första objektet skapas live (K6). Inga data finns i off.
 function nr(env, ns, namn) {
   if (!ns || typeof ns.idFromName !== "function") { const e = new Error(namn + " saknas"); e.status = 503; throw e; }
   const j = env.PRO_DO_JURISDIKTION;
   if (j === undefined || j === null || j === "") return ns;
   if (j !== "eu" || typeof ns.jurisdiction !== "function") { const e = new Error("jurisdiktion stöds inte"); e.status = 503; throw e; }
-  return ns.jurisdiction("eu");
+  // K6: lokal workerd har metoden men kastar ("Jurisdiction restrictions are not implemented in workerd"). Också det är 503, aldrig 502
+  // och aldrig en tyst återgång till id:n utan jurisdiktion.
+  let eu; try { eu = ns.jurisdiction("eu"); } catch { eu = null; }
+  if (!eu || typeof eu.idFromName !== "function" || typeof eu.get !== "function") { const e = new Error("jurisdiktion stöds inte"); e.status = 503; throw e; }
+  return eu;
 }
 function registerStub(env) {
   const ns = nr(env, env.PRO_REGISTER, "register");
