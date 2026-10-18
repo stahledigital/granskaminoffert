@@ -115,6 +115,20 @@ export const MEJL = Object.freeze({ // texter: Zlata S4g (S4g_pro_texter.json, 2
   ],
 });
 
+// KONTO-SYNK K5 (KONTO_DELTA.json 0743f862…, Zlata): tre mejltexter som säger att projekt bara finns i webbläsaren blir fel med konto
+// och synk. Ersättningarna gäller BARA när kontot är påslaget (PRO_KONTO="inbjudna"): i off stämmer de gamla texterna fortfarande, och
+// gaten ej_belagt_modesty är uppfylld först när villkorsavsnittet "Konto och synk" är live (sajten K5, före K6). Allt annat är oförändrat.
+const BEKR_LOKAL = "Dina projekt och offerter sparas bara i den webbläsare du använder. Kunduppgifterna i dina offerter skickas inte till oss.";
+const UTFALL_LOKAL = "Räknaren och materiallistan fungerar som förut, och dina sparade projekt ligger kvar i webbläsaren.";
+const UTFALL_KONTO = "Räknaren och materiallistan fungerar som förut. Hur du hämtar dina sparade projekt står i villkoren.";
+export const MEJL_KONTO = Object.freeze({
+  ...MEJL,
+  bekr: Object.freeze(MEJL.bekr.map((r) => (r === BEKR_LOKAL ? "Dina projekt och offerter sparas på enheten. Loggar du in sparas de också i ditt konto." : r))),
+  utfall_aterbetalas: MEJL.utfall_aterbetalas.replace(UTFALL_LOKAL, UTFALL_KONTO),
+  utfall_avslutas: MEJL.utfall_avslutas.replace(UTFALL_LOKAL, UTFALL_KONTO),
+});
+export const mejlTexter = (env) => (env && env.PRO_KONTO === "inbjudna" ? MEJL_KONTO : MEJL); // samma tolkning som kontoLage()
+
 // Fyller en mall. En rad som bara består av en platshållare med tomt värde tas bort helt (ingen tom rad mitt i ett block).
 export function fyll(mall, v) {
   const rader = Array.isArray(mall) ? mall : String(mall).split("\n");

@@ -19,7 +19,7 @@
 import { hmacSha256Hex, timingSafeEqual, b64url, randomToken, sha256Hex, jsonResponse } from "./compare_util.js";
 import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./compare_mailer.js";
 import { sellerInfo, sellerLines } from "./compare_config.js";
-import { SAMTYCKE_VERSION, VILLKOR_VERSION, SAMTYCKE_TEXT, MEJL, fyll, planNamn } from "./pro_texter.js";
+import { SAMTYCKE_VERSION, VILLKOR_VERSION, SAMTYCKE_TEXT, MEJL, fyll, planNamn, mejlTexter } from "./pro_texter.js";
 import { register } from "./pro_konto.js";
 
 const API = "https://api.stripe.com/v1";
@@ -224,7 +224,7 @@ export async function bekraftelse(env, s, { fetchImpl = fetch } = {}) {
   let sub = s.subscription && typeof s.subscription === "object" ? s.subscription : null;
   if (!sub && md.plan !== "projekt" && typeof s.subscription === "string") sub = await stripe(env, `/subscriptions/${s.subscription}`, { fetchImpl });
   const nasta = sub ? periodSlut(sub) : null, uppsagning = fyll(MEJL.uppsagningsrad, { pro_lank: returUrl(env) });
-  const text = fyll(MEJL.bekr, { order, plan: planNamn(md.plan), tid: tidSv(s.created), ...belopp(s),
+  const text = fyll(mejlTexter(env).bekr, { order, plan: planNamn(md.plan), tid: tidSv(s.created), ...belopp(s),
     projektrad: md.plan === "projekt" ? fyll(MEJL.projektrad, { kod: projektKod(md.projekt), slut: datumSv(projektSlut(s)) }) : "",
     periodrad: md.plan === "manad" && nasta ? fyll(MEJL.periodrad_manad, { nasta: datumSv(nasta) }) : md.plan === "ar" && nasta ? fyll(MEJL.periodrad_ar, { nasta: datumSv(nasta) }) : "",
     samtycke_tid: md.samtycke_tid ? tidSv(Math.floor(Date.parse(md.samtycke_tid) / 1000)) : tidSv(s.created), samtycke_start: SAMTYCKE_TEXT.start, samtycke_villkor: SAMTYCKE_TEXT.villkor,
@@ -272,7 +272,7 @@ async function slutforAnger(env, s, reg, { fetchImpl }) {
   const order = reg.order, regK = K(env, `angra:reg:${order}`), inom = reg.utfall !== "manuell_provning";
   const amne = fyll(MEJL.angra_kvitto_amne, { order });
   const text = fyll(MEJL.angra_kvitto, { order, plan: planNamn(reg.plan), tid: tidSv(reg.tid), kontakt: sellerInfo(env).email, saljare: saljarText(env),
-    utfall: reg.utfall === "aterbetalas" ? MEJL.utfall_aterbetalas : reg.utfall === "avslutas_och_aterbetalas" ? MEJL.utfall_avslutas : MEJL.utfall_manuell });
+    utfall: reg.utfall === "aterbetalas" ? mejlTexter(env).utfall_aterbetalas : reg.utfall === "avslutas_och_aterbetalas" ? mejlTexter(env).utfall_avslutas : MEJL.utfall_manuell });
   if (!mejlKlart(reg.steg.kvitto)) reg.steg.kvitto = mejlStatus(await skickaMejl(env, { till: reg.epost, nyckel: `angrakvitto-${order}`, amne, text }));
   if (reg.kvittoTill && !mejlKlart(reg.steg.kvitto2)) reg.steg.kvitto2 = mejlStatus(await skickaMejl(env, { till: reg.kvittoTill, nyckel: `angrakvitto-${order}-2`, amne, text }));
   await kvPut(env, regK, JSON.stringify(reg), ANGER_REGISTER_TTL);
@@ -485,7 +485,7 @@ export async function handlePro(request, env, ctx, { fetchImpl = fetch, now = ()
         const r = await registreraAnger(env, v.sid, { epost: v.epost, kvittoTill: v.kvittoTill, nowS, fetchImpl }); // kastar vid fel: id:t finns kvar och kunden kan försöka igen
         await kvDel(env, vk);
         if (!r.ok) return ut(404, { status: "hittas_inte" }, "Vi hittade inget köp", ["Kontrollera ordernumret och e-postadressen."]);
-        const text = r.utfall === "aterbetalas" ? MEJL.utfall_aterbetalas : r.utfall === "avslutas_och_aterbetalas" ? MEJL.utfall_avslutas : MEJL.utfall_manuell;
+        const text = r.utfall === "aterbetalas" ? mejlTexter(env).utfall_aterbetalas : r.utfall === "avslutas_och_aterbetalas" ? mejlTexter(env).utfall_avslutas : MEJL.utfall_manuell;
         return ut(200, { status: "registrerad", order: r.order, tid: r.tid, tid_text: tidSv(r.tid), utfall: r.utfall, dubblett: r.dubblett },
           "Vi har tagit emot ditt meddelande", [`Vi har tagit emot ditt meddelande ${tidSv(r.tid)}. Ett mottagningsbevis skickas till din e-postadress.`, `Ordernummer: ${r.order}`, text]); // S4g angra.skickad
       }

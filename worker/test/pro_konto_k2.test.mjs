@@ -30,7 +30,8 @@ const fram = (s) => { NU += s * 1000; };
 
 function kEnv(extra = {}) {
   const e = ENV({ PRO_PAYMENTS: "off", PRO_KONTO: "inbjudna", PRO_OWNER_EMAIL: AGARE, PRO_MAIL_DAY_CAP: "1000", ...extra });
-  e.PRO_REGISTER = namnrymd(ProRegister); e.PRO_KONTON = namnrymd(ProKonto);
+  // K5: kontots objekt får env (registret), eftersom PITR nu markerar utloggningen i registret före återställningen (K2-fynd 2).
+  e.PRO_REGISTER = namnrymd(ProRegister); e.PRO_KONTON = namnrymd(ProKonto, e);
   return e;
 }
 const ctx = () => { const v = []; return { v, waitUntil: (p) => v.push(p), passThroughOnException() {} }; };
@@ -449,7 +450,7 @@ test("Modesty §4.2: lagrade fält per tabell är exakt de dokumenterade (ingen 
   const kol = (db, t) => db.exec(`SELECT * FROM ${t} LIMIT 0`) && Object.keys(db.exec(`SELECT * FROM ${t}`).toArray()[0] || {});
   const reg = regObj(e).storage.sql, ko = kontoObj(e, kontoId).storage.sql;
   const tabeller = (db) => db.exec(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).toArray().map((x) => x.name);
-  assert.deepEqual(tabeller(reg), ["adress", "agarlogg", "grans", "koder", "konto_status", "konton", "kop_projekt", "nonce", "raderade", "testbevis"]);
+  assert.deepEqual(tabeller(reg), ["adress", "agarlogg", "grans", "koder", "konto_status", "konton", "kop_projekt", "nonce", "pitr_utlogg", "raderade", "testbevis", "testplatser"]); // K5: +pitr_utlogg, +testplatser
   assert.deepEqual(tabeller(ko), ["enheter", "logg", "meta", "projekt"]);
   const regText = JSON.stringify(["konton", "koder", "testbevis", "grans", "adress"].map((t) => reg.exec(`SELECT * FROM ${t}`).toArray()));
   assert.ok(!regText.includes(TEST_A) && !regText.includes("testare"), "ingen klartext-e-post i registret");

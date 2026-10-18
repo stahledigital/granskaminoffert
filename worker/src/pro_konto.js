@@ -23,6 +23,7 @@
 import { hmacSha256Hex, timingSafeEqual, randomToken, randomHex, sha256Hex, jsonResponse } from "./compare_util.js";
 import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./compare_mailer.js";
 import { MEJL } from "./pro_texter.js";
+import { sellerInfo, sellerLines } from "./compare_config.js";
 
 const DAG = 86400;
 export const KOD_S = 10 * 60, KOD_FORSOK = 5;
@@ -34,6 +35,8 @@ export const KODER_DAG = 10, FEL_DAG = 15, SPARR_S = DAG;                      /
 export const PROJ_MAX_BYTE = 256 * 1024, PROJ_MAX_RADER = 500, PROJ_MAX_ANTAL = 50; // samma gränser som P4 (pro-projekt.mjs MAX_BYTE/MAX_RADER/MAX_PROJEKT)
 export const GRAV_S = 90 * DAG, AVISERA_S = LAS_DAGAR * DAG, RADERA_EFTER_AVISERING_S = 14 * DAG, KOP_PROJEKT_S = 30 * DAG;
 export const SCHEMA_MAX = 25; // högst så många konton per steg och cron-körning
+// K5: testplatser (Anders GO 08:45: 3 platser i 30 d utan kort). Ett slut högst 90 d fram per inbjudan eller förlängning (Dons gräns).
+export const MAX_TESTPLATSER = 3, TEST_STD_S = 30 * DAG, TEST_MAX_S = 90 * DAG;
 const PROJ_RE = /^p_[0-9a-f]{32}$/, P4_FORMAT = "materialraknaren-pro-projekt";
 export const COOKIE = "__Host-mrpro";
 const KONTO_RE = /^k_[0-9a-f]{32}$/, SESS_RE = /^[A-Za-z0-9_-]{22}$/, ENHET_RE = /^e_[0-9a-f]{16}$/, KODID_RE = /^[0-9a-f]{32}$/, KOD_RE = /^\d{6}$/, CUS_RE = /^cus_[A-Za-z0-9]{6,}$/;
@@ -70,6 +73,10 @@ export const KONTO_TEXT = Object.freeze({
     "",
     "Ståhle Digital",
   ].join("\n"),
+  // K5: testinbjudan, ordagrant Zlatas test.mejl_amne och test.mejl ur STOD/KONTO_TEXTER/strings.sv.json (sha 49f3ef4e…).
+  // Gate test_adresser_anders: skickas bara när PRO_TEST_MEJL="på" (förval av). Gaten kunddata_grind står i själva texten.
+  test_amne: "Du är inbjuden att testa Materialräknaren PRO i {dagar} dagar",
+  test: "Hej,\n\ndu är inbjuden att testa Materialräknaren PRO i {dagar} dagar, till och med {slutdatum}.\n\nTestplatsen kräver inget kort och ingen betalning dras när den tar slut.\n\nSå här kommer du igång:\n1. Öppna {lank}\n2. Skriv den här e-postadressen och be om en kod.\n3. Skriv koden eller öppna länken i mejlet. Du loggas in utan lösenord.\n\nDu kan vara inloggad på högst 3 enheter. Jobben du sparar ligger i ditt konto och följer med mellan enheterna.\n\nAnvänd påhittade kunduppgifter under testet. Riktiga kunduppgifter ska in först när våra villkor och vår integritetstext är publicerade.\n\nFrågor: {kontakt}\n\n{saljare}",
 });
 const fyll = (t, v) => t.replace(/\{(\w+)\}/g, (_, k) => (k in v ? String(v[k]) : ""));
 
@@ -159,17 +166,20 @@ async function konto(env, kontoId, op, data) {
 
 // Gemensam RPC-ram för båda klasserna: varje operation körs i EN transactionSync (allt eller inget), DO:n är enda skrivare.
 // K2: asynkrona operationer (deleteAll, PITR) ligger i `asyncOps` och körs utanför transactionSync.
-function rpc(self, ops, asyncOps = {}) {
+// K5: `fore` (bara ProKonto) körs före VARJE operation: kontrollen efter PITR (alla enheter loggas ut i ett återställt objekt).
+// Kastar den svarar objektet 500 och ingen operation körs (fail closed).
+function rpc(self, ops, asyncOps = {}, fore = null) {
   return async (request) => {
     const op = new URL(request.url).pathname.slice(1);
     if (request.method === "POST" && Object.prototype.hasOwnProperty.call(asyncOps, op)) {
       let d; try { d = await request.json(); } catch { return Response.json({ fel: "ogiltig_kropp" }, { status: 400 }); }
       if (!d || typeof d !== "object" || !Number.isSafeInteger(d.nu) || d.nu <= 0) return Response.json({ fel: "ogiltig_kropp" }, { status: 400 });
-      try { return Response.json(await asyncOps[op](d)); } catch (e) { return Response.json({ fel: "lagringsfel", orsak: String((e && e.message) || e).slice(0, 120) }, { status: 500 }); }
+      try { if (fore) await fore(d); return Response.json(await asyncOps[op](d)); } catch (e) { return Response.json({ fel: "lagringsfel", orsak: String((e && e.message) || e).slice(0, 120) }, { status: 500 }); }
     }
     if (request.method !== "POST" || !Object.prototype.hasOwnProperty.call(ops, op)) return Response.json({ fel: "okand_op" }, { status: 404 });
     let d; try { d = await request.json(); } catch { return Response.json({ fel: "ogiltig_kropp" }, { status: 400 }); }
     if (!d || typeof d !== "object" || !Number.isSafeInteger(d.nu) || d.nu <= 0) return Response.json({ fel: "ogiltig_kropp" }, { status: 400 });
+    try { if (fore) await fore(d); } catch { return Response.json({ fel: "lagringsfel" }, { status: 500 }); }
     try { return Response.json(self.storage.transactionSync(() => ops[op](d))); }
     catch { return Response.json({ fel: "lagringsfel" }, { status: 500 }); }
   };
@@ -192,7 +202,12 @@ export class ProRegister {
     sql.exec(`CREATE TABLE IF NOT EXISTS kop_projekt (konto_id TEXT NOT NULL, projekt_id TEXT NOT NULL, slut INTEGER NOT NULL, PRIMARY KEY (konto_id, projekt_id))`);
     sql.exec(`CREATE TABLE IF NOT EXISTS raderade (konto_id TEXT PRIMARY KEY, tid INTEGER NOT NULL, rensad INTEGER)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS agarlogg (id INTEGER PRIMARY KEY AUTOINCREMENT, tid INTEGER NOT NULL, handling TEXT NOT NULL, konto_id TEXT, detalj TEXT)`);
+    // K5: ägarens testplatser (etikett och MASKAD adress för listan; e-posten finns bara som ehash) och PITR-markering (K2-fynd 2).
+    sql.exec(`CREATE TABLE IF NOT EXISTS testplatser (id TEXT PRIMARY KEY, ehash TEXT NOT NULL UNIQUE, etikett TEXT NOT NULL, maskad TEXT NOT NULL, skapad INTEGER NOT NULL)`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS pitr_utlogg (konto_id TEXT PRIMARY KEY, tid INTEGER NOT NULL, klar INTEGER)`);
     this.fetch = rpc(this, {
+      tp_lista: (d) => this.tpLista(d), tp_inbjud: (d) => this.tpInbjud(d), tp_forlang: (d) => this.tpForlang(d), tp_aterkalla: (d) => this.tpAterkalla(d),
+      pitr_planera: (d) => this.pitrPlanera(d), pitr_status: (d) => this.pitrStatus(d), pitr_klar: (d) => this.pitrKlar(d),
       kod: (d) => this.kod(d), prova: (d) => this.prova(d), los: (d) => this.los(d), ratt: (d) => this.ratt(d),
       testbevis: (d) => this.testbevis(d), koppla: (d) => this.koppla(d), nonce_spara: (d) => this.nonceSpara(d), nonce_los: (d) => this.nonceLos(d),
       notera_pren: (d) => this.noteraPren(d), koppla_projekt: (d) => this.kopplaProjekt(d), forfallna: (d) => this.forfallna(d),
@@ -335,10 +350,11 @@ export class ProRegister {
     this.sql.exec(`INSERT INTO raderade (konto_id, tid, rensad) VALUES (?, ?, NULL) ON CONFLICT(konto_id) DO UPDATE SET rensad = NULL`, kontoId, nu);
     const k = forsta(this.sql.exec(`SELECT ehash FROM konton WHERE konto_id = ?`, kontoId));
     if (k) {
-      for (const t of ["testbevis", "koder", "adress"]) this.sql.exec(`DELETE FROM ${t} WHERE ehash = ?`, k.ehash);
+      for (const t of ["testbevis", "koder", "adress", "testplatser"]) this.sql.exec(`DELETE FROM ${t} WHERE ehash = ?`, k.ehash);
       this.sql.exec(`DELETE FROM konton WHERE konto_id = ?`, kontoId);
     }
     this.sql.exec(`DELETE FROM konto_status WHERE konto_id = ?`, kontoId);
+    this.sql.exec(`DELETE FROM pitr_utlogg WHERE konto_id = ?`, kontoId);
     this.sql.exec(`DELETE FROM kop_projekt WHERE konto_id = ?`, kontoId);
     return { ok: true, fanns: !!k };
   }
@@ -370,6 +386,81 @@ export class ProRegister {
     this.sql.exec(`INSERT INTO testbevis (ehash, slut, aterkallad, satt) VALUES (?, ?, NULL, ?) ON CONFLICT(ehash) DO UPDATE SET slut = excluded.slut, aterkallad = NULL, satt = excluded.satt`, ehash, slut, nu);
     return { ok: true };
   }
+  // ---------- K5: ägarens testplatser ----------
+  // Status ur testbevis: aktiv (inte återkallad, slut > nu), utgangen (slut passerat) eller aterkallad. Högst MAX_TESTPLATSER aktiva
+  // (räknat över ALLA testbevis, så att ett internt satt bevis också räknas). Svaren bär bara id, etikett, maskad adress, status och tider:
+  // aldrig ehash, konto-id eller något ur kontots objekt (ingen ägaråtkomst till kunders jobb).
+  tpRad(r, nu) {
+    const status = r.aterkallad ? "aterkallad" : r.slut > nu ? "aktiv" : "utgangen";
+    return { id: r.id, etikett: r.etikett, adress: r.maskad, status, slut: r.slut, skapad: r.skapad, aterkallad: r.aterkallad || null };
+  }
+  aktivaTest(nu, utom) {
+    return forsta(this.sql.exec(`SELECT COUNT(*) AS n FROM testbevis WHERE aterkallad IS NULL AND slut > ? AND ehash <> ?`, nu, String(utom || ""))).n;
+  }
+  tpLista({ nu }) {
+    const l = rader(this.sql.exec(`SELECT t.id, t.etikett, t.maskad, t.skapad, b.slut, b.aterkallad FROM testplatser t JOIN testbevis b ON b.ehash = t.ehash ORDER BY t.skapad, t.id`));
+    return { testplatser: l.map((r) => this.tpRad(r, nu)), aktiva: this.aktivaTest(nu, null), max: MAX_TESTPLATSER };
+  }
+  tpHamta(id, nu) {
+    const r = forsta(this.sql.exec(`SELECT t.id, t.ehash, t.etikett, t.maskad, t.skapad, b.slut, b.aterkallad FROM testplatser t JOIN testbevis b ON b.ehash = t.ehash WHERE t.id = ?`, String(id)));
+    return r ? { r, ut: this.tpRad(r, nu) } : null;
+  }
+  tpLogg(nu, handling, detalj) { this.sql.exec(`INSERT INTO agarlogg (tid, handling, konto_id, detalj) VALUES (?, ?, NULL, ?)`, nu, handling, detalj); }
+  // Bjud in (eller återaktivera samma adress). provning=true gör alla kontroller utan att skriva (före kodinlösen).
+  tpInbjud({ nu, ehash, maskad, etikett, slut, agareEhash, provning }) {
+    if (!/^[0-9a-f]{64}$/.test(String(ehash)) || typeof maskad !== "string" || !maskad || maskad.length > 80) return { fel: "ogiltig" };
+    if (!(Number.isSafeInteger(slut) && slut > nu && slut <= nu + TEST_MAX_S)) return { fel: "ogiltigt_slut" };
+    if (typeof agareEhash === "string" && agareEhash.length === 64 && timingSafeEqual(ehash, agareEhash)) return { fel: "agaradress" };
+    const finns = forsta(this.sql.exec(`SELECT t.id, b.slut, b.aterkallad FROM testplatser t JOIN testbevis b ON b.ehash = t.ehash WHERE t.ehash = ?`, ehash));
+    if (finns && !finns.aterkallad && finns.slut > nu) return { fel: "finns_redan", id: finns.id };
+    if (this.aktivaTest(nu, ehash) >= MAX_TESTPLATSER) return { fel: "fullt", max: MAX_TESTPLATSER };
+    const anvanda = new Set(rader(this.sql.exec(`SELECT etikett FROM testplatser`)).map((r) => r.etikett));
+    let et = typeof etikett === "string" ? etikett.replace(/[\u0000-\u001f\u007f<>]/g, "").trim().slice(0, 40) : "";
+    if (!et) { for (let i = 1; i <= 99; i++) if (!anvanda.has("Test " + i)) { et = "Test " + i; break; } }
+    if (provning) return { ok: true, provning: true };
+    const id = finns ? finns.id : "t_" + randomHex(8);
+    this.sql.exec(`INSERT INTO testbevis (ehash, slut, aterkallad, satt) VALUES (?, ?, NULL, ?) ON CONFLICT(ehash) DO UPDATE SET slut = excluded.slut, aterkallad = NULL, satt = excluded.satt`, ehash, slut, nu);
+    this.sql.exec(`INSERT INTO testplatser (id, ehash, etikett, maskad, skapad) VALUES (?, ?, ?, ?, ?) ON CONFLICT(ehash) DO UPDATE SET etikett = excluded.etikett, maskad = excluded.maskad`, id, ehash, et, maskad, nu);
+    this.tpLogg(nu, finns ? "testplats_ateraktiverad" : "testplats_inbjuden", JSON.stringify({ id, slut }));
+    return { ok: true, testplats: this.tpHamta(id, nu).ut, ateraktiverad: !!finns };
+  }
+  // Förläng: nytt slut senare än nuvarande, högst TEST_MAX_S fram. Återkallad plats förlängs inte (bjud in igen). En utgången plats
+  // som blir aktiv räknas mot taket.
+  tpForlang({ nu, id, slut, provning }) {
+    const h = this.tpHamta(id, nu); if (!h) return { fel: "hittas_inte" };
+    if (h.r.aterkallad) return { fel: "aterkallad" };
+    if (!(Number.isSafeInteger(slut) && slut > nu && slut > h.r.slut && slut <= nu + TEST_MAX_S)) return { fel: "ogiltigt_slut" };
+    if (h.r.slut <= nu && this.aktivaTest(nu, h.r.ehash) >= MAX_TESTPLATSER) return { fel: "fullt", max: MAX_TESTPLATSER };
+    if (provning) return { ok: true, provning: true };
+    this.sql.exec(`UPDATE testbevis SET slut = ?, satt = ? WHERE ehash = ?`, slut, nu, h.r.ehash);
+    this.tpLogg(nu, "testplats_forlangd", JSON.stringify({ id, slut }));
+    return { ok: true, testplats: this.tpHamta(id, nu).ut };
+  }
+  // Återkalla: rätten upphör vid nästa anrop (ratt läser testbeviset varje gång); läsperioden räknas från återkallelsen (K2 senastSlut).
+  tpAterkalla({ nu, id, provning }) {
+    const h = this.tpHamta(id, nu); if (!h) return { fel: "hittas_inte" };
+    if (h.r.aterkallad) return { ok: true, redan: true, testplats: h.ut };
+    if (provning) return { ok: true, provning: true };
+    this.sql.exec(`UPDATE testbevis SET aterkallad = ? WHERE ehash = ?`, nu, h.r.ehash);
+    this.tpLogg(nu, "testplats_aterkallad", JSON.stringify({ id }));
+    return { ok: true, testplats: this.tpHamta(id, nu).ut };
+  }
+  // ---------- K5: PITR loggar ut alla enheter (K2-fynd 2) ----------
+  // Markeringen sätts av kontots objekt efter att bokmärket hämtats men FÖRE onNextSessionRestoreBookmark. Ett objekt som startar
+  // därefter är det återställda och loggar ut alla enheter innan något annat anrop körs (ProKonto.efterPitr), sedan pitr_klar.
+  pitrPlanera({ nu, kontoId }) {
+    if (!KONTO_RE.test(String(kontoId))) return { ok: false };
+    this.sql.exec(`INSERT INTO pitr_utlogg (konto_id, tid, klar) VALUES (?, ?, NULL) ON CONFLICT(konto_id) DO UPDATE SET tid = excluded.tid, klar = NULL`, kontoId, nu);
+    return { ok: true };
+  }
+  pitrStatus({ kontoId }) { const r = forsta(this.sql.exec(`SELECT tid, klar FROM pitr_utlogg WHERE konto_id = ?`, String(kontoId))); return { vantar: !!(r && !r.klar), tid: r ? r.tid : null }; }
+  pitrKlar({ nu, kontoId, tid, antal }) {
+    const r = forsta(this.sql.exec(`SELECT tid FROM pitr_utlogg WHERE konto_id = ? AND klar IS NULL`, String(kontoId)));
+    if (!r || r.tid !== tid) return { ok: true, andrad: false }; // ny markering under tiden: den hanteras vid nästa start
+    this.sql.exec(`UPDATE pitr_utlogg SET klar = ? WHERE konto_id = ?`, nu, String(kontoId));
+    this.sql.exec(`INSERT INTO agarlogg (tid, handling, konto_id, detalj) VALUES (?, 'pitr_enheter_utloggade', ?, ?)`, nu, kontoId, JSON.stringify({ antal: Number.isSafeInteger(antal) ? antal : null }));
+    return { ok: true, andrad: true };
+  }
   koppla({ kontoId, kund }) { // köpkoppling konto → Stripe-kund (internt i K1)
     if (!KONTO_RE.test(String(kontoId)) || !CUS_RE.test(String(kund))) return { ok: false };
     this.sql.exec(`UPDATE konton SET kund = ? WHERE konto_id = ?`, kund, kontoId);
@@ -399,7 +490,26 @@ export class ProKonto {
       aktiva: (d) => this.aktiva(d), skapa: (d) => this.skapa(d), kolla: (d) => this.kolla(d), lista: (d) => this.lista(d), logga_ut: (d) => this.loggaUt(d),
       epost_satt: (d) => this.epostSatt(d), epost_las: () => this.epostLas(),
       p_lista: (d) => this.pLista(d), p_hamta: (d) => this.pHamta(d), p_put: (d) => this.pPut(d), p_del: (d) => this.pDel(d), export: (d) => this.exportera(d), tom: () => this.tom(),
-    }, { radera: (d) => this.raderaAllt(d), pitr: (d) => this.pitr(d) });
+    }, { radera: (d) => this.raderaAllt(d), pitr: (d) => this.pitr(d) }, (d) => this.efterPitr(d));
+  }
+  // K5 (K2-fynd 2): en gång per objektstart frågas registret om en PITR-markering väntar för kontot. Gör den det är detta objekt det
+  // återställda (markeringen sätts först efter bokmärket och före onNextSessionRestoreBookmark, och objektet startas om): ALLA enheter
+  // loggas ut innan någon operation körs, så att enheter som loggats ut eller återkallats efter bokmärket inte blir aktiva igen.
+  // Registerfel kastar (fail closed, operationen körs inte). Saknas registerbindningen helt (bara i enhetsdubbeln) hoppas kontrollen över.
+  async efterPitr(d) {
+    if (this.pitrKollad) return;
+    const ns = this.env && this.env.PRO_REGISTER;
+    if (!ns || typeof ns.idFromName !== "function" || !KONTO_RE.test(String(d && d.kontoId))) { this.pitrKollad = true; return; }
+    const st = await register(this.env, "pitr_status", { nu: d.nu, kontoId: d.kontoId });
+    if (st && st.vantar) {
+      const antal = this.storage.transactionSync(() => {
+        const n = forsta(this.sql.exec(`SELECT COUNT(*) AS n FROM enheter WHERE utloggad IS NULL`)).n;
+        this.sql.exec(`UPDATE enheter SET utloggad = ? WHERE utloggad IS NULL`, d.nu);
+        return n;
+      });
+      await register(this.env, "pitr_klar", { nu: d.nu, kontoId: d.kontoId, tid: st.tid, antal });
+    }
+    this.pitrKollad = true;
   }
   schema() {
     const sql = this.storage.sql;
@@ -412,12 +522,15 @@ export class ProKonto {
   get sql() { return this.storage.sql; }
   aktivaRader(nu) { return rader(this.sql.exec(`SELECT id, namn, senast FROM enheter WHERE utloggad IS NULL AND senast > ? ORDER BY senast DESC`, nu - SESSION_S)); }
   aktiva({ nu }) { const l = this.aktivaRader(nu); return { antal: l.length, enheter: l }; }
-  skapa({ nu, sess, namn }) {
+  skapa({ nu, sess, namn, epost }) {
     if (!/^[0-9a-f]{64}$/.test(String(sess))) return { ok: false };
     const l = this.aktivaRader(nu);
     if (l.length >= MAX_ENHETER) return { ok: false, enhetsgrans: true, enheter: l };
     const id = "e_" + randomHex(8);
     this.sql.exec(`INSERT INTO enheter (id, sess, namn, skapad, senast, utloggad) VALUES (?, ?, ?, ?, ?, NULL)`, id, sess, String(namn || "Okänd enhet").slice(0, 40), nu, nu);
+    // K5 (K2-fynd 3): vid lyckad inloggning med e-post och kod sparas och uppdateras adressen i samma transaktion som enheten,
+    // så att ett konto med data alltid har en adress för aviseringen. Länkinloggning bär ingen adress (den sparades när koden skickades).
+    if (epost !== undefined && validMailTo(epost)) this.sql.exec(`INSERT INTO meta (k, v) VALUES ('epost', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, epost);
     this.sql.exec(`DELETE FROM enheter WHERE (utloggad IS NOT NULL AND utloggad < ?) OR senast < ?`, nu - SESSION_S, nu - 2 * SESSION_S); // gallring
     return { ok: true, id };
   }
@@ -502,11 +615,15 @@ export class ProKonto {
     return { ok: true };
   }
   // PITR (ägarkommando; kontrollen och loggningen görs i registret före anropet). Stöds bara i Cloudflares produktion: provas live i K6.
-  async pitr({ nu, mal }) {
+  async pitr({ nu, mal, kontoId }) {
     if (!Number.isSafeInteger(mal) || mal <= 0 || mal >= nu * 1000) return { ok: false, orsak: "ogiltig_tid" };
     if (typeof this.storage.getBookmarkForTime !== "function" || typeof this.storage.onNextSessionRestoreBookmark !== "function") return { ok: false, orsak: "stods_inte" };
     let bm;
     try { bm = await this.storage.getBookmarkForTime(mal); } catch (e) { return { ok: false, orsak: "bokmarke", fel: String((e && e.message) || e).slice(0, 120) }; }
+    // K5 (K2-fynd 2): markera i registret FÖRE återställningen att alla enheter ska loggas ut när objektet startat om. Misslyckas
+    // markeringen görs ingen återställning (fail closed).
+    try { const m = await register(this.env, "pitr_planera", { nu, kontoId }); if (!m || !m.ok) return { ok: false, orsak: "markering" }; }
+    catch { return { ok: false, orsak: "markering" }; }
     await this.storage.onNextSessionRestoreBookmark(bm);
     // Ingen logg här: återställningen tar bort allt efter bokmärket. Loggen finns i registret (agarlogg). abort() efter svaret startar om
     // objektet så att bokmärket tillämpas (Cloudflares mönster); kastar den gör det inget, nästa session tillämpar det ändå.
@@ -666,7 +783,7 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
       const l = await provaKod(env, ind, nu, true); // atomisk inlösen: exakt en vinnare
       if (!l || !l.ok || l.kontoId !== p.kontoId) return svar({ status: "ogiltig_kod" }, 401);
       const { sid, varde } = await skapaSessionsvarde(env, l.kontoId);
-      const s = await konto(env, l.kontoId, "skapa", { nu, sess: await sessHash(sid), namn: enhetNamn(b, request) });
+      const s = await konto(env, l.kontoId, "skapa", { nu, sess: await sessHash(sid), namn: enhetNamn(b, request), ...(typeof b.lank === "string" ? {} : { epost: normEpost(b.epost) }) });
       if (!s.ok) return svar({ status: "enhetsgrans", max: MAX_ENHETER, enheter: s.enheter || [] }, 409); // kapplöpning: koden är förbrukad, begär en ny
       return svar({ status: "inloggad", enhet: s.id }, 200, { "set-cookie": satCookie(varde) });
     }
@@ -691,7 +808,8 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
     // Allt nedan kräver en giltig session. kontoId kommer BARA ur sessionen; konto-id i URL eller kropp används aldrig.
     const s = await aktivSession(env, request, nu);
     const fornya = s && s.forlangd ? { "set-cookie": satCookie(s.varde) } : {};
-    const METODER = { "/jag": ["GET"], "/projekt": ["GET"], "/export": ["GET"], "/radera": ["POST"], "/agare/pitr": ["POST"] };
+    const METODER = { "/jag": ["GET"], "/projekt": ["GET"], "/export": ["GET"], "/radera": ["POST"], "/agare/pitr": ["POST"],
+      "/agare/testplatser": ["GET"], "/agare/inbjud": ["POST"], "/agare/forlang": ["POST"], "/agare/aterkalla": ["POST"] }; // K5
     const tillatna = METODER[vag] || (/^\/projekt\/[^/]+$/.test(vag) ? ["GET", "PUT", "DELETE"] : null);
     if (!tillatna || !tillatna.includes(m0)) return svar({ status: "okand_rutt" }, 404); // okänd rutt eller fel metod: 404 före sessionen (som K1)
     if (!s) return svar({ status: "ej_inloggad" }, 401);
@@ -767,11 +885,74 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
       await register(env, "logg", { nu, handling: r.ok ? "pitr_planerad" : "pitr_misslyckad", kontoId: b.konto, detalj: r.ok ? r.bokmarke : r.orsak });
       return r.ok ? svar({ status: "aterstallning_planerad", konto: b.konto, tid_ms: mal }, 200, fornya) : svar({ status: "pitr_misslyckades", orsak: r.orsak }, r.orsak === "stods_inte" ? 501 : 502, fornya);
     }
+    if (vag.startsWith("/agare/")) return agareRutt(env, request, { vag, m0, nu, s, deps, svar, fornya });
     return svar({ status: "okand_rutt" }, 404, fornya);
   } catch (e) {
     const st = e && e.status === 503 ? 503 : 502;
     return svar({ status: st === 503 ? "konfiguration" : "tillfalligt_fel" }, st);
   }
+}
+
+// ---------- K5: ägarytans API /pro/konto/agare/* ----------
+// Bara roll "agare" (PRO_OWNER_EMAIL, prövad på servern vid varje anrop), annars 403 ej_agare. Varje ÄNDRING kräver dessutom en färsk
+// egen kod (≤10 min, engångs) till ägarens adress, samma mekanism som radera och PITR i K2: { kod } eller { lank } i kroppen,
+// annars 401 stegkod. Indata och tillstånd prövas FÖRE kodinlösen (en provning i registret), så att en kod inte förbrukas på ett
+// anrop som ändå nekas. Ingen rutt här läser, listar eller exporterar något ur ett kontos objekt (ingen åtkomst till kunders jobb):
+// svaren bär bara testplatsens id, etikett, maskerad adress, status och tider.
+export function maskera(epost) { // "anna.svensson@exempel.se" → "a***@e***.se"
+  const e = normEpost(epost), at = e.lastIndexOf("@"); if (at < 1) return "***";
+  const dom = e.slice(at + 1), punkt = dom.lastIndexOf(".");
+  return e[0] + "***@" + (dom[0] || "") + "***" + (punkt > 0 ? dom.slice(punkt) : "");
+}
+const datumSv = (s) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", dateStyle: "long" }).format(new Date(s * 1000));
+const AGARE_FEL = { ogiltig: [400, "ogiltig_begaran"], ogiltigt_slut: [400, "ogiltigt_slut"], agaradress: [400, "agarens_adress"], hittas_inte: [404, "hittas_inte"],
+  finns_redan: [409, "finns_redan"], fullt: [409, "fullt"], aterkallad: [409, "aterkallad"] };
+export const testMejlPa = (env) => !!env && env.PRO_TEST_MEJL === "på"; // gate test_adresser_anders: allt annat än exakt "på" = av
+
+async function skickaTestMejl(env, { till, id, slut, nu }) {
+  if (!testMejlPa(env)) return "av";
+  const m = mailHttpConfig(env); if (!m.on) return "mejl_av";
+  if (!validMailTo(till)) return "ogiltig_mottagare";
+  const from = String(env.PRO_MAIL_FROM || "").trim() || m.from.replace(/^[^<]*</, `${MEJL.avsandare_namn} <`);
+  const sel = sellerInfo(env), dagar = Math.max(1, Math.round((slut - nu) / DAG));
+  const text = fyll(KONTO_TEXT.test, { dagar, slutdatum: datumSv(slut), lank: `${sajt(env)}/verkstaden/materialraknaren/offert`, kontakt: sel.email || "", saljare: sellerLines(sel).join("\n") });
+  const ut = await sendViaHttp(env, { req: buildMailRequest({ from, to: till, subject: fyll(KONTO_TEXT.test_amne, { dagar }), text }), idemKey: `pro-konto-test-${id}-${slut}` });
+  return ut.ok ? "skickat" : "fel";
+}
+
+async function agareRutt(env, request, { vag, m0, nu, s, deps, svar, fornya }) {
+  const ratt = await rattFor(env, s.kontoId, nu, deps);
+  if (ratt.roll !== "agare") return svar({ status: "ej_agare" }, 403, fornya);
+  const fel = (r) => { const [k, st] = AGARE_FEL[r.fel] || [400, "ogiltig_begaran"]; return svar({ status: st, ...(r.max ? { max: r.max } : {}), ...(r.id ? { id: r.id } : {}) }, k, fornya); };
+  if (vag === "/agare/testplatser" && m0 === "GET") return svar({ status: "ok", ...(await register(env, "tp_lista", { nu })) }, 200, fornya);
+  const b = await lasKropp(request);
+  if (!b) return svar({ status: "ogiltig_begaran" }, 400, fornya);
+  const agareEpost = normEpost(env.PRO_OWNER_EMAIL);
+  const stegkod = typeof b.lank === "string" ? { lank: b.lank } : { epost: agareEpost, kod: b.kod };
+  let op, data, mottagare = null;
+  if (vag === "/agare/inbjud") {
+    const epost = normEpost(b.epost);
+    if (!validMailTo(epost)) return svar({ status: "ogiltig_adress" }, 400, fornya);
+    const slut = b.slut === undefined || b.slut === null ? nu + TEST_STD_S : b.slut;
+    op = "tp_inbjud"; mottagare = epost;
+    data = { nu, ehash: await epostHash(env, epost), maskad: maskera(epost), etikett: b.etikett, slut, agareEhash: validMailTo(agareEpost) ? await epostHash(env, agareEpost) : null };
+  } else if (vag === "/agare/forlang") {
+    if (!/^t_[0-9a-f]{16}$/.test(String(b.id))) return svar({ status: "hittas_inte" }, 404, fornya);
+    op = "tp_forlang"; data = { nu, id: b.id, slut: b.slut };
+  } else if (vag === "/agare/aterkalla") {
+    if (!/^t_[0-9a-f]{16}$/.test(String(b.id))) return svar({ status: "hittas_inte" }, 404, fornya);
+    op = "tp_aterkalla"; data = { nu, id: b.id };
+  } else return svar({ status: "okand_rutt" }, 404, fornya);
+  const prov = await register(env, op, { ...data, provning: true });
+  if (!prov || prov.fel) return fel(prov || {});
+  if (!(await farskKod(env, stegkod, nu, s.kontoId))) return svar({ status: "stegkod" }, 401, fornya);
+  const r = await register(env, op, data);
+  if (!r || r.fel) return fel(r || {});
+  if (op === "tp_inbjud") {
+    const mejl = await skickaTestMejl(env, { till: mottagare, id: r.testplats.id, slut: r.testplats.slut, nu }).catch(() => "fel");
+    return svar({ status: "inbjuden", testplats: r.testplats, ateraktiverad: r.ateraktiverad, mejl }, 200, fornya);
+  }
+  return svar({ status: op === "tp_forlang" ? "forlangd" : r.redan ? "redan_aterkallad" : "aterkallad", testplats: r.testplats }, 200, fornya);
 }
 
 // ---------- K2: cron i befintlig scheduled() ----------
