@@ -403,7 +403,7 @@ export async function handlePro(request, env, ctx, { fetchImpl = fetch, now = ()
       const sep = ret.includes("?") ? "&" : "?", p = pr.planer[plan];
       const meta = { ...(kontoEhash ? {konto_ehash:kontoEhash} : {}), pro: PRO_VERSION, plan, projekt: plan === "projekt" ? b.projektId : "", samtycke: SAMTYCKE_VERSION, villkor: VILLKOR_VERSION, samtycke_tid: tid };
       const period = plan === "manad" ? " per månad tills du säger upp" : plan === "ar" ? " per år tills du säger upp" : "";
-      const body = { mode: def.mode, locale: "sv", line_items: [{ price: pris, quantity: 1, tax_rates: [txr] }],
+      const body = { mode: def.mode, locale: "sv", payment_method_types: ["card"], line_items: [{ price: pris, quantity: 1, tax_rates: [txr] }],
         ...(env.PRO_KAMPANJKODER === "on" ? { allow_promotion_codes: "true" } : {}), // av som standard: kontots övriga kampanjkoder (GMO) ska inte gälla PRO
         client_reference_id: plan === "projekt" ? b.projektId : `pren_${plan}`, metadata: meta,
         success_url: `${ret}${sep}pro=ok&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${ret}${sep}pro=avbrutet`,

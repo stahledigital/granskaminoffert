@@ -527,7 +527,7 @@ export class ProKonto {
     this.fetch = rpc(this, {
       aktiva: (d) => this.aktiva(d), skapa: (d) => this.skapa(d), kolla: (d) => this.kolla(d), lista: (d) => this.lista(d), logga_ut: (d) => this.loggaUt(d),
       epost_satt: (d) => this.epostSatt(d), epost_las: () => this.epostLas(),
-      p_lista: (d) => this.pLista(d), p_hamta: (d) => this.pHamta(d), p_put: (d) => this.pPut(d), p_del: (d) => this.pDel(d), export: (d) => this.exportera(d), tom: () => this.tom(),
+      p_lista: (d) => this.pLista(d), p_hamta: (d) => this.pHamta(d), p_put: (d) => this.pPut(d), p_del: (d) => this.pDel(d), p_kundlas: (d) => this.pKundlas(d), p_dokument: (d) => this.pDokument(d), export: (d) => this.exportera(d), tom: () => this.tom(),
     }, { radera: (d) => this.raderaAllt(d), pitr: (d) => this.pitr(d) }, (d) => this.efterPitr(d));
   }
   // K5 (K2-fynd 2): en gång per objektstart frågas registret om en PITR-markering väntar för kontot. Gör den det är detta objekt det
@@ -605,11 +605,46 @@ export class ProKonto {
     return { kod: 200, projekt: this.full(r) };
   }
   // PUT med If-Match: 0 = skapa. Rätt rev → rev+1. Fel rev → 409 med serverns version. Gravsten → 410 (återskapas aldrig tyst).
-  pPut({ ms, id, rev, data, namn, storlek }) {
+  // Samma kundbindning på alla kontoenheter. Namnet finns redan i projektet;
+  // meta tillhör samma EU-konto och rensas med kontot. Full PRO-roll är undantagen.
+  kundNamn(data) { try { const n = JSON.parse(data)?.kund?.namn; return typeof n === "string" ? n.normalize("NFC").trim().slice(0, 200) : ""; } catch { return ""; } }
+  bindKund(id, data) {
+    const k = "kund:" + id, fore = forsta(this.sql.exec(`SELECT v FROM meta WHERE k = ?`, k));
+    if (fore) return fore.v;
+    const namn = this.kundNamn(data);
+    if (namn) this.sql.exec(`INSERT INTO meta(k,v) VALUES(?,?) ON CONFLICT(k) DO NOTHING`, k, namn);
+    return namn;
+  }
+  pKundlas({ ms, ids }) {
+    const kundlas = {};
+    for (const id of Array.isArray(ids) ? ids : []) {
+      if (!PROJ_RE.test(id)) continue;
+      const r = this.rad(id, ms);
+      if (!r || r.raderad_ms !== null) continue;
+      const fore = forsta(this.sql.exec(`SELECT v FROM meta WHERE k = ?`, "kund:" + id)); if (fore?.v) kundlas[id] = fore.v;
+    }
+    return { kundlas };
+  }
+  // Första PDF, aldrig autosparning, binder kundnamnet. Revisionen måste vara
+  // den som klienten nyss sparade; namn tas enbart från serverns projektdata.
+  pDokument({ms,id,rev}) {
+    if (!PROJ_RE.test(String(id)) || !Number.isSafeInteger(rev) || rev < 1) return {kod:400};
+    const r=this.rad(id,ms); if (!r || r.raderad_ms !== null) return {kod:404};
+    if (r.rev !== rev) return {kod:409,server:this.full(r)};
+    const kund=this.bindKund(id,r.data);
+    if (kund && kund !== this.kundNamn(r.data)) return {kod:409,server:this.full(r)};
+    return {kod:200,kund:kund || null};
+  }
+  pPut({ ms, id, rev, data, namn, storlek, kundBunden = false }) {
     if (!PROJ_RE.test(String(id)) || !Number.isSafeInteger(rev) || rev < 0 || typeof data !== "string") return { kod: 400 };
     this.gallraGravar(ms);
     const r = this.rad(id, ms);
     if (r && r.raderad_ms !== null) return { kod: 410, id: r.id, rev: r.rev, raderad_ms: r.raderad_ms };
+    if (r && rev !== r.rev) return { kod: 409, server: this.full(r) };
+    if (kundBunden && r) {
+      const last = forsta(this.sql.exec(`SELECT v FROM meta WHERE k = ?`, "kund:" + id))?.v;
+      if (last && last !== this.kundNamn(data)) return { kod: 409, server: this.full(r) };
+    }
     if (!r) {
       if (rev !== 0) return { kod: 404 };
       if (forsta(this.sql.exec(`SELECT COUNT(*) AS n FROM projekt WHERE raderad_ms IS NULL`)).n >= PROJ_MAX_ANTAL) return { kod: 413, status: "for_manga_projekt", max: PROJ_MAX_ANTAL };
@@ -618,6 +653,7 @@ export class ProKonto {
     }
     if (rev !== r.rev) return { kod: 409, server: this.full(r) };
     this.sql.exec(`UPDATE projekt SET rev = ?, namn = ?, data = ?, storlek = ?, andrad_ms = ? WHERE id = ?`, r.rev + 1, String(namn).slice(0, 200), data, storlek, ms, id);
+    if (!kundBunden) { const kund = this.kundNamn(data); if (kund) this.sql.exec(`UPDATE meta SET v = ? WHERE k = ?`, kund, "kund:" + id); else this.sql.exec(`DELETE FROM meta WHERE k = ?`, "kund:" + id); }
     return { kod: 200, id, rev: r.rev + 1, andrad: ms };
   }
   // DELETE med If-Match → gravsten: rev+1, data och namn bort, bara id, rev och tid kvar.
@@ -628,6 +664,7 @@ export class ProKonto {
     if (r.raderad_ms !== null) return { kod: 410, id: r.id, rev: r.rev, raderad_ms: r.raderad_ms };
     if (rev !== r.rev) return { kod: 409, server: this.full(r) };
     this.sql.exec(`UPDATE projekt SET rev = ?, namn = '', data = NULL, storlek = 0, andrad_ms = ?, raderad_ms = ? WHERE id = ?`, r.rev + 1, ms, ms, id);
+    this.sql.exec(`DELETE FROM meta WHERE k = ?`, "kund:" + id);
     return { kod: 200, id, rev: r.rev + 1, raderad_ms: ms };
   }
   // Export: ALLT kontots objekt innehåller (enheter utan sessionshash, projekt inkl. gravstenar, e-post, logg). Exporten loggas.
@@ -638,6 +675,7 @@ export class ProKonto {
     return {
       enheter: rader(this.sql.exec(`SELECT id, namn, skapad, senast, utloggad FROM enheter ORDER BY skapad`)),
       projekt: rader(this.sql.exec(`SELECT * FROM projekt ORDER BY andrad_ms`)).map((r) => this.full(r)),
+      kundlas: Object.fromEntries(rader(this.sql.exec(`SELECT k,v FROM meta WHERE k LIKE 'kund:%'`)).map(r => [r.k.slice(5), r.v])),
       epost: this.epostLas().epost,
       logg: rader(this.sql.exec(`SELECT tid, typ FROM logg ORDER BY id`)),
     };
@@ -850,7 +888,7 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
     const fornya = s && s.forlangd ? { "set-cookie": satCookie(s.varde) } : {};
     const METODER = { "/jag": ["GET"], "/kop": ["POST"], "/abonnemang": ["GET","POST"], "/projekt": ["GET"], "/export": ["GET"], "/radera": ["POST"], "/agare/pitr": ["POST"],
       "/agare/testplatser": ["GET"], "/agare/inbjud": ["POST"], "/agare/forlang": ["POST"], "/agare/aterkalla": ["POST"] }; // K5
-    const tillatna = METODER[vag] || (/^\/projekt\/[^/]+$/.test(vag) ? ["GET", "PUT", "DELETE"] : null);
+    const tillatna = METODER[vag] || (/^\/projekt\/p_[0-9a-f]{32}\/dokument$/.test(vag) ? ["POST"] : /^\/projekt\/[^/]+$/.test(vag) ? ["GET", "PUT", "DELETE"] : null);
     if (!tillatna || !tillatna.includes(m0)) return svar({ status: "okand_rutt" }, 404); // okänd rutt eller fel metod: 404 före sessionen (som K1)
     if (!s) return svar({ status: "ej_inloggad" }, 401);
     const deps = { aktivPren, proMode, fetchImpl };
@@ -870,7 +908,9 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
     }
     if (vag === "/jag" && m0 === "GET") {
       const [ratt, lista] = await Promise.all([rattFor(env, s.kontoId, nu, deps), konto(env, s.kontoId, "lista", { nu })]);
+      const bindning = ratt.roll === "projekt" ? await konto(env, s.kontoId, "p_kundlas", { nu, ms, ids: ratt.skriv }) : { kundlas: {} };
       return svar({ status: "ok", konto: s.kontoId, enhet: s.enhet, roll: ratt.roll, ratt_slut: ratt.slut, las_slut: ratt.lasSlut,
+        kundlas: bindning.kundlas,
         skrivbara: Array.isArray(ratt.skriv) ? ratt.skriv : undefined,
         enheter: lista.enheter.map((e) => ({ ...e, denna: e.id === s.enhet })) }, 200, fornya);
     }
@@ -880,6 +920,14 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
       return svar({ status: "ok", format: "materialraknaren-pro-konto-export", version: 1, exporterad_ms: ms, konto: s.kontoId,
         ratt: { roll: ratt.roll, ratt_slut: ratt.slut, las_slut: ratt.lasSlut, skrivbara: Array.isArray(ratt.skriv) ? ratt.skriv : null }, ...ko }, 200,
         { ...fornya, "content-disposition": `attachment; filename="materialraknaren-pro-export-${new Date(ms).toISOString().slice(0, 10)}.json"` });
+    }
+    if ((m = /^\/projekt\/(p_[0-9a-f]{32})\/dokument$/.exec(vag)) && m0 === "POST") {
+      const id=m[1],ratt=await rattFor(env,s.kontoId,nu,deps);
+      if (ratt.roll !== "projekt" || !Array.isArray(ratt.skriv) || !ratt.skriv.includes(id)) return svar({status:"ingen_ratt"},403,fornya);
+      const b=await lasKropp(request);
+      if (!b || !Number.isSafeInteger(b.rev) || b.rev<1) return svar({status:"ogiltig_kropp"},400,fornya);
+      const r=await konto(env,s.kontoId,"p_dokument",{nu,ms,id,rev:b.rev});
+      return r.kod === 200 ? svar({status:"ok",kund:r.kund},200,fornya) : svar({status:r.kod === 409 ? "konflikt" : "hittas_inte",...(r.server ? {server:r.server} : {})},r.kod,fornya);
     }
     if ((m = /^\/projekt\/([^/]+)$/.exec(vag))) {
       const id = m[1];
@@ -896,15 +944,17 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
         let body = null;
         if (m0 === "PUT") { body = await lasProjekt(request, id); if (body.kod) { const { kod, ...rest } = body; return svar(rest, kod, fornya); } }
         // Rätt prövas på servern vid varje skrivning. DELETE av eget projekt tillåts även i läsperioden (radering av egna uppgifter).
+        let kundBunden = false;
         if (m0 === "PUT") {
           const ratt = await rattFor(env, s.kontoId, nu, deps);
+          kundBunden = ratt.roll === "projekt";
           const ok = ratt.skriv === "alla" || (Array.isArray(ratt.skriv) && ratt.skriv.includes(id));
           if (!ok) {
             const inomLas = ratt.lasSlut && nu < ratt.lasSlut;
             return svar(inomLas || Array.isArray(ratt.skriv) ? { status: "las_endast", las_slut: ratt.lasSlut, skrivbara: Array.isArray(ratt.skriv) ? ratt.skriv : [] } : { status: "ingen_ratt" }, 403, fornya);
           }
         }
-        const r = m0 === "PUT" ? await konto(env, s.kontoId, "p_put", { nu, ms, id, rev, data: body.data, namn: body.namn, storlek: body.storlek })
+        const r = m0 === "PUT" ? await konto(env, s.kontoId, "p_put", { nu, ms, id, rev, data: body.data, namn: body.namn, storlek: body.storlek, kundBunden })
           : await konto(env, s.kontoId, "p_del", { nu, ms, id, rev });
         if (r.kod === 200) return svar(m0 === "PUT" ? { status: "sparat", id: r.id, rev: r.rev, andrad: r.andrad } : { status: "raderad", id: r.id, rev: r.rev, raderad_ms: r.raderad_ms }, 200, fornya);
         if (r.kod === 409) return svar({ status: "konflikt", server: r.server }, 409, fornya);

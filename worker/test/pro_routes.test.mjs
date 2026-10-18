@@ -82,7 +82,7 @@ test("checkout: workern skapar momssats och pris själv en gång; kroppen bär m
   assert.deepEqual([txr.inclusive, txr.percentage, txr.country, txr.tax_type], [true, 25, "SE", "vat"]);
   assert.equal(fs.st.prices.length, 1); assert.deepEqual([fs.st.prices[0].unit_amount, fs.st.prices[0].currency, fs.st.prices[0].recurring, fs.st.prices[0].lookup_key], [14900, "sek", null, "mrpro_projekt_14900_v1"]);
   const co = fs.st.anrop.find((a) => a.path === "/checkout/sessions" && a.m === "POST");
-  assert.equal(co.b["line_items[0][tax_rates][0]"], txr.id); assert.equal(co.b.mode, "payment"); assert.equal(co.b.customer_creation, "always");
+  assert.equal(co.b["line_items[0][tax_rates][0]"], txr.id); assert.equal(co.b.mode, "payment"); assert.equal(co.b["payment_method_types[0]"], "card"); assert.equal(co.b["payment_method_types[1]"], undefined); assert.equal(co.b.customer_creation, "always");
   assert.equal(co.b["metadata[samtycke]"], SAMTYCKE_VERSION); assert.equal(co.b["metadata[villkor]"], VILLKOR_VERSION); assert.equal(co.b["metadata[samtycke_tid]"], new Date(NU).toISOString());
   assert.match(co.b["custom_text[submit][message]"], /149 kr inklusive moms.*ångra köpet inom 14 dagar/);
   assert.ok(!JSON.stringify(co.b).includes("Åsa") && !("pris" in co.b), "kunddata och klientpris når aldrig Stripe");
