@@ -20,7 +20,7 @@ import { hmacSha256Hex, timingSafeEqual, b64url, randomToken, sha256Hex, jsonRes
 import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./compare_mailer.js";
 import { sellerInfo, sellerLines } from "./compare_config.js";
 import { SAMTYCKE_VERSION, VILLKOR_VERSION, SAMTYCKE_TEXT, MEJL, fyll, planNamn, mejlTexter } from "./pro_texter.js";
-import { register } from "./pro_konto.js";
+import { register, epostHash } from "./pro_konto.js";
 
 const API = "https://api.stripe.com/v1";
 export const STRIPE_VERSION = "2024-06-20";
@@ -175,10 +175,20 @@ async function prenToken(env, kund, sub, nowS) {
   const slut = periodSlut(sub) ?? nowS + DAG, exp = Math.min(slut, nowS + PREN_MAX_S);
   return { token: await signToken(env, { t: "pren", c: kund, exp }), plan: "pren", exp };
 }
-export async function aktivPren(env, kund, fetchImpl) {
+export async function aktivPren(env, kund, fetchImpl, tillatnaId = null) {
   if (!/^cus_[A-Za-z0-9]{6,}$/.test(String(kund))) return null;
   const l = await stripe(env, `/subscriptions?customer=${encodeURIComponent(kund)}&status=all&limit=20`, { fetchImpl });
-  return (l && Array.isArray(l.data) ? l.data : []).find((s) => AKTIV.has(s.status) && arPro(s)) || null;
+  for (const sub of (l && Array.isArray(l.data) ? l.data : [])) {
+    if (!AKTIV.has(sub.status) || !arPro(sub) || (tillatnaId && !tillatnaId.includes(sub.id))) continue;
+    const sparr=await register(env,"pren_faktura_sparr",{nu:Math.floor(Date.now()/1000),mode:proMode(env),prenId:sub.id});
+    if (sparr.fakturor?.length) {
+      const inv=await stripe(env,`/invoices?subscription=${encodeURIComponent(sub.id)}&status=paid&limit=10`,{fetchImpl});
+      const betald=(inv?.data || []).filter(i=>i.status === "paid").sort((a,b)=>b.created-a.created)[0];
+      if (!betald || sparr.fakturor.includes(betald.id)) continue;
+    }
+    return sub;
+  }
+  return null;
 }
 // Ungefärlig räknare (KV är inte atomärt och tål ungefär en skrivning per sekund och nyckel). Ett KV-fel får aldrig fälla anropet: då släpps det igenom.
 async function raknare(env, key, max, ttl) {
@@ -195,6 +205,28 @@ const fmtTid = (s, opt) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/
 export const tidSv = (s) => fmtTid(s, { dateStyle: "long", timeStyle: "short" });
 export const datumSv = (s) => fmtTid(s, { dateStyle: "long" });
 const projektSlut = (s) => s.created + PROJEKT_DAGAR * DAG;
+
+// En köpares kontorätt registreras endast efter serverhämtad/signerad, betald PRO-session.
+export async function registreraKop(env, s, {nowS = Math.floor(Date.now()/1000)} = {}) {
+  const md = s && s.metadata || {}, mode = proMode(env);
+  if (mode === "off" || !s || s.object !== "checkout.session" || !SESSION_RE.test(String(s.id)) || s.id.startsWith("cs_live_") !== (mode === "live") || s.livemode !== (mode === "live") || !arPro(s) || !Object.hasOwn(PLANER,md.plan) || s.mode !== PLANER[md.plan].mode || s.status !== "complete" || !["paid","no_payment_required"].includes(s.payment_status)) return {ok:false,ej_betald:true};
+  const epost = String(s.customer_details?.email || "").trim().toLowerCase(), kund = typeof s.customer === "string" ? s.customer : s.customer?.id;
+  if (!validMailTo(epost) || !kund || !env.REVIEWS_KV) throw new StripeFel(503,"kopuppgifter_saknas");
+  const order = await orderRef(s.id);
+  // Kvittogrinden får inte tolka ett KV-läsfel som ett köp utan ånger. DO-spärren är beständig även vid senare återspelning.
+  const ra = await env.REVIEWS_KV.get(K(env,`angra:reg:${order}`)), reg = ra ? JSON.parse(ra) : null;
+  const r = await register(env,"kop_registrera",{nu:nowS,mode,session:s.id,order,ehash:/^[0-9a-f]{64}$/.test(String(md.konto_ehash)) ? md.konto_ehash : await epostHash(env,epost),kund,plan:md.plan,projektId:md.plan === "projekt" ? md.projekt : null,prenId:md.plan === "projekt" ? null : typeof s.subscription === "string" ? s.subscription : s.subscription?.id,betalningId:typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id,skapad:s.created,slut:md.plan === "projekt" ? projektSlut(s) : null});
+  if (!r?.ok) throw new StripeFel(502,"kopkoppling");
+  if (reg && reg.utfall !== "manuell_provning") { await aterkallaKop(env,{session:s.id,nowS}); return {...r,aterkallad:true}; }
+  if (r.aterkallad && !(await kvPut(env,K(env,`sparr:${order}`),"1",(PROJEKT_DAGAR+30)*DAG))) throw new StripeFel(502,"kopaterkallelse_kv");
+  return r;
+}
+async function aterkallaKop(env,{session,betalningId,nowS = Math.floor(Date.now()/1000)}) {
+  const r = await register(env,"kop_aterkalla",{nu:nowS,mode:proMode(env),session,betalningId});
+  if (!r?.ok) throw new StripeFel(502,"kopaterkallelse");
+  for (const order of r.order || []) if (!(await kvPut(env,K(env,`sparr:${order}`),"1",(PROJEKT_DAGAR+30)*DAG))) throw new StripeFel(502,"kopaterkallelse_kv");
+  return r;
+}
 
 // ---------- mejl ----------
 // tak=true bara för mejl som vem som helst kan utlösa (inloggning, hämta köp). Bekräftelse, kvitto, påminnelse och mottagningsbevis är
@@ -270,6 +302,7 @@ const mejlStatus = (r) => (r.ok ? "skickat" : (r.kind === "terminal" ? "terminal
 // Körs vid registreringen och sedan av proSchema tills allt är klart. Varje steg är idempotent (mejlflaggor och idempotensnycklar).
 async function slutforAnger(env, s, reg, { fetchImpl }) {
   const order = reg.order, regK = K(env, `angra:reg:${order}`), inom = reg.utfall !== "manuell_provning";
+  if (inom) await aterkallaKop(env,{session:s.id,nowS:reg.tid});
   const amne = fyll(MEJL.angra_kvitto_amne, { order });
   const text = fyll(MEJL.angra_kvitto, { order, plan: planNamn(reg.plan), tid: tidSv(reg.tid), kontakt: sellerInfo(env).email, saljare: saljarText(env),
     utfall: reg.utfall === "aterbetalas" ? mejlTexter(env).utfall_aterbetalas : reg.utfall === "avslutas_och_aterbetalas" ? mejlTexter(env).utfall_avslutas : MEJL.utfall_manuell });
@@ -329,7 +362,7 @@ function htmlSvar(env, titel, rader, form, status = 200) {
 }
 
 // ---------- rutter ----------
-export async function handlePro(request, env, ctx, { fetchImpl = fetch, now = () => Date.now() } = {}) {
+export async function handlePro(request, env, ctx, { fetchImpl = fetch, now = () => Date.now(), kontoEhash = null } = {}) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/pro/")) return null;
   const origin = request.headers.get("Origin") || "", h = cors(origin, env), nowS = Math.floor(now() / 1000);
@@ -368,7 +401,7 @@ export async function handlePro(request, env, ctx, { fetchImpl = fetch, now = ()
       if (!tid) { tid = new Date(nowS * 1000).toISOString(); await kvPut(env, fk, tid, DAG); } // samma försök = samma kropp = samma idempotens
       const [txr, pris] = await Promise.all([sakraMoms(env, fetchImpl), sakraPris(env, plan, pr.planer[plan].inkl_ore, fetchImpl)]);
       const sep = ret.includes("?") ? "&" : "?", p = pr.planer[plan];
-      const meta = { pro: PRO_VERSION, plan, projekt: plan === "projekt" ? b.projektId : "", samtycke: SAMTYCKE_VERSION, villkor: VILLKOR_VERSION, samtycke_tid: tid };
+      const meta = { ...(kontoEhash ? {konto_ehash:kontoEhash} : {}), pro: PRO_VERSION, plan, projekt: plan === "projekt" ? b.projektId : "", samtycke: SAMTYCKE_VERSION, villkor: VILLKOR_VERSION, samtycke_tid: tid };
       const period = plan === "manad" ? " per månad tills du säger upp" : plan === "ar" ? " per år tills du säger upp" : "";
       const body = { mode: def.mode, locale: "sv", line_items: [{ price: pris, quantity: 1, tax_rates: [txr] }],
         ...(env.PRO_KAMPANJKODER === "on" ? { allow_promotion_codes: "true" } : {}), // av som standard: kontots övriga kampanjkoder (GMO) ska inte gälla PRO
@@ -388,6 +421,8 @@ export async function handlePro(request, env, ctx, { fetchImpl = fetch, now = ()
       const md = (s && s.metadata) || {};
       if (!s || s.object !== "checkout.session" || s.livemode !== (proMode(env) === "live") || !arPro(s) || !Object.prototype.hasOwnProperty.call(PLANER, md.plan)) return svar({ status: "ej_pro_session" }, 400);
       if (s.status !== "complete" || !["paid", "no_payment_required"].includes(s.payment_status)) return svar({ status: "ej_betald" }, 402);
+      const kop = await registreraKop(env,s,{nowS});
+      if (kop.raderat || kop.aterkallad) return svar({status:"angrad"},402);
       const order = await orderRef(s.id);
       const regRa = await kvGet(env, K(env, `angra:reg:${order}`)); let reg = null; try { reg = regRa && JSON.parse(regRa); } catch { reg = { utfall: "okant" }; }
       if (reg && reg.utfall !== "manuell_provning") return svar({ status: "angrad", order }, 402); // efter fristen gäller köpet tills ärendet prövats
@@ -511,14 +546,65 @@ export async function handlePro(request, env, ctx, { fetchImpl = fetch, now = ()
   }
 }
 
+export function kontoCheckout(request,env,ctx,{fetchImpl,now,kontoEhash}) {
+  if(!/^[0-9a-f]{64}$/.test(String(kontoEhash))) throw new StripeFel(503,"konto_saknas");
+  const u=new URL(request.url); u.pathname="/pro/checkout";
+  return handlePro(new Request(u,request),env,ctx,{fetchImpl,now,kontoEhash});
+}
+export async function kontoAbonnemang(env,kontoId,{order,fetchImpl=fetch,nowS=Math.floor(Date.now()/1000)} = {}) {
+  const mode=proMode(env); if(mode === "off") throw new StripeFel(503,"stangt");
+  const r=await register(env,"ratt",{nu:nowS,kontoId,mode});
+  const kop=(r.kop || []).filter(p=>p.plan !== "projekt" && !p.aterkallad);
+  if (!order) return {abonnemang:kop.map(p=>({order:p.order_ref,plan:p.plan}))};
+  const p=kop.find(p=>p.order_ref === order); if(!p) return null;
+  const conf=await sakraPortal(env,fetchImpl);
+  const portal=await stripe(env,"/billing_portal/sessions",{method:"POST",body:{customer:p.kund,return_url:returUrl(env)+"#mitt-konto",locale:"sv",configuration:conf},fetchImpl});
+  if(!/^https:\/\/billing\.stripe\.com\//.test(portal?.url || "")) throw new StripeFel(502,"stripe_svar");
+  return {url:portal.url};
+}
+
 // ---------- valfri webhookkrok (Don: i compare_routes före ORDER_ID-kontrollen) ----------
 export async function proWebhook(env, ev, { fetchImpl = fetch } = {}) {
-  const s = ev && ev.data && ev.data.object;
-  if (!arPro(s) || proMode(env) === "off") return { ok: true, ignored: "ej_pro" };
-  if ((ev.type === "checkout.session.completed" || ev.type === "checkout.session.async_payment_succeeded") && s.livemode === (proMode(env) === "live")) {
-    const r = await bekraftelse(env, s, { fetchImpl }); return { ok: true, bekraftelse: r.ok ? "skickad" : r.kod };
+  let s = ev?.data?.object;
+  const mode = proMode(env);
+  if (mode === "off") return {ok:false,stangt:true};
+  // Endpointens event-version är fristående från vår låsta GET-version. Läs aktuella
+  // serverobjekt innan konto/återbetalning ändras; snapshoten är bara en signerad signal.
+  if (["checkout.session.completed","checkout.session.async_payment_succeeded"].includes(ev.type) && arPro(s) && s.livemode === (mode === "live")) {
+    if (!SESSION_RE.test(String(s.id))) throw new StripeFel(502,"session_form");
+    const aktuell = await stripe(env,`/checkout/sessions/${s.id}?expand%5B%5D=subscription&expand%5B%5D=invoice`,{fetchImpl});
+    if (aktuell?.id !== s.id || aktuell.object !== "checkout.session" || aktuell.livemode !== s.livemode) throw new StripeFel(502,"session_identitet");
+    s = aktuell;
   }
-  return { ok: true, ignored: "typ" };
+  // Charge.invoice försvann i Basil. Versionerade event normaliseras med vår
+  // GET-version, som fortfarande har den verifierbara faktura→prenumeration-kedjan.
+  if (ev.type === "charge.refunded" && s?.object === "charge" && s.livemode === (mode === "live") && ev.api_version) {
+    if (!/^ch_[A-Za-z0-9_]+$/.test(String(s.id))) throw new StripeFel(502,"charge_form");
+    const aktuell = await stripe(env,`/charges/${s.id}`,{fetchImpl});
+    if (aktuell?.id !== s.id || aktuell.object !== "charge" || aktuell.livemode !== s.livemode || aktuell.payment_intent !== s.payment_intent) throw new StripeFel(502,"charge_identitet");
+    s = aktuell;
+  }
+  if (ev.type === "charge.refunded" && s?.object === "charge" && s.livemode === (mode === "live") && s.refunded === true && s.payment_intent) {
+    let fakturaSpärr=0;
+    if (s.invoice) {
+      const inv=await stripe(env,`/invoices/${typeof s.invoice === "string" ? s.invoice : s.invoice.id}`,{fetchImpl});
+      const pi=typeof inv?.payment_intent === "string" ? inv.payment_intent : inv?.payment_intent?.id;
+      const sub=typeof inv?.subscription === "object" ? inv.subscription : inv?.subscription ? await stripe(env,`/subscriptions/${inv.subscription}`,{fetchImpl}) : null;
+      if (pi === s.payment_intent && arPro(sub)) {
+        await register(env,"pren_faktura_sparr",{nu:Math.floor(Date.now()/1000),mode,prenId:sub.id,faktura:inv.id}); fakturaSpärr=1;
+      }
+    }
+    const finns=(await register(env,"kop_betalning",{nu:Math.floor(Date.now()/1000),mode,betalningId:s.payment_intent})).finns;
+    if (!arPro(s) && !finns && !fakturaSpärr) return {ok:true,ignored:"ej_pro"};
+    return {ok:true,aterkallade:(arPro(s) || finns ? (await aterkallaKop(env,{betalningId:s.payment_intent})).antal : 0)+fakturaSpärr};
+  }
+  if (!arPro(s) || s.livemode !== (mode === "live")) return {ok:true,ignored:"ej_pro"};
+  if (["checkout.session.completed","checkout.session.async_payment_succeeded"].includes(ev.type)) {
+    const kop = await registreraKop(env,s);
+    if (!kop.ok) return {ok:true,ignored:"ej_betald"};
+    const r = await bekraftelse(env,s,{fetchImpl}); return {ok:true,konto:true,bekraftelse:r.ok ? "skickad" : r.kod};
+  }
+  return {ok:true,ignored:"typ"};
 }
 
 // ---------- schemalagt (Don: scheduled-hanterare, varje timme) ----------
@@ -541,7 +627,7 @@ export async function proSchema(env, { fetchImpl = fetch, now = () => Date.now()
   const per = async (namn, f) => { try { await f(); } catch (e) { rapport.fel.push(namn + ":" + felNamn(e)); } }; // per objekt
   await steg("bekr", async () => {
     for (const s of await allaSidor(env, `/checkout/sessions?status=complete&limit=100&created%5Bgte%5D=${nowS - 3 * DAG}`, { fetchImpl }))
-      await per("bekr", async () => { if (arPro(s) && s.livemode === (proMode(env) === "live") && !(await kvGet(env, `pro:mejl:bekr-${s.id}`))) { const r = await bekraftelse(env, s, { fetchImpl }); if (r.ok && !r.dubblett) rapport.bekraftelser++; } });
+      await per("bekr", async () => { if (arPro(s) && s.livemode === (proMode(env) === "live")) { await registreraKop(env,s,{nowS}); if (!(await kvGet(env, `pro:mejl:bekr-${s.id}`))) { const r = await bekraftelse(env,s,{fetchImpl}); if (r.ok && !r.dubblett) rapport.bekraftelser++; } } });
   });
   await steg("fornyelse", async () => {
     for (const inv of await allaSidor(env, `/invoices?status=paid&limit=100&created%5Bgte%5D=${nowS - 3 * DAG}&expand%5B%5D=data.subscription`, { fetchImpl }))

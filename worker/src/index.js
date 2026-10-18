@@ -30,7 +30,7 @@ import { handleExplain, explainCors, explainOrigins } from "./explain.js";
 
 import { ANTHROPIC_URL, ANTHROPIC_VERSION, readReview } from "./provider.js";
 import { normalizeClientEvent, clientDatapoint } from "./measure.js";
-import { handlePro, proSchema, aktivPren, proMode } from "./pro_routes.js";
+import { handlePro, proSchema, aktivPren, proMode, kontoAbonnemang, kontoCheckout } from "./pro_routes.js";
 import { handleKonto, kontoSchema } from "./pro_konto.js";
 
 // USD-priser per miljon tokens finns i models.js (en tabell, med källa). SEK-omräkning
@@ -830,7 +830,7 @@ export default {
     // MR PRO (KP-2026-10-16-01): egna rutter och egen CORS, bara under /pro/. PRO_PAYMENTS="off" = stängt utom /pro/status.
     if (url.pathname.startsWith("/pro/")) {
       // KONTO-SYNK K1: /pro/konto/* har egen grind PRO_KONTO (off = 503 innan något rörs), oberoende av PRO_PAYMENTS.
-      if (url.pathname.startsWith("/pro/konto/")) { const k = await handleKonto(request, env, ctx, { aktivPren, proMode }); if (k) return k; }
+      if (url.pathname.startsWith("/pro/konto/")) { const k = await handleKonto(request, env, ctx, { aktivPren, proMode, kontoAbonnemang, kontoCheckout }); if (k) return k; }
       const r = await handlePro(request, env, ctx);
       if (r) return r;
     }

@@ -451,7 +451,7 @@ test("Modesty §4.2: lagrade fält per tabell är exakt de dokumenterade (ingen 
   const kol = (db, t) => db.exec(`SELECT * FROM ${t} LIMIT 0`) && Object.keys(db.exec(`SELECT * FROM ${t}`).toArray()[0] || {});
   const reg = regObj(e).storage.sql, ko = kontoObj(e, kontoId).storage.sql;
   const tabeller = (db) => db.exec(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).toArray().map((x) => x.name);
-  assert.deepEqual(tabeller(reg), ["adress", "agarlogg", "grans", "koder", "konto_status", "konton", "kop_projekt", "nonce", "pitr_utlogg", "raderade", "testbevis", "testplatser"]); // K5: +pitr_utlogg, +testplatser
+  assert.deepEqual(tabeller(reg), ["adress", "agarlogg", "grans", "koder", "konto_status", "konton", "kop_projekt", "nonce", "pitr_utlogg", "pro_kop", "pro_kop_sparr", "raderade", "testbevis", "testplatser"]); // K5: +pitr_utlogg, +testplatser
   assert.deepEqual(tabeller(ko), ["enheter", "logg", "meta", "projekt"]);
   const regText = JSON.stringify(["konton", "koder", "testbevis", "grans", "adress"].map((t) => reg.exec(`SELECT * FROM ${t}`).toArray()));
   assert.ok(!regText.includes(TEST_A) && !regText.includes("testare"), "ingen klartext-e-post i registret");

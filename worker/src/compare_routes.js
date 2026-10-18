@@ -20,6 +20,7 @@ import { preidConfig, preidCtx, buildPreidRequest, readPreid, sanitizePreid, pre
 import { guardedCall, Stop } from "./compare_run.js";
 import { identityProposals, sourcesConfig, publicSourcesConfig, googleCandidates, nativeSearchGate, reserveMount, tpCandidates, tpLatest, PLACE_ID_RE, LIM as SRC_LIM } from "./compare_sources.js";
 import * as budget from "./compare_budget.js";
+import { proWebhook, proMode } from "./pro_routes.js";
 import { mailEventsConfig, verifyResendWebhook, normalizeMailEvent, parseMailId, MAIL_EVENT_MAX_BYTES } from "./compare_mailer.js";
 
 const MAX_BODY_CHARS = 11_600_000; // 8 MB binärt ≈ 10,7 MB base64
@@ -121,13 +122,30 @@ export async function handleCompare(request, env, ctx, { allowedOrigins }) {
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
-  // ---- Stripe-webhook: ingen Origin, men obligatorisk signatur ----
-  if (path === "/compare/webhook") {
+  // PRO delar leveransadresser med GMO, men har egen lägesgrind och signatur.
+  // Klona kroppen: vanlig GMO-routing ska få läsa originalet oförändrat.
+  if (path === "/compare/webhook" || path === "/compare/webhook-test") {
     if (request.method !== "POST") return reply({ error: "Not found" }, 404);
+    const raw = await request.clone().text();
+    if (raw.length > 512_000) return reply({ error: "för stor" }, 413);
+    let kandidat; try { kandidat = JSON.parse(raw); } catch { return reply({error:"ogiltig signatur"},400); }
+    const obj0 = kandidat?.data?.object;
+    const pro = obj0?.metadata?.pro === "pro-v1";
+    const proRefund = kandidat?.type === "charge.refunded" && obj0?.object === "charge";
+    if (pro || proRefund) {
+      const pm = proMode(env), tillatet = pm !== "off" && (path !== "/compare/webhook-test" || pm === "test");
+      if (pro && !tillatet) return reply({error:"stängd"},503);
+      const pv = !tillatet ? {ok:false} : await verifyWebhook(raw,request.headers.get("stripe-signature") || "",pm === "live" ? env.STRIPE_WEBHOOK_SECRET : env.STRIPE_TEST_WEBHOOK_SECRET);
+      if (!pv.ok && pro) return reply({error:"ogiltig signatur"},400);
+      if (pv.ok) { try { const r = await proWebhook(env,pv.event); return reply(r,r.ok ? 200 : 503); } catch { return reply({ok:false},502); } }
+    }
+  }
+
+  // ---- Stripe-webhook: vanlig GMO behåller sin ursprungliga grind/signatur ----
+  if (path === "/compare/webhook") {
+    const raw = await request.text();
     const mode = compareEnabled(env) ? paymentsMode(env) : null;
     if (!mode || !bindingsOk(env)) return reply({ error: "stängd" }, 503);
-    const raw = await request.text();
-    if (raw.length > 512_000) return reply({ error: "för stor" }, 413);
     const v = await verifyWebhook(raw, request.headers.get("stripe-signature") || "", env.STRIPE_WEBHOOK_SECRET);
     if (!v.ok) return reply({ error: "ogiltig signatur" }, 400);
     const ev = v.event;

@@ -211,7 +211,13 @@ export class ProRegister {
     // K5: ägarens testplatser (etikett och MASKAD adress för listan; e-posten finns bara som ehash) och PITR-markering (K2-fynd 2).
     sql.exec(`CREATE TABLE IF NOT EXISTS testplatser (id TEXT PRIMARY KEY, ehash TEXT NOT NULL UNIQUE, etikett TEXT NOT NULL, maskad TEXT NOT NULL, skapad INTEGER NOT NULL)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS pitr_utlogg (konto_id TEXT PRIMARY KEY, tid INTEGER NOT NULL, klar INTEGER)`);
+    // Orderbaserad köpkoppling. Nya tabeller, ingen ändring av DO-migrationsgränsen v5.
+    sql.exec(`CREATE TABLE IF NOT EXISTS pro_kop (mode TEXT NOT NULL, session TEXT NOT NULL, order_ref TEXT NOT NULL, konto_id TEXT, kund TEXT, plan TEXT NOT NULL, projekt_id TEXT, pren_id TEXT, betalning_id TEXT, skapad INTEGER NOT NULL, slut INTEGER, aterkallad INTEGER, borttagen INTEGER, PRIMARY KEY(mode, session), UNIQUE(mode, order_ref))`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS pro_kop_sparr (mode TEXT NOT NULL, typ TEXT NOT NULL, id TEXT NOT NULL, tid INTEGER NOT NULL, PRIMARY KEY(mode,typ,id))`);
+    sql.exec(`CREATE INDEX IF NOT EXISTS pro_kop_konto ON pro_kop(konto_id, mode)`);
     this.fetch = rpc(this, {
+      pren_faktura_sparr: (d) => { if (d.faktura) this.sql.exec(`INSERT INTO pro_kop_sparr(mode,typ,id,tid) VALUES(?,?,?,?) ON CONFLICT(mode,typ,id) DO NOTHING`,d.mode,"faktura:"+d.prenId,d.faktura,d.nu); return {fakturor:rader(this.sql.exec(`SELECT id FROM pro_kop_sparr WHERE mode=? AND typ=?`,d.mode,"faktura:"+d.prenId)).map(r=>r.id)}; },
+      kop_betalning: (d) => ({finns:!!forsta(this.sql.exec(`SELECT 1 AS x FROM pro_kop WHERE mode = ? AND betalning_id = ? LIMIT 1`,d.mode || "",d.betalningId || ""))}), kop_registrera: (d) => this.kopRegistrera(d), kop_aterkalla: (d) => this.kopAterkalla(d),
       tp_lista: (d) => this.tpLista(d), tp_inbjud: (d) => this.tpInbjud(d), tp_forlang: (d) => this.tpForlang(d), tp_aterkalla: (d) => this.tpAterkalla(d),
       pitr_planera: (d) => this.pitrPlanera(d), pitr_status: (d) => this.pitrStatus(d), pitr_klar: (d) => this.pitrKlar(d),
       kod: (d) => this.kod(d), prova: (d) => this.prova(d), los: (d) => this.los(d), ratt: (d) => this.ratt(d),
@@ -239,7 +245,7 @@ export class ProRegister {
   inbjuden(ehash, agare, nu) {
     if (agare) return true;
     const t = forsta(this.sql.exec(`SELECT slut, aterkallad FROM testbevis WHERE ehash = ?`, ehash));
-    return !!(t && !t.aterkallad && t.slut > nu);
+    return !!(t && !t.aterkallad && t.slut > nu) || !!forsta(this.sql.exec(`SELECT 1 AS x FROM konton k JOIN pro_kop p ON p.konto_id = k.konto_id WHERE k.ehash = ? AND p.borttagen IS NULL LIMIT 1`, ehash));
   }
   // Begär kod. ip-gränsen gäller alla anrop; övriga gränser bara när ett mejl faktiskt ska gå. → { skicka, orsak }
   kod({ nu, ehash, ip, agare, kodId, hash, dagstak }) {
@@ -294,18 +300,43 @@ export class ProRegister {
   }
   // Rätt för ett konto (sessionen avgör inte rätten). agareEhash = HMAC(PRO_OWNER_EMAIL), beräknad i workern.
   // K2: även köpta projekt, senast kända slut på rätt (för läsperioden) och avisering. En aktiv rätt nollställer en avisering.
-  ratt({ nu, kontoId, agareEhash }) {
+  ratt({ nu, kontoId, agareEhash, mode }) {
     const k = forsta(this.sql.exec(`SELECT ehash, kund, skapad FROM konton WHERE konto_id = ?`, String(kontoId)));
     if (!k) return { finns: false };
     const t = forsta(this.sql.exec(`SELECT slut, aterkallad FROM testbevis WHERE ehash = ?`, k.ehash));
     const agare = typeof agareEhash === "string" && agareEhash.length === 64 && timingSafeEqual(k.ehash, agareEhash);
-    const kp = rader(this.sql.exec(`SELECT projekt_id, slut FROM kop_projekt WHERE konto_id = ? ORDER BY slut DESC`, kontoId));
+    const kop = rader(this.sql.exec(`SELECT order_ref, kund, plan, projekt_id, pren_id, skapad, slut, aterkallad FROM pro_kop WHERE konto_id = ? AND mode = ? AND borttagen IS NULL ORDER BY skapad DESC`, kontoId, mode || "off"));
+    const kp = [...rader(this.sql.exec(`SELECT projekt_id, slut FROM kop_projekt WHERE konto_id = ? ORDER BY slut DESC`, kontoId)), ...kop.filter(p => p.plan === "projekt").map(p => ({projekt_id:p.projekt_id, slut:p.aterkallad ? Math.min(p.slut,p.aterkallad) : p.slut, aktiv:!p.aterkallad}))].sort((a,b) => b.slut-a.slut);
     const st = forsta(this.sql.exec(`SELECT ratt_slut, aviserad FROM konto_status WHERE konto_id = ?`, kontoId)) || { ratt_slut: null, aviserad: null };
     const test = t && !t.aterkallad ? { slut: t.slut, aktiv: t.slut > nu } : null;
-    const projekt = { aktiva: kp.filter((r) => r.slut > nu).map((r) => r.projekt_id), slut: kp.length ? kp[0].slut : null };
+    const projekt = { aktiva: kp.filter((r) => r.slut > nu && r.aktiv !== false).map((r) => r.projekt_id), slut: kp.length ? kp[0].slut : null };
     const senast = this.senastSlut(k, t, kp, st);
     if ((agare || (test && test.aktiv) || projekt.aktiva.length) && st.aviserad) this.sql.exec(`UPDATE konto_status SET aviserad = NULL WHERE konto_id = ?`, kontoId);
-    return { finns: true, agare, test, kund: k.kund || null, projekt, senast_slut: senast, aviserad: st.aviserad || null };
+    return { finns: true, agare, test, kund: k.kund || null, kop, projekt, senast_slut: senast, aviserad: st.aviserad || null };
+  }
+  // Endast workerns Stripeverifierade anrop når dessa interna RPC:er. Retur/webhook/cron gör samma atomiska operation.
+  kopRegistrera(d) {
+    const {nu,mode,session,order,ehash,kund,plan,projektId,prenId,betalningId,skapad,slut} = d;
+    if (!["test","live"].includes(mode) || !new RegExp("^cs_"+mode+"_[A-Za-z0-9]{8,}$").test(String(session)) || !/^PRO-[A-HJ-NP-Z2-9]{8}$/.test(String(order)) || !/^[0-9a-f]{64}$/.test(String(ehash)) || !CUS_RE.test(String(kund)) || !["projekt","manad","ar"].includes(plan) || !Number.isSafeInteger(skapad) || skapad <= 0 || skapad > nu || (plan === "projekt" ? !PROJ_RE.test(String(projektId)) || slut !== skapad + KOP_PROJEKT_S : !/^sub_[A-Za-z0-9]{6,}$/.test(String(prenId)))) return {ok:false};
+    const fore = forsta(this.sql.exec(`SELECT * FROM pro_kop WHERE mode = ? AND session = ?`,mode,session));
+    if (fore) {
+      if (fore.borttagen) return {ok:true,raderat:true}; // Återspelad gammal betalning återställer aldrig ett raderat konto.
+      const k = forsta(this.sql.exec(`SELECT ehash FROM konton WHERE konto_id = ?`,fore.konto_id));
+      return {ok:!!k && k.ehash === ehash && fore.kund === kund && fore.plan === plan && fore.order_ref === order && fore.projekt_id === (projektId || null) && fore.pren_id === (prenId || null) && fore.skapad === skapad, kontoId:fore.konto_id,aterkallad:!!fore.aterkallad};
+    }
+    let k = forsta(this.sql.exec(`SELECT konto_id FROM konton WHERE ehash = ?`,ehash));
+    if (!k) { k = {konto_id:"k_"+randomHex(16)}; this.sql.exec(`INSERT INTO konton(ehash,konto_id,skapad) VALUES(?,?,?)`,ehash,k.konto_id,nu); }
+    this.sql.exec(`INSERT INTO pro_kop(mode,session,order_ref,konto_id,kund,plan,projekt_id,pren_id,betalning_id,skapad,slut) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,mode,session,order,k.konto_id,kund,plan,projektId || null,prenId || null,betalningId || null,skapad,slut || null);
+    const sparr = forsta(this.sql.exec(`SELECT MIN(tid) AS tid FROM pro_kop_sparr WHERE mode = ? AND ((typ='session' AND id=?) OR (typ='order' AND id=?) OR (typ='betalning' AND id=?))`,mode,session,order,betalningId || ""));
+    if (sparr?.tid) this.sql.exec(`UPDATE pro_kop SET aterkallad=? WHERE mode=? AND session=?`,sparr.tid,mode,session);
+    return {ok:true,kontoId:k.konto_id,aterkallad:!!sparr?.tid};
+  }
+  kopAterkalla({nu,mode,session,order,betalningId}) {
+    if (!["test","live"].includes(mode) || !(session || order || betalningId)) return {ok:false};
+    for (const [typ,id] of [["session",session],["order",order],["betalning",betalningId]]) if (id) this.sql.exec(`INSERT INTO pro_kop_sparr(mode,typ,id,tid) VALUES(?,?,?,?) ON CONFLICT(mode,typ,id) DO NOTHING`,mode,typ,id,nu);
+    const fore = rader(this.sql.exec(`SELECT session,order_ref FROM pro_kop WHERE mode = ? AND (session = ? OR order_ref = ? OR betalning_id = ?)`,mode,session || "",order || "",betalningId || ""));
+    for (const p of fore) this.sql.exec(`UPDATE pro_kop SET aterkallad = COALESCE(aterkallad,?) WHERE mode = ? AND session = ?`,nu,mode,p.session);
+    return {ok:true,antal:fore.length,order:fore.map(p=>p.order_ref)};
   }
   // Senast kända tidpunkt då kontot hade rätt: lagrat pren-slut, testbevis (återkallat räknas till återkallelsen), köpta projekt, annars skapad.
   senastSlut(k, t, kp, st) {
@@ -328,14 +359,14 @@ export class ProRegister {
   }
   // Cron: konton att avisera (senast_slut + 90 d passerat, ingen aktiv rätt, ej aviserade) och att radera (aviserade för minst 14 d sedan).
   // Ägaren hoppas alltid över. Konton med kopplad Stripe-kund hoppas över när betalning är off (rätten kan inte prövas utan Stripe).
-  forfallna({ nu, agareEhash, betalning }) {
+  forfallna({ nu, agareEhash, betalning, mode }) {
     const avisera = [], radera = [];
     for (const k of rader(this.sql.exec(`SELECT k.konto_id, k.ehash, k.kund, k.skapad, s.ratt_slut, s.aviserad FROM konton k LEFT JOIN konto_status s ON s.konto_id = k.konto_id`))) {
       if (typeof agareEhash === "string" && agareEhash.length === 64 && timingSafeEqual(k.ehash, agareEhash)) continue;
-      if (k.kund && !betalning) continue;
+      if (!betalning && (k.kund || forsta(this.sql.exec(`SELECT 1 AS x FROM pro_kop WHERE konto_id = ? AND borttagen IS NULL AND plan != 'projekt' LIMIT 1`,k.konto_id)))) continue;
       const t = forsta(this.sql.exec(`SELECT slut, aterkallad FROM testbevis WHERE ehash = ?`, k.ehash));
       if (t && !t.aterkallad && t.slut > nu) continue;
-      const kp = rader(this.sql.exec(`SELECT projekt_id, slut FROM kop_projekt WHERE konto_id = ? ORDER BY slut DESC`, k.konto_id));
+      const kp = [...rader(this.sql.exec(`SELECT projekt_id, slut FROM kop_projekt WHERE konto_id = ? ORDER BY slut DESC`, k.konto_id)), ...rader(this.sql.exec(`SELECT projekt_id, CASE WHEN aterkallad IS NULL THEN slut ELSE MIN(slut, aterkallad) END AS slut FROM pro_kop WHERE konto_id = ? AND plan = 'projekt' AND borttagen IS NULL ORDER BY slut DESC`,k.konto_id))].sort((a,b)=>b.slut-a.slut);
       if (kp.some((r) => r.slut > nu)) continue;
       const senast = this.senastSlut(k, t, kp, { ratt_slut: k.ratt_slut });
       if (k.aviserad) { if (k.aviserad + RADERA_EFTER_AVISERING_S <= nu && radera.length < SCHEMA_MAX) radera.push({ kontoId: k.konto_id, kund: k.kund || null }); }
@@ -362,6 +393,7 @@ export class ProRegister {
     this.sql.exec(`DELETE FROM konto_status WHERE konto_id = ?`, kontoId);
     this.sql.exec(`DELETE FROM pitr_utlogg WHERE konto_id = ?`, kontoId);
     this.sql.exec(`DELETE FROM kop_projekt WHERE konto_id = ?`, kontoId);
+    this.sql.exec(`UPDATE pro_kop SET konto_id=NULL,kund=NULL,projekt_id=NULL,pren_id=NULL,betalning_id=NULL,slut=NULL,borttagen=? WHERE konto_id = ?`,nu,kontoId);
     return { ok: true, fanns: !!k };
   }
   orensade() { return { konton: rader(this.sql.exec(`SELECT konto_id FROM raderade WHERE rensad IS NULL ORDER BY tid LIMIT ?`, SCHEMA_MAX)).map((r) => r.konto_id) }; }
@@ -690,12 +722,14 @@ async function aktivSession(env, request, nu) { // → { kontoId, enhet, forlang
 // skriv: "alla" | [projekt-id] | null. lasSlut = slut + 90 d (null för ägaren).
 async function rattFor(env, kontoId, nu, { aktivPren, proMode, fetchImpl }) {
   const agare = validMailTo(normEpost(env.PRO_OWNER_EMAIL)) ? await epostHash(env, env.PRO_OWNER_EMAIL) : null;
-  const r = await register(env, "ratt", { nu, kontoId, agareEhash: agare });
+  const r = await register(env, "ratt", { nu, kontoId, agareEhash: agare, mode:proMode(env) });
   if (!r || !r.finns) return { roll: "ingen", slut: null, skriv: null, lasSlut: null };
   if (r.agare) return { roll: "agare", slut: null, skriv: "alla", lasSlut: null };
   if (r.test && r.test.aktiv) return { roll: "test", slut: r.test.slut, skriv: "alla", lasSlut: r.test.slut + LAS_DAGAR * DAG };
-  if (r.kund && proMode(env) !== "off" && typeof aktivPren === "function") {
-    const sub = await aktivPren(env, r.kund, fetchImpl);
+  const kunder = [...new Set([...(r.kop || []).filter(p => p.plan !== "projekt" && !p.aterkallad).map(p => p.kund), r.kund].filter(Boolean))];
+  if (proMode(env) !== "off" && typeof aktivPren === "function") for (const kund of kunder) {
+    const ids = (r.kop || []).filter(p => p.kund === kund && p.plan !== "projekt" && !p.aterkallad).map(p => p.pren_id);
+    const sub = await aktivPren(env, kund, fetchImpl, r.kund === kund ? null : ids);
     if (sub) {
       const p = Number.isInteger(sub.current_period_end) ? sub.current_period_end : (sub.items && sub.items.data && sub.items.data[0] && sub.items.data[0].current_period_end) || null;
       await register(env, "notera_pren", { nu, kontoId, slut: p || nu });
@@ -749,7 +783,7 @@ export async function handleKonto(request, env, ctx, deps = {}) {
   catch { return harda(jsonResponse({ status: "tillfalligt_fel" }, 502)); } // A3 gäller även oväntade undantag
 }
 
-async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl = fetch, aktivPren = null, proMode = () => "off" } = {}, url) {
+async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl = fetch, aktivPren = null, proMode = () => "off", kontoAbonnemang = null, kontoCheckout = null } = {}, url) {
   // Grind först: i off rörs varken bindningar, KV, nycklar eller mejl.
   if (kontoLage(env) === "off") return jsonResponse({ status: "stangt" }, 503);
   const origin = request.headers.get("Origin") || "";
@@ -814,13 +848,26 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
     // Allt nedan kräver en giltig session. kontoId kommer BARA ur sessionen; konto-id i URL eller kropp används aldrig.
     const s = await aktivSession(env, request, nu);
     const fornya = s && s.forlangd ? { "set-cookie": satCookie(s.varde) } : {};
-    const METODER = { "/jag": ["GET"], "/projekt": ["GET"], "/export": ["GET"], "/radera": ["POST"], "/agare/pitr": ["POST"],
+    const METODER = { "/jag": ["GET"], "/kop": ["POST"], "/abonnemang": ["GET","POST"], "/projekt": ["GET"], "/export": ["GET"], "/radera": ["POST"], "/agare/pitr": ["POST"],
       "/agare/testplatser": ["GET"], "/agare/inbjud": ["POST"], "/agare/forlang": ["POST"], "/agare/aterkalla": ["POST"] }; // K5
     const tillatna = METODER[vag] || (/^\/projekt\/[^/]+$/.test(vag) ? ["GET", "PUT", "DELETE"] : null);
     if (!tillatna || !tillatna.includes(m0)) return svar({ status: "okand_rutt" }, 404); // okänd rutt eller fel metod: 404 före sessionen (som K1)
     if (!s) return svar({ status: "ej_inloggad" }, 401);
     const deps = { aktivPren, proMode, fetchImpl };
 
+    if (vag === "/kop") {
+      if (!kontoCheckout || proMode(env) === "off") return svar({status:"stangt"},503);
+      const {epost}=await konto(env,s.kontoId,"epost_las",{nu});
+      if (!validMailTo(epost)) return svar({status:"tillfalligt_fel"},502);
+      return kontoCheckout(request,env,ctx,{fetchImpl,now,kontoEhash:await epostHash(env,epost)});
+    }
+    if (vag === "/abonnemang") {
+      if (!kontoAbonnemang || proMode(env) === "off") return svar({status:"stangt"},503);
+      const b=m0 === "POST" ? await lasKropp(request) : null;
+      if (m0 === "POST" && !/^PRO-[A-HJ-NP-Z2-9]{8}$/.test(String(b?.order))) return svar({status:"hittas_inte"},404);
+      const r=await kontoAbonnemang(env,s.kontoId,{order:b?.order,fetchImpl,nowS:nu});
+      return r ? svar(r) : svar({status:"hittas_inte"},404);
+    }
     if (vag === "/jag" && m0 === "GET") {
       const [ratt, lista] = await Promise.all([rattFor(env, s.kontoId, nu, deps), konto(env, s.kontoId, "lista", { nu })]);
       return svar({ status: "ok", konto: s.kontoId, enhet: s.enhet, roll: ratt.roll, ratt_slut: ratt.slut, las_slut: ratt.lasSlut,
@@ -976,12 +1023,7 @@ export async function kontoSchema(env, { now = () => Date.now(), fetchImpl = fet
   const agare = validMailTo(normEpost(env.PRO_OWNER_EMAIL)) ? await epostHash(env, env.PRO_OWNER_EMAIL) : null;
   const betalning = proMode(env) !== "off";
   const f = await register(env, "forfallna", { nu, agareEhash: agare, betalning });
-  const harPren = async (x) => {
-    if (!x.kund || !betalning || typeof aktivPren !== "function") return false;
-    const sub = await aktivPren(env, x.kund, fetchImpl); if (!sub) return false;
-    const p = Number.isInteger(sub.current_period_end) ? sub.current_period_end : null;
-    await register(env, "notera_pren", { nu, kontoId: x.kontoId, slut: p || nu }); return true;
-  };
+  const harPren = async (x) => betalning && (await rattFor(env,x.kontoId,nu,{aktivPren,proMode,fetchImpl})).roll === "pren";
   for (const x of f.avisera) await per("avisera", async () => {
     if (await harPren(x)) return;
     const { epost } = await konto(env, x.kontoId, "epost_las", { nu });
