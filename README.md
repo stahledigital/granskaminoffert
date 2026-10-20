@@ -27,3 +27,9 @@ Se `CHANGELOG.md`.
 - F2 (verkligt AI-prov): facit i `worker/test/f2/facit.json`. `scripts/f2_run.mjs` kör inget utan ett beslutat provbudget. Offline-delen (`f2.test.mjs`) prövar bara regelkoden.
 - Aktivering av atomärt dagstak: se kommentarsblocket i `worker/wrangler.toml` (kräver separat kontroll av plan).
 - Rollback: kandidatens bas är commit `78703f4`; live-identiteten före släpp läses från `/health` (`version`, `build`, `model`).
+
+## Materialräknaren PRO project source — R104
+
+The account API accepts existing V1 jobs and validates full V2 projects with the same29-file reader closure as the client (`worker/src/mr_project2/`). Stored project version controls downgrade rejection (426), while existing revision conflicts (409), tombstones, request limits, account isolation and four pilot seats remain. No migration, payment settings or remote bindings are changed by this source update. Deploy from `worker/` using the existing release procedure and explicit `--keep-vars` when providing BUILD_ID. Keep the version guard if rolling the frontend back after V2 data has been saved.
+
+Verification: normal local HTTP/SQLite and native workerd harnesses use synthetic data. The installed local workerd cannot run the unchanged September compatibility date; its earlier test date is scoped evidence, not exact production runtime acceptance.

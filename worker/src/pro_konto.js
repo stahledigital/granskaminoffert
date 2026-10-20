@@ -24,6 +24,7 @@ import { hmacSha256Hex, timingSafeEqual, randomToken, randomHex, sha256Hex, json
 import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./compare_mailer.js";
 import { MEJL } from "./pro_texter.js";
 import { sellerInfo, sellerLines } from "./compare_config.js";
+import { readRoofProject } from "./mr_project2/P4_PROJEKT/pro-projekt-v2.mjs";
 
 const DAG = 86400;
 export const KOD_S = 10 * 60, KOD_FORSOK = 5;
@@ -38,6 +39,10 @@ export const SCHEMA_MAX = 25; // högst så många konton per steg och cron-kör
 // K5: testplatser. Anders 2026-10-20: en fjärde pilotplats, samma30/90dagar utan kort.
 export const MAX_TESTPLATSER = 4, TEST_STD_S = 30 * DAG, TEST_MAX_S = 90 * DAG;
 const PROJ_RE = /^p_[0-9a-f]{32}$/, P4_FORMAT = "materialraknaren-pro-projekt";
+function projektVersion(data, id) {
+  try { const p = JSON.parse(data); return p && p.format === P4_FORMAT && p.projektId === id && [1, 2].includes(p.version) ? p.version : null; }
+  catch { return null; }
+}
 export const COOKIE = "__Host-mrpro";
 const KONTO_RE = /^k_[0-9a-f]{32}$/, SESS_RE = /^[A-Za-z0-9_-]{22}$/, ENHET_RE = /^e_[0-9a-f]{16}$/, KODID_RE = /^[0-9a-f]{32}$/, KOD_RE = /^\d{6}$/, CUS_RE = /^cus_[A-Za-z0-9]{6,}$/;
 const REGISTER_NAMN = "register:v1";
@@ -641,6 +646,15 @@ export class ProKonto {
     const r = this.rad(id, ms);
     if (r && r.raderad_ms !== null) return { kod: 410, id: r.id, rev: r.rev, raderad_ms: r.raderad_ms };
     if (r && rev !== r.rev) return { kod: 409, server: this.full(r) };
+    // The stored body, not a caller header, owns its version. An old client
+    // must not overwrite a complete V2 record with a metadata-stripped V1 body.
+    const incomingVersion = projektVersion(data, id);
+    if (incomingVersion === null) return { kod: 400 };
+    if (r) {
+      const storedVersion = projektVersion(r.data, id);
+      if (storedVersion === null || incomingVersion < storedVersion)
+        return { kod: 426, status: "projektversion_stods_inte", krav_version: storedVersion };
+    }
     if (kundBunden && r) {
       const last = forsta(this.sql.exec(`SELECT v FROM meta WHERE k = ?`, "kund:" + id))?.v;
       if (last && last !== this.kundNamn(data)) return { kod: 409, server: this.full(r) };
@@ -788,9 +802,10 @@ async function lasProjekt(request, id) {
   if (!p || typeof p !== "object" || Array.isArray(p)) return { kod: 400, status: "ogiltig_kropp" };
   const n = ["material", "arbete", "ovrigt"].reduce((a, k) => a + (Array.isArray(p[k]) ? p[k].length : 0), 0);
   if (n > PROJ_MAX_RADER) return { kod: 413, status: "for_manga_rader", max_rader: PROJ_MAX_RADER };
-  if (p.format !== P4_FORMAT || p.version !== 1 || p.projektId !== id || (p.projektnamn !== undefined && (typeof p.projektnamn !== "string" || p.projektnamn.length > 200)))
+  if (p.format !== P4_FORMAT || ![1, 2].includes(p.version) || p.projektId !== id || (p.projektnamn !== undefined && (typeof p.projektnamn !== "string" || p.projektnamn.length > 200)))
     return { kod: 400, status: "ogiltigt_projekt" };
   for (const k of ["material", "arbete", "ovrigt"]) if (p[k] !== undefined && !Array.isArray(p[k])) return { kod: 400, status: "ogiltigt_projekt" };
+  if (p.version === 2 && !(await readRoofProject(p)).ok) return { kod: 400, status: "ogiltigt_takunderlag" };
   return { kod: 0, data: raw, namn: typeof p.projektnamn === "string" ? p.projektnamn : "", storlek };
 }
 const ifMatch = (request) => { const m = /^\s*(?:W\/)?"?(\d{1,12})"?\s*$/.exec(request.headers.get("If-Match") || ""); return m ? Number(m[1]) : null; };
@@ -960,6 +975,7 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
         if (r.kod === 409) return svar({ status: "konflikt", server: r.server }, 409, fornya);
         if (r.kod === 410) return svar({ status: "raderad", id: r.id, rev: r.rev, raderad_ms: r.raderad_ms }, 410, fornya);
         if (r.kod === 413) return svar({ status: r.status, max: r.max }, 413, fornya);
+        if (r.kod === 426) return svar({ status: r.status, krav_version: r.krav_version }, 426, fornya);
         if (r.kod === 400) return svar({ status: "ogiltig_kropp" }, 400, fornya);
         return svar({ status: "hittas_inte" }, 404, fornya);
       }

@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { ENV } from "./stripe_dubbel.mjs";
 
@@ -123,5 +123,22 @@ test("workerd K2: scheduled i off rör ingenting (0 utgående)", { skip }, async
   try {
     const w = await mf.getWorker(); await w.scheduled({ cron: "17 * * * *" });
     assert.deepEqual([...ut], []);
+  } finally { await mf.dispose(); }
+});
+
+test("workerd R77: full project2 survives real SQLite/HTTP sessions, downgrade426, conflict409 and exact request cap", { skip }, async () => {
+  const { mf, ut } = boot(); await mf.ready;
+  try {
+    const A=await inlogg(mf,ut,"V2 A"),B=await inlogg(mf,ut,"V2 B");
+    const p=JSON.parse(readFileSync(new URL('./fixtures/r77-project2.json',import.meta.url),'utf8')),id=p.projektId,url='/pro/konto/projekt/'+id;
+    let r=await req(mf,url,{method:'PUT',cookie:A,body:p,ifm:0});assert.equal(r.status,200);assert.equal((await r.json()).rev,1);
+    assert.deepEqual((await(await req(mf,url,{cookie:B})).json()).projekt.data,p);
+    const old={format:p.format,version:1,projektId:id,projektnamn:'Old writer',material:[],arbete:[],ovrigt:[]};r=await req(mf,url,{method:'PUT',cookie:B,body:old,ifm:1});assert.equal(r.status,426);assert.equal((await r.json()).status,'projektversion_stods_inte');
+    const next=structuredClone(p);next.projektnamn='V2 A updated';assert.equal((await req(mf,url,{method:'PUT',cookie:A,body:next,ifm:1})).status,200);
+    r=await req(mf,url,{method:'PUT',cookie:B,body:p,ifm:1});assert.equal(r.status,409);assert.deepEqual((await r.json()).server.data,next);
+    const large=structuredClone(p);large.extra='';large.extra='a'.repeat(262144-Buffer.byteLength(JSON.stringify(large)));assert.equal(Buffer.byteLength(JSON.stringify(large)),262144);
+    assert.equal((await req(mf,url,{method:'PUT',cookie:A,body:large,ifm:2})).status,200);large.extra+='a';assert.equal((await req(mf,url,{method:'PUT',cookie:A,body:large,ifm:3})).status,413);
+    const exported=await(await req(mf,'/pro/konto/export',{cookie:A})).json();assert.equal(exported.projekt.find(x=>x.id===id).data.raknarlista.records.length,2);
+    assert.deepEqual([...ut].filter(u=>u!=='https://api.resend.com/emails'),[]);
   } finally { await mf.dispose(); }
 });
