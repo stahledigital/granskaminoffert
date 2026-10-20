@@ -35,8 +35,8 @@ export const KODER_DAG = 10, FEL_DAG = 15, SPARR_S = DAG;                      /
 export const PROJ_MAX_BYTE = 256 * 1024, PROJ_MAX_RADER = 500, PROJ_MAX_ANTAL = 50; // samma gränser som P4 (pro-projekt.mjs MAX_BYTE/MAX_RADER/MAX_PROJEKT)
 export const GRAV_S = 90 * DAG, AVISERA_S = LAS_DAGAR * DAG, RADERA_EFTER_AVISERING_S = 14 * DAG, KOP_PROJEKT_S = 30 * DAG;
 export const SCHEMA_MAX = 25; // högst så många konton per steg och cron-körning
-// K5: testplatser (Anders GO 08:45: 3 platser i 30 d utan kort). Ett slut högst 90 d fram per inbjudan eller förlängning (Dons gräns).
-export const MAX_TESTPLATSER = 3, TEST_STD_S = 30 * DAG, TEST_MAX_S = 90 * DAG;
+// K5: testplatser. Anders 2026-10-20: en fjärde pilotplats, samma30/90dagar utan kort.
+export const MAX_TESTPLATSER = 4, TEST_STD_S = 30 * DAG, TEST_MAX_S = 90 * DAG;
 const PROJ_RE = /^p_[0-9a-f]{32}$/, P4_FORMAT = "materialraknaren-pro-projekt";
 export const COOKIE = "__Host-mrpro";
 const KONTO_RE = /^k_[0-9a-f]{32}$/, SESS_RE = /^[A-Za-z0-9_-]{22}$/, ENHET_RE = /^e_[0-9a-f]{16}$/, KODID_RE = /^[0-9a-f]{32}$/, KOD_RE = /^\d{6}$/, CUS_RE = /^cus_[A-Za-z0-9]{6,}$/;

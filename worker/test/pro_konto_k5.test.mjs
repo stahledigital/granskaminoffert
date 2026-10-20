@@ -123,7 +123,7 @@ test("indata och tillstånd prövas FÖRE kodinlösen: 400/409 förbrukar inte k
 });
 
 // ---------------- inbjudan, lista, tak ----------------
-test("inbjudan: förval +30 d, etikett Test 1–3, maskerad adress; högst 3 aktiva (den fjärde 409 fullt); aktiv dubblett 409; lista visar bara id/etikett/adress/status/tider", async () => {
+test("inbjudan: förval +30 d, etikett Test 1–4, maskerad adress; högst 4 aktiva (den femte 409 fullt); aktiv dubblett 409; lista visar bara id/etikett/adress/status/tider", async () => {
   const e = kEnv(); const O = await loggaIn(e);
   const a = await bjudIn(e, O, T1); assert.equal(a.r.status, 200); A3(a.r, "inbjud");
   assert.deepEqual(Object.keys(a.j.testplats).sort(), ["adress", "aterkallad", "etikett", "id", "skapad", "slut", "status"]);
@@ -134,20 +134,21 @@ test("inbjudan: förval +30 d, etikett Test 1–3, maskerad adress; högst 3 akt
   const b = await bjudIn(e, O, T2, { etikett: "Snickare <Bo>", slut: s10 }); assert.equal(b.j.testplats.etikett, "Snickare Bo"); assert.equal(b.j.testplats.slut, s10);
   const dub = await bjudIn(e, O, T1); assert.equal(dub.r.status, 409); assert.equal(dub.j.status, "finns_redan"); assert.equal(dub.j.id, a.j.testplats.id);
   const c = await bjudIn(e, O, T3); assert.equal(c.j.testplats.etikett, "Test 2", "första lediga Test-nummer");
-  const d = await bjudIn(e, O, T4); assert.equal(d.r.status, 409); assert.deepEqual(d.j, { status: "fullt", max: MAX_TESTPLATSER });
+  const fourth = await bjudIn(e,O,T4); assert.equal(fourth.r.status,200); assert.equal(fourth.j.testplats.etikett,"Test 3");
+  const T5="testare.fem@example.se", d = await bjudIn(e, O, T5); assert.equal(d.r.status, 409); assert.deepEqual(d.j, { status: "fullt", max: MAX_TESTPLATSER });
   const l = await agare(e, O, "testplatser"); assert.equal(l.status, 200); A3(l, "lista");
   const lj = await l.json();
-  assert.equal(lj.aktiva, 3); assert.equal(lj.max, 3); assert.equal(lj.testplatser.length, 3);
+  assert.equal(lj.aktiva, 4); assert.equal(lj.max, 4); assert.equal(lj.testplatser.length, 4);
   const text = JSON.stringify(lj);
-  for (const x of [T1, T2, T3, "testare", "example", "k_", "ehash"]) assert.ok(!text.includes(x), "listan innehåller inte " + x);
+  for (const x of [T1, T2, T3, T4, "testare", "example", "k_", "ehash"]) assert.ok(!text.includes(x), "listan innehåller inte " + x);
   for (const p of lj.testplatser) assert.deepEqual(Object.keys(p).sort(), ["adress", "aterkallad", "etikett", "id", "skapad", "slut", "status"]);
   // registret har ingen klartextadress
   assert.ok(!JSON.stringify(regRader(e, "SELECT * FROM testplatser")).includes("testare"));
   assert.ok(regRader(e, "SELECT handling FROM agarlogg").every((x) => /^testplats_/.test(x.handling)));
-  // en utgången plats räknas inte: den fjärde går in när T2:s 10 dagar gått
-  fram(10 * DAG + 7200); const d2 = await bjudIn(e, O, T4); assert.equal(d2.r.status, 200, "plats ledig när en gått ut");
+  // en utgången plats räknas inte: den femte går in när T2:s 10 dagar gått
+  fram(10 * DAG + 7200); const d2 = await bjudIn(e, O, T5); assert.equal(d2.r.status, 200, "plats ledig när en gått ut");
   const lj2 = await (await agare(e, O, "testplatser")).json();
-  assert.deepEqual(lj2.testplatser.map((p) => p.status), ["aktiv", "utgangen", "aktiv", "aktiv"]);
+  assert.deepEqual(lj2.testplatser.map((p) => p.status), ["aktiv", "utgangen", "aktiv", "aktiv", "aktiv"]);
 });
 
 test("inbjudan → testaren loggar in med kod till sin adress → roll test (PRO utan kort, ingen betalning); i läge av skickas inget inbjudningsmejl", async () => {
@@ -320,3 +321,6 @@ test("maskera: första tecken i namn och domän, toppdomänen kvar", () => {
   assert.equal(maskera("B@sub.foretag.com"), "b***@s***.com");
   assert.equal(maskera("x"), "***");
 });
+
+// Anders 2026-10-20 requests one additional pilot; existing three keep their rights.
+test("fourth pilot can be invited without changing existing three; fifth remains blocked before OTP consumption",async()=>{const e=kEnv(),O=await loggaIn(e);const old=[];for(const ep of[T1,T2,T3]){const x=await bjudIn(e,O,ep);assert.equal(x.r.status,200);old.push(x.j.testplats)}const d=await bjudIn(e,O,T4);assert.equal(d.r.status,200,'fourth pilot must be admitted');const list=(await(await agare(e,O,'testplatser')).json());assert.equal(list.max,4);assert.equal(list.aktiva,4);for(const p of old)assert.deepEqual(list.testplatser.find(x=>x.id===p.id),p);const code=await stegkod(e);const full=await agare(e,O,'inbjud',{epost:'fifth@example.se',kod:code});assert.equal(full.status,409);assert.deepEqual(await full.json(),{status:'fullt',max:4});const revoke=await agare(e,O,'aterkalla',{id:d.j.testplats.id,kod:code});assert.equal(revoke.status,200,'capacity rejection must not consume owner code');assert.equal((await jag(e,await loggaIn(e,T1))).roll,'test');});
