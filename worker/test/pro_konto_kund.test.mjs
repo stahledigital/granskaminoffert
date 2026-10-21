@@ -95,3 +95,23 @@ test('Tom kund låses först när den anges; full test/ägarroll får ändra uta
  assert.equal((await jag(e,a)).kundlas[id],'Andra kund');assert.equal((await put(e,b,id,3,p)).status,200);
  assert.equal((await del(e,b,id,4)).status,200);assert.deepEqual((await jag(e,b)).kundlas,{});
 });
+// Å22 (Claude Code 2026-10-22): internt underlag och rättsprovet vid kvittot binder inget kundnamn; kundofferten och äldre klienter
+// (utan typ) binder som förut; ett befintligt lås gäller för alla typer; okänd typ avvisas.
+test('Å22: bara kundoffert (eller anrop utan typ) binder kundnamnet; intern och kontroll prövar rätt utan att binda',async()=>{
+ const e=kEnv(),id=pid(720),{a,b}=await paidAccount(e,id),p=projekt(id,{kund:{namn:'Felstavat namn'}});
+ assert.equal((await put(e,a,id,0,p)).status,200);
+ for(const typ of ['intern','kontroll']){const r=await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:1,typ}});assert.equal(r.status,200,typ);assert.equal((await r.json()).kund,null,typ);}
+ assert.equal((await jag(e,b)).kundlas[id],undefined,'internt underlag låser inte');
+ p.kund.namn='Rätt namn';assert.equal((await put(e,b,id,1,p)).status,200,'namnet går att rätta efter internt underlag');
+ assert.equal((await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:2,typ:'okand'}})).status,400);
+ const k=await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:2,typ:'kund'}});assert.equal(k.status,200);assert.equal((await k.json()).kund,'Rätt namn');
+ assert.equal((await jag(e,b)).kundlas[id],'Rätt namn');
+ const i=await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:b,method:'POST',body:{rev:2,typ:'intern'}});assert.equal(i.status,200);assert.equal((await i.json()).kund,'Rätt namn','befintligt lås rapporteras även för intern');
+ const q=structuredClone(p);q.kund.namn='Annan kund';assert.equal((await put(e,b,id,2,q)).status,409,'låset gäller fortfarande vid sparning');
+});
+test('Å22: äldre klient utan typ binder vid första PDF som förut',async()=>{
+ const e=kEnv(),id=pid(721),{a,b}=await paidAccount(e,id);
+ assert.equal((await put(e,a,id,0,projekt(id,{kund:{namn:'Kund Utan Typ'}}))).status,200);
+ assert.equal((await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:1}})).status,200);
+ assert.equal((await jag(e,b)).kundlas[id],'Kund Utan Typ');
+});

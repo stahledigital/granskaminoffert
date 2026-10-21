@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## gmo-api-v15 – Å22 kundlås bara vid kundoffert (KP-2026-10-16-01, Claude Code 2026-10-22)
+
+- `POST /pro/konto/projekt/:id/dokument` tar valfritt `typ` (`kund`, `intern`, `kontroll`; annat ger 400). Bara `kund` eller saknad typ (äldre klienter) binder kundnamnet vid ett projektköp; `intern` (internt underlag) och `kontroll` (rättsprov vid kvittot) prövar rätt, revision och ett befintligt lås utan att binda. Befintligt lås gäller som förut vid sparning (409).
+- Tester: `pro_konto_kund.test.mjs` (Å22, två nya); full svit 688/688.
+
 ## gmo-api-v14 – PRO-PRIS-01 Mina artikelpriser, backend (KP-2026-10-16-01, Claude Code 2026-10-21)
 - **Ny resurs:** `GET/PUT /pro/konto/artikelpriser` – ett dokument per konto med byggarens egna artikelpriser exkl. moms, `rev`/`If-Match` (0 skapar, fel rev ger 409 med serverns dokument, saknad 428). Strikt validering (exakta nycklar, unik nyckel/namn/enhet, pris som P4:s kronsträng där "0" är ett pris, P4:s styrteckenmängd, giltigt datum, ingen framtida tid), 256 KiB och 1 000 poster, gravstenar för borttag gallras efter 90 d.
 - **Rätt:** läsning med varje giltig session (även läsperiod); skrivning kräver full skrivrätt, projektköp ger `kraver_full_pro`; borttag av egna priser tillåts alltid.

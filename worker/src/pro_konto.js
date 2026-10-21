@@ -633,13 +633,15 @@ export class ProKonto {
     }
     return { kundlas };
   }
-  // Första PDF, aldrig autosparning, binder kundnamnet. Revisionen måste vara
+  // Första kundoffert-PDF, aldrig autosparning, binder kundnamnet. Revisionen måste vara
   // den som klienten nyss sparade; namn tas enbart från serverns projektdata.
-  pDokument({ms,id,rev}) {
+  // Å22 (Claude Code 2026-10-22): typ "intern" (internt underlag) och "kontroll" (rättsprov vid kvittot) prövar rätt och ett befintligt
+  // lås men binder inget nytt namn. Utan typ (äldre klienter) och med "kund" binds som förut.
+  pDokument({ms,id,rev,typ="kund"}) {
     if (!PROJ_RE.test(String(id)) || !Number.isSafeInteger(rev) || rev < 1) return {kod:400};
     const r=this.rad(id,ms); if (!r || r.raderad_ms !== null) return {kod:404};
     if (r.rev !== rev) return {kod:409,server:this.full(r)};
-    const kund=this.bindKund(id,r.data);
+    const kund=typ === "kund" ? this.bindKund(id,r.data) : forsta(this.sql.exec(`SELECT v FROM meta WHERE k = ?`, "kund:" + id))?.v || "";
     if (kund && kund !== this.kundNamn(r.data)) return {kod:409,server:this.full(r)};
     return {kod:200,kund:kund || null};
   }
@@ -1012,8 +1014,8 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
       const id=m[1],ratt=await rattFor(env,s.kontoId,nu,deps);
       if (ratt.roll !== "projekt" || !Array.isArray(ratt.skriv) || !ratt.skriv.includes(id)) return svar({status:"ingen_ratt"},403,fornya);
       const b=await lasKropp(request);
-      if (!b || !Number.isSafeInteger(b.rev) || b.rev<1) return svar({status:"ogiltig_kropp"},400,fornya);
-      const r=await konto(env,s.kontoId,"p_dokument",{nu,ms,id,rev:b.rev});
+      if (!b || !Number.isSafeInteger(b.rev) || b.rev<1 || (b.typ !== undefined && !["kund","intern","kontroll"].includes(b.typ))) return svar({status:"ogiltig_kropp"},400,fornya);
+      const r=await konto(env,s.kontoId,"p_dokument",{nu,ms,id,rev:b.rev,typ:b.typ ?? "kund"});
       return r.kod === 200 ? svar({status:"ok",kund:r.kund},200,fornya) : svar({status:r.kod === 409 ? "konflikt" : "hittas_inte",...(r.server ? {server:r.server} : {})},r.kod,fornya);
     }
     if ((m = /^\/projekt\/([^/]+)$/.exec(vag))) {
