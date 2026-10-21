@@ -1,5 +1,11 @@
 # Granska min offert – ändringslogg
 
+## gmo-api-v14 – PRO-PRIS-01 Mina artikelpriser, backend (KP-2026-10-16-01, Claude Code 2026-10-21)
+- **Ny resurs:** `GET/PUT /pro/konto/artikelpriser` – ett dokument per konto med byggarens egna artikelpriser exkl. moms, `rev`/`If-Match` (0 skapar, fel rev ger 409 med serverns dokument, saknad 428). Strikt validering (exakta nycklar, unik nyckel/namn/enhet, pris som P4:s kronsträng där "0" är ett pris, P4:s styrteckenmängd, giltigt datum, ingen framtida tid), 256 KiB och 1 000 poster, gravstenar för borttag gallras efter 90 d.
+- **Rätt:** läsning med varje giltig session (även läsperiod); skrivning kräver full skrivrätt, projektköp ger `kraver_full_pro`; borttag av egna priser tillåts alltid.
+- **Integritet:** tabellen `artikelpriser` ligger bara i kontots EU-objekt, ingår i export och raderas med kontot (`deleteAll`). Inga nya bindningar eller migrationer.
+- **Test:** worker 686/686 (inkl. workerd-harness med Miniflare 4.20260730.0), nytt `pro_konto_artikelpriser.test.mjs` (7).
+
 ## gmo-v23-d19 – D19 besökarresa: ett uppgiftsval, gratis och betalt lika tydliga, enhetliga statusrader (GMO-LANSERING-20261010-01, Donatello)
 - **Ingång och arbetsyta:** `/`, `/jamfor/` och `/forkontroll/` är tunna ingångar till samma skal med uppgiftsval (gratis granskning, jämför 2–4, förkontroll). Eget underlag följer med mellan uppgifter bara efter aktivt klick (File/text i minnet, inget i adress eller lagring); märkta read-only-exempel; tydliga lägen för config (laddar / tillfälligt fel / stängt).
 - **Gratisresultat:** en sammanhållen statusradsmodell (Stämmer ✓ / Förtydliga ! / Avvikelse × / Anges, ej verifierat ○ / Ej bedömt –) utan staplar eller färgbara procent; prisgrund före delning; ETT frågeblock med en primär handling (Skicka frågorna) och separat Kopiera hela granskningen; AI-sifferfynd formuleras alltid som "kontrollera mot originalet".

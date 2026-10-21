@@ -33,6 +33,8 @@ export const GRANS_EPOST = 3, GRANS_EPOST_S = 15 * 60, GRANS_IP = 10, GRANS_IP_S
 export const LAS_DAGAR = 90;
 // K2
 export const KODER_DAG = 10, FEL_DAG = 15, SPARR_S = DAG;                      // A1
+// PRO-PRIS-01 (Claude Code 2026-10-21): ett dokument per konto med byggarens egna artikelpriser (exkl. moms), rev/If-Match som projekt.
+export const AP_FORMAT = "materialraknaren-pro-artikelpriser", AP_MAX_BYTE = 256 * 1024, AP_MAX_POSTER = 1000;
 export const PROJ_MAX_BYTE = 256 * 1024, PROJ_MAX_RADER = 500, PROJ_MAX_ANTAL = 50; // samma gränser som P4 (pro-projekt.mjs MAX_BYTE/MAX_RADER/MAX_PROJEKT)
 export const GRAV_S = 90 * DAG, AVISERA_S = LAS_DAGAR * DAG, RADERA_EFTER_AVISERING_S = 14 * DAG, KOP_PROJEKT_S = 30 * DAG;
 export const SCHEMA_MAX = 25; // högst så många konton per steg och cron-körning
@@ -532,7 +534,7 @@ export class ProKonto {
     this.fetch = rpc(this, {
       aktiva: (d) => this.aktiva(d), skapa: (d) => this.skapa(d), kolla: (d) => this.kolla(d), lista: (d) => this.lista(d), logga_ut: (d) => this.loggaUt(d),
       epost_satt: (d) => this.epostSatt(d), epost_las: () => this.epostLas(),
-      p_lista: (d) => this.pLista(d), p_hamta: (d) => this.pHamta(d), p_put: (d) => this.pPut(d), p_del: (d) => this.pDel(d), p_kundlas: (d) => this.pKundlas(d), p_dokument: (d) => this.pDokument(d), export: (d) => this.exportera(d), tom: () => this.tom(),
+      p_lista: (d) => this.pLista(d), p_hamta: (d) => this.pHamta(d), p_put: (d) => this.pPut(d), p_del: (d) => this.pDel(d), p_kundlas: (d) => this.pKundlas(d), p_dokument: (d) => this.pDokument(d), export: (d) => this.exportera(d), tom: () => this.tom(), ap_hamta: () => this.apHamta(), ap_put: (d) => this.apPut(d),
     }, { radera: (d) => this.raderaAllt(d), pitr: (d) => this.pitr(d) }, (d) => this.efterPitr(d));
   }
   // K5 (K2-fynd 2): en gång per objektstart frågas registret om en PITR-markering väntar för kontot. Gör den det är detta objekt det
@@ -561,6 +563,7 @@ export class ProKonto {
     sql.exec(`CREATE TABLE IF NOT EXISTS projekt (id TEXT PRIMARY KEY, rev INTEGER NOT NULL, namn TEXT NOT NULL, data TEXT, storlek INTEGER NOT NULL, andrad_ms INTEGER NOT NULL, raderad_ms INTEGER)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS logg (id INTEGER PRIMARY KEY AUTOINCREMENT, tid INTEGER NOT NULL, typ TEXT NOT NULL)`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS artikelpriser (id INTEGER PRIMARY KEY CHECK (id = 1), rev INTEGER NOT NULL, data TEXT NOT NULL, storlek INTEGER NOT NULL, andrad_ms INTEGER NOT NULL)`);
   }
   get sql() { return this.storage.sql; }
   aktivaRader(nu) { return rader(this.sql.exec(`SELECT id, namn, senast FROM enheter WHERE utloggad IS NULL AND senast > ? ORDER BY senast DESC`, nu - SESSION_S)); }
@@ -681,6 +684,19 @@ export class ProKonto {
     this.sql.exec(`DELETE FROM meta WHERE k = ?`, "kund:" + id);
     return { kod: 200, id, rev: r.rev + 1, raderad_ms: ms };
   }
+  apHamta() {
+    const r = forsta(this.sql.exec(`SELECT rev, data, andrad_ms FROM artikelpriser WHERE id = 1`));
+    return r ? { rev: r.rev, andrad: r.andrad_ms, data: JSON.parse(r.data) } : { rev: 0, andrad: null, data: { format: AP_FORMAT, version: 1, poster: [] } };
+  }
+  // If-Match 0 skapar; rätt rev → rev+1; annars 409 med hela serverns dokument. Ingen tyst sammanslagning på servern.
+  apPut({ ms, rev, data, storlek }) {
+    if (!Number.isSafeInteger(rev) || rev < 0 || typeof data !== "string") return { kod: 400 };
+    const r = forsta(this.sql.exec(`SELECT rev FROM artikelpriser WHERE id = 1`));
+    if ((r ? r.rev : 0) !== rev) return { kod: 409, server: this.apHamta() };
+    if (r) this.sql.exec(`UPDATE artikelpriser SET rev = ?, data = ?, storlek = ?, andrad_ms = ? WHERE id = 1`, rev + 1, data, storlek, ms);
+    else this.sql.exec(`INSERT INTO artikelpriser (id, rev, data, storlek, andrad_ms) VALUES (1, 1, ?, ?, ?)`, data, storlek, ms);
+    return { kod: 200, rev: rev + 1, andrad: ms };
+  }
   // Export: ALLT kontots objekt innehåller (enheter utan sessionshash, projekt inkl. gravstenar, e-post, logg). Exporten loggas.
   exportera({ nu, ms }) {
     this.gallraGravar(ms);
@@ -692,11 +708,12 @@ export class ProKonto {
       kundlas: Object.fromEntries(rader(this.sql.exec(`SELECT k,v FROM meta WHERE k LIKE 'kund:%'`)).map(r => [r.k.slice(5), r.v])),
       epost: this.epostLas().epost,
       logg: rader(this.sql.exec(`SELECT tid, typ FROM logg ORDER BY id`)),
+      artikelpriser: this.apHamta(),
     };
   }
   tom() { // för efterkontroll: finns något kvar i objektet?
     const n = (t) => forsta(this.sql.exec(`SELECT COUNT(*) AS n FROM ${t}`)).n;
-    return { tom: n("enheter") + n("projekt") + n("meta") + n("logg") === 0 };
+    return { tom: n("enheter") + n("projekt") + n("meta") + n("logg") + n("artikelpriser") === 0 };
   }
   // Radera ALL lagring i kontots objekt (deleteAll tar även SQLite-databasen), återskapa sedan tomt schema i samma instans.
   async raderaAllt() {
@@ -808,6 +825,41 @@ async function lasProjekt(request, id) {
   if (p.version === 2 && !(await readRoofProject(p)).ok) return { kod: 400, status: "ogiltigt_takunderlag" };
   return { kod: 0, data: raw, namn: typeof p.projektnamn === "string" ? p.projektnamn : "", storlek };
 }
+// PRO-PRIS-01: exakta nycklar, unik (nyckel, namn, enhet), pris som P4:s KR-sträng där "0" är ett pris; borttag är en gravsten.
+// Samma styrteckenmängd som P4 (pro-projekt.mjs STYR): C0/C1, nollbredd, radavskiljare och bidi-tecken; ensamma surrogater nekas också.
+const AP_KR = /^\d{1,9}(?:\.\d{1,2})?$/, AP_DAG = /^(\d{4})-(\d{2})-(\d{2})$/, AP_STYR = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/, AP_SKEW_MS = 5 * 60 * 1000;
+const apDag = (v) => { const m = typeof v === "string" && AP_DAG.exec(v); if (!m) return false; const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]; };
+const apText = (v, max, min = 1) => typeof v === "string" && v.length >= min && v.length <= max && !AP_STYR.test(v) && v.isWellFormed() && v === v.normalize("NFC");
+const apMs = (v) => Number.isSafeInteger(v) && v > 0;
+export function giltigaArtikelpriser(o, ms) {
+  if (!o || typeof o !== "object" || Array.isArray(o) || Object.keys(o).sort().join() !== "format,poster,version" || o.format !== AP_FORMAT || o.version !== 1 || !Array.isArray(o.poster)) return false;
+  const sedda = new Set(); let aktiva = 0, gravar = 0;
+  for (const p of o.poster) {
+    if (!p || typeof p !== "object" || Array.isArray(p)) return false;
+    const k = Object.keys(p).sort().join(), grav = k === "enhet,namn,nyckel,raderad_ms";
+    if (!grav && k !== "andrad_ms,enhet,namn,nyckel,pris_kr,sparad") return false;
+    // P4 bildar k:/m:-nycklar av namn (≤200, kan växa vid gemener) + "|" + enhet (≤20): rymmer upp till 240 tecken.
+    if (!apText(p.nyckel, 240) || !/^(n:|k:|m:)/.test(p.nyckel) || !(p.namn === null || apText(p.namn, 200)) || !apText(p.enhet, 20)) return false;
+    if (grav ? !(apMs(p.raderad_ms) && p.raderad_ms <= ms + AP_SKEW_MS) : !(typeof p.pris_kr === "string" && AP_KR.test(p.pris_kr) && apDag(p.sparad) && apMs(p.andrad_ms) && p.andrad_ms <= ms + AP_SKEW_MS)) return false;
+    const id = JSON.stringify([p.nyckel, p.namn, p.enhet]); if (sedda.has(id)) return false; sedda.add(id);
+    if (grav) gravar++; else aktiva++;
+  }
+  return aktiva <= AP_MAX_POSTER && gravar <= AP_MAX_POSTER ? true : "for_manga_poster";
+}
+async function lasArtikelpriser(request, ms) {
+  const cl = Number(request.headers.get("content-length"));
+  if (Number.isFinite(cl) && cl > AP_MAX_BYTE) return { kod: 413, status: "for_stort", max_byte: AP_MAX_BYTE };
+  const raw = await request.text();
+  const storlek = new TextEncoder().encode(raw).length;
+  if (storlek > AP_MAX_BYTE) return { kod: 413, status: "for_stort", max_byte: AP_MAX_BYTE };
+  let o; try { o = JSON.parse(raw); } catch { return { kod: 400, status: "ogiltig_kropp" }; }
+  // Gravstenar äldre än 90 d (som jobbens) gallras här, före räkningen, så att namn inte ligger kvar och taket inte låser synken.
+  if (o && Array.isArray(o.poster)) o.poster = o.poster.filter((p) => !(p && typeof p === "object" && "raderad_ms" in p && apMs(p.raderad_ms) && p.raderad_ms <= ms - GRAV_S * 1000));
+  const g = giltigaArtikelpriser(o, ms);
+  if (g === "for_manga_poster") return { kod: 413, status: "for_manga_poster", max: AP_MAX_POSTER };
+  if (g !== true) return { kod: 400, status: "ogiltig_kropp" };
+  return { kod: 0, data: JSON.stringify(o), storlek };
+}
 const ifMatch = (request) => { const m = /^\s*(?:W\/)?"?(\d{1,12})"?\s*$/.exec(request.headers.get("If-Match") || ""); return m ? Number(m[1]) : null; };
 
 // Färsk kod (≤10 min, engångs) som måste höra till sessionens eget konto. Prövas först utan att förbrukas, så att en kod till ett annat
@@ -901,7 +953,7 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
     // Allt nedan kräver en giltig session. kontoId kommer BARA ur sessionen; konto-id i URL eller kropp används aldrig.
     const s = await aktivSession(env, request, nu);
     const fornya = s && s.forlangd ? { "set-cookie": satCookie(s.varde) } : {};
-    const METODER = { "/jag": ["GET"], "/kop": ["POST"], "/abonnemang": ["GET","POST"], "/projekt": ["GET"], "/export": ["GET"], "/radera": ["POST"], "/agare/pitr": ["POST"],
+    const METODER = { "/jag": ["GET"], "/kop": ["POST"], "/abonnemang": ["GET","POST"], "/projekt": ["GET"], "/artikelpriser": ["GET", "PUT"], "/export": ["GET"], "/radera": ["POST"], "/agare/pitr": ["POST"],
       "/agare/testplatser": ["GET"], "/agare/inbjud": ["POST"], "/agare/forlang": ["POST"], "/agare/aterkalla": ["POST"] }; // K5
     const tillatna = METODER[vag] || (/^\/projekt\/p_[0-9a-f]{32}\/dokument$/.test(vag) ? ["POST"] : /^\/projekt\/[^/]+$/.test(vag) ? ["GET", "PUT", "DELETE"] : null);
     if (!tillatna || !tillatna.includes(m0)) return svar({ status: "okand_rutt" }, 404); // okänd rutt eller fel metod: 404 före sessionen (som K1)
@@ -930,6 +982,26 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
         enheter: lista.enheter.map((e) => ({ ...e, denna: e.id === s.enhet })) }, 200, fornya);
     }
     if (vag === "/projekt" && m0 === "GET") return svar({ status: "ok", ...(await konto(env, s.kontoId, "p_lista", { nu, ms })) }, 200, fornya);
+    if (vag === "/artikelpriser") {
+      // Läsning av egna priser tillåts med varje giltig session (även läsperiod); skrivning kräver full skrivrätt.
+      if (m0 === "GET") return svar({ status: "ok", ...(await konto(env, s.kontoId, "ap_hamta", { nu })) }, 200, fornya);
+      const rev = ifMatch(request);
+      if (rev === null) return svar({ status: "if_match_kravs" }, 428, fornya);
+      const body = await lasArtikelpriser(request, ms);
+      if (body.kod) { const { kod, ...rest } = body; return svar(rest, kod, fornya); }
+      const ratt = await rattFor(env, s.kontoId, nu, deps);
+      if (ratt.skriv !== "alla") {
+        // Ett projektköp ger inte egna standardpriser. Utan skrivrätt får man ändå ta bort egna priser (radering av egna uppgifter, som jobb).
+        if (Array.isArray(ratt.skriv)) return svar({ status: "kraver_full_pro" }, 403, fornya);
+        const nu0 = await konto(env, s.kontoId, "ap_hamta", { nu }); const fore = new Map(nu0.data.poster.filter((p) => !("raderad_ms" in p)).map((p) => [JSON.stringify([p.nyckel, p.namn, p.enhet]), p.pris_kr]));
+        const baraBorttag = rev === nu0.rev && JSON.parse(body.data).poster.filter((p) => !("raderad_ms" in p)).every((p) => fore.get(JSON.stringify([p.nyckel, p.namn, p.enhet])) === p.pris_kr);
+        if (!baraBorttag) return svar(ratt.lasSlut && nu < ratt.lasSlut ? { status: "las_endast", las_slut: ratt.lasSlut } : { status: "ingen_ratt" }, 403, fornya);
+      }
+      const r = await konto(env, s.kontoId, "ap_put", { nu, ms, rev, data: body.data, storlek: body.storlek });
+      if (r.kod === 200) return svar({ status: "sparat", rev: r.rev, andrad: r.andrad }, 200, fornya);
+      if (r.kod === 409) return svar({ status: "konflikt", server: r.server }, 409, fornya);
+      return svar({ status: "ogiltig_kropp" }, 400, fornya);
+    }
     if (vag === "/export" && m0 === "GET") {
       const [ratt, ko] = await Promise.all([rattFor(env, s.kontoId, nu, deps), konto(env, s.kontoId, "export", { nu, ms })]);
       return svar({ status: "ok", format: "materialraknaren-pro-konto-export", version: 1, exporterad_ms: ms, konto: s.kontoId,
