@@ -1,5 +1,10 @@
 # Granska min offert – ändringslogg
 
+## gmo-api-v16 – kundoffert kräver kundnamn vid projektköp (Anders beslut 2026-10-22, Claude Code)
+
+- `POST /pro/konto/projekt/:id/dokument` med typ `kund` (eller utan typ) svarar 422 `kundnamn_saknas` när inget namn är bundet och projektets kundnamn saknar bokstav eller siffra; inget binds. Ett redan bundet namn går före; `intern` och `kontroll` berörs inte.
+- Tester: `pro_konto_kund.test.mjs` (två nya); full svit 690/690. Klient MR237 släpptes före och hanterar 422 med samma meddelande.
+
 ## gmo-api-v15 – Å22 kundlås bara vid kundoffert (KP-2026-10-16-01, Claude Code 2026-10-22)
 
 - `POST /pro/konto/projekt/:id/dokument` tar valfritt `typ` (`kund`, `intern`, `kontroll`; annat ger 400). Bara `kund` eller saknad typ (äldre klienter) binder kundnamnet vid ett projektköp; `intern` (internt underlag) och `kontroll` (rättsprov vid kvittot) prövar rätt, revision och ett befintligt lås utan att binda. Befintligt lås gäller som förut vid sparning (409).

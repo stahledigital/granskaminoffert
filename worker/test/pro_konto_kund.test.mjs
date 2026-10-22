@@ -115,3 +115,24 @@ test('Å22: äldre klient utan typ binder vid första PDF som förut',async()=>{
  assert.equal((await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:1}})).status,200);
  assert.equal((await jag(e,b)).kundlas[id],'Kund Utan Typ');
 });
+// Anders beslut 2026-10-22: kundoffert vid projektköp kräver ifyllt kundnamn; internt underlag och kontroll påverkas inte.
+test('Kundnamn krävs: kundoffert med tomt namn ger 422 och binder inget; intern går; ifyllt namn binder',async()=>{
+ const e=kEnv(),id=pid(730),{a,b}=await paidAccount(e,id),p=projekt(id,{kund:{namn:'   '}});
+ assert.equal((await put(e,a,id,0,p)).status,200);
+ for(const body of [{rev:1,typ:'kund'},{rev:1}]){const r=await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body});assert.equal(r.status,422);assert.equal((await r.json()).status,'kundnamn_saknas');}
+ assert.equal((await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:1,typ:'intern'}})).status,200);
+ assert.equal((await jag(e,b)).kundlas[id],undefined);
+ p.kund.namn='Kund Ifylld';assert.equal((await put(e,a,id,1,p)).status,200);
+ assert.equal((await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:2,typ:'kund'}})).status,200);
+ assert.equal((await jag(e,b)).kundlas[id],'Kund Ifylld');
+});
+test('Kundnamn krävs: osynliga tecken räcker inte, kontroll går med tomt namn, låst namn går före',async()=>{
+ const e=kEnv(),id=pid(731),{a,b}=await paidAccount(e,id),p=projekt(id,{kund:{namn:'\u200b\u00a0'}});
+ assert.equal((await put(e,a,id,0,p)).status,200);
+ assert.equal((await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:1,typ:'kund'}})).status,422);
+ assert.equal((await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:1,typ:'kontroll'}})).status,200);
+ assert.equal((await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:1,typ:null}})).status,400);
+ p.kund.namn='Låst Kund';assert.equal((await put(e,a,id,1,p)).status,200);
+ assert.equal((await f(e,'/pro/konto/projekt/'+id+'/dokument',{cookie:a,method:'POST',body:{rev:2,typ:'kund'}})).status,200);
+ const q=structuredClone(p);q.kund.namn='';const r=await put(e,b,id,2,q);assert.equal(r.status,409,'låset gäller vid sparning');
+});

@@ -641,7 +641,11 @@ export class ProKonto {
     if (!PROJ_RE.test(String(id)) || !Number.isSafeInteger(rev) || rev < 1) return {kod:400};
     const r=this.rad(id,ms); if (!r || r.raderad_ms !== null) return {kod:404};
     if (r.rev !== rev) return {kod:409,server:this.full(r)};
-    const kund=typ === "kund" ? this.bindKund(id,r.data) : forsta(this.sql.exec(`SELECT v FROM meta WHERE k = ?`, "kund:" + id))?.v || "";
+    // Anders beslut 2026-10-22: en kundoffert vid projektköp kräver ett ifyllt kundnamn med minst en bokstav eller siffra (annars binds
+    // inget och köpet gäller i praktiken alla kunder). Ett redan bundet namn går före; intern och kontroll berörs inte.
+    const las=forsta(this.sql.exec(`SELECT v FROM meta WHERE k = ?`, "kund:" + id))?.v || "";
+    if (typ === "kund" && !las && !/[\p{L}\p{N}]/u.test(this.kundNamn(r.data))) return {kod:422};
+    const kund=typ === "kund" ? this.bindKund(id,r.data) : las;
     if (kund && kund !== this.kundNamn(r.data)) return {kod:409,server:this.full(r)};
     return {kod:200,kund:kund || null};
   }
@@ -1016,7 +1020,7 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
       const b=await lasKropp(request);
       if (!b || !Number.isSafeInteger(b.rev) || b.rev<1 || (b.typ !== undefined && !["kund","intern","kontroll"].includes(b.typ))) return svar({status:"ogiltig_kropp"},400,fornya);
       const r=await konto(env,s.kontoId,"p_dokument",{nu,ms,id,rev:b.rev,typ:b.typ ?? "kund"});
-      return r.kod === 200 ? svar({status:"ok",kund:r.kund},200,fornya) : svar({status:r.kod === 409 ? "konflikt" : "hittas_inte",...(r.server ? {server:r.server} : {})},r.kod,fornya);
+      return r.kod === 200 ? svar({status:"ok",kund:r.kund},200,fornya) : svar({status:r.kod === 409 ? "konflikt" : r.kod === 422 ? "kundnamn_saknas" : "hittas_inte",...(r.server ? {server:r.server} : {})},r.kod,fornya);
     }
     if ((m = /^\/projekt\/([^/]+)$/.exec(vag))) {
       const id = m[1];
