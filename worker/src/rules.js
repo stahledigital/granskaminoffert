@@ -60,6 +60,7 @@ export function runRules(x, ref) {
   const isHeatPump = x.jobType === "bergvarme" || x.jobType === "luftvarmepump" || x.jobType === "varmepump";
   // GMO-RABATT: uträknade belopp i rabatttexter visas i hela kronor (jämförelserna är exakta, bara visningen avrundas).
   const fmtC = (v) => D.fmtKr(D.dec(Math.round(D.toNumber(v))));
+  const Wk = (v) => D.dec(Math.round(D.toNumber(v)));
   // Avrundning halvt uppåt till hela ören (exakt, BigInt). Används bara för ROT-gränser som räknats på arbetskostnad minus rabatt,
   // där gränsen kan få bråkdelar av ett öre (17 990,625 kr); offerten kan då inte ange mer exakt än 17 990,63 kr.
   const roundOre = (v) => { if (v.e <= 2) return v; const k = 10n ** BigInt(v.e - 2); let q = v.n / k; const r = v.n % k; if (2n * (r < 0n ? -r : r) >= k) q += v.n < 0n ? -1n : 1n; return D.dec({ n: q, e: 2 }); };
@@ -128,8 +129,7 @@ export function runRules(x, ref) {
     const source = src(ref, "skatteverket_rot");
     const claim = D.dec(rotAmt);
     const laborD = opt.laborD || D.dec(labor);
-    const ak = `arbetskostnaden${opt.note || ""}`;
-    const FL = opt.laborD ? (v) => D.fmtKr(roundOre(v)) : D.fmtKr; // arbetskostnad efter rabatt: visas i hela ören // GMO-RABATT: " efter rabatten" när rabatten sänker arbetskostnaden
+    const ak = `arbetskostnaden${opt.note || ""}`; // GMO-RABATT: " efter rabatten" när rabatten sänker arbetskostnaden
     const { rates, dateKnown, dateWhy } = period;
     const vatCands = f !== null
       ? [{ factor: f, vatTxt: f === 1 ? "inklusive" : "exklusive" }]
@@ -141,27 +141,31 @@ export function runRules(x, ref) {
       cands.push({ ...v, rate: r, laborIncl, ceiling: opt.roundCeil ? roundOre(ceiling) : ceiling });
     }
     const top = D.max(cands.map((c) => c.ceiling)), bottom = D.min(cands.map((c) => c.ceiling));
+    // GMO-RABATT (R3): på rabattvägen (opt.whole) visas belopp i hela kronor, utom när avdraget ligger inom 3 kr från gränsen – då i ören,
+    // så att en skillnad som avgör aldrig visas som "0 kr" eller "1 kr". Utan opt: exakt som förut.
+    const FX = !opt.whole ? D.fmtKr : D.lt(D.abs(D.sub(claim, top)), D.dec(3)) ? (v) => { const r = roundOre(v); return D.isZero(r) && !D.isZero(v) ? D.fmtKr(v) : D.fmtKr(r); } : fmtC;
+    const FL = opt.whole ? FX : opt.laborD ? (v) => D.fmtKr(roundOre(v)) : D.fmtKr; // arbetskostnad efter rabatt: hela ören
     const pc = pcOf;
     const laborTxt = (c) => (c.factor === 1 ? `${FL(laborD)} inklusive moms` : `${FL(laborD)} exklusive moms (${FL(c.laborIncl)} inklusive moms)`);
     const vatKnownHere = vatCands.length === 1;
-    const describeRate = (r) => `${pc(r)}: ${cands.filter((c) => c.rate === r).map((c) => `${D.fmtKr(c.ceiling)}${vatKnownHere ? "" : ` om ${ak} ${FL(laborD)} är ${c.vatTxt} moms${c.factor !== 1 ? ` (${FL(c.laborIncl)} inklusive moms)` : ""}`}`).join(" eller ")}`;
-    const describe = (c) => `${pc(c.rate)} av ${ak} ${FL(laborD)}${vatKnownHere ? "" : ` om den är ${c.vatTxt} moms`}${c.factor !== 1 ? ` (${FL(c.laborIncl)} inklusive moms)` : ""} = ${D.fmtKr(c.ceiling)}`;
+    const describeRate = (r) => `${pc(r)}: ${cands.filter((c) => c.rate === r).map((c) => `${FX(c.ceiling)}${vatKnownHere ? "" : ` om ${ak} ${FL(laborD)} är ${c.vatTxt} moms${c.factor !== 1 ? ` (${FL(c.laborIncl)} inklusive moms)` : ""}`}`).join(" eller ")}`;
+    const describe = (c) => `${pc(c.rate)} av ${ak} ${FL(laborD)}${vatKnownHere ? "" : ` om den är ${c.vatTxt} moms`}${c.factor !== 1 ? ` (${FL(c.laborIncl)} inklusive moms)` : ""} = ${FX(c.ceiling)}`;
     const limitsTxt = () => (vatKnownHere ? cands.map(describe).join("; ") : [...new Set(cands.map((c) => c.rate))].map(describeRate).join("; "));
     const windowTxt = windowText();
     const disclaimer = "Det här är en kontroll av beräkningen på offertens siffror – inte av ditt personliga avdragsutrymme (tidigare ROT och RUT under året och skatteutrymme).";
-    const claimTxt = D.fmtKr(claim);
+    const claimTxt = FX(claim);
     const rateTxt = rotRate !== null ? ` (${pc(rotRate)})` : "";
 
     if (D.gt(claim, top)) {
-      const excess = D.fmtKr(D.sub(claim, top));
+      const excess = FX(D.sub(claim, top));
       const single = cands.length === 1 ? cands[0] : null;
       const implied = rotRate !== null ? rotRate : Number(D.toNumber(claim)) / Math.max(D.toNumber(single ? single.laborIncl : D.max(cands.map((c) => c.laborIncl))), 1);
       if (single && single.rate === rot.rate && Math.abs(implied - rot.oldRate) < 0.02 && x.plannedPaymentDate) {
         add("rot_belopp", "fel", "ROT-sats",
-          `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. ${rot.quote} För betalning ${x.plannedPaymentDate.slice(0, 4)} är avdraget högst ${pc(rot.rate)}, alltså ${D.fmtKr(single.ceiling)} i stället för ${claimTxt} (${excess} över).`, source);
+          `ROT-avdraget är räknat med ${Math.round(rot.oldRate * 100)} %. ${rot.quote} För betalning ${x.plannedPaymentDate.slice(0, 4)} är avdraget högst ${pc(rot.rate)}, alltså ${FX(single.ceiling)} i stället för ${claimTxt} (${excess} över).`, source);
       } else if (single) {
         add("rot_belopp", "fel", title,
-          `ROT-avdraget är högst ${pc(single.rate)} av ${ak} ${laborTxt(single)}, alltså högst ${D.fmtKr(single.ceiling)}. Offerten anger ${claimTxt}${rateTxt}, vilket är ${excess} över den gränsen. Avdraget får vara lägre än gränsen men inte högre.`, source);
+          `ROT-avdraget är högst ${pc(single.rate)} av ${ak} ${laborTxt(single)}, alltså högst ${FX(single.ceiling)}. Offerten anger ${claimTxt}${rateTxt}, vilket är ${excess} över den gränsen. Avdraget får vara lägre än gränsen men inte högre.`, source);
       } else {
         add("rot_belopp", "fel", title,
           `ROT-avdraget ${claimTxt}${rateTxt} är högre än den högsta möjliga gränsen under varje tolkning av moms och betalningsdatum: ${limitsTxt()}. Det är ${excess} över den högsta gränsen. Avdraget får vara lägre än gränsen men inte högre.`, source);
@@ -175,11 +179,11 @@ export function runRules(x, ref) {
       const c = cands[0];
       if (rotRate !== null && D.gt(D.dec(rotRate), D.dec(maxRate))) {
         add("rot_belopp", "fraga", "ROT-sats",
-          `Offerten anger ROT-sats ${pc(rotRate)}, men högsta sats för den betalning som offerten anger är ${pc(maxRate)}. Beloppet ${claimTxt} ryms under gränsen (${D.fmtKr(c.ceiling)}), men den angivna satsen stämmer inte med regeln – fråga hur avdraget är räknat. ${disclaimer}`, source);
+          `Offerten anger ROT-sats ${pc(rotRate)}, men högsta sats för den betalning som offerten anger är ${pc(maxRate)}. Beloppet ${claimTxt} ryms under gränsen (${FX(c.ceiling)}), men den angivna satsen stämmer inte med regeln – fråga hur avdraget är räknat. ${disclaimer}`, source);
         return;
       }
       add("rot_belopp", "ok", title,
-        `ROT-avdraget ${claimTxt} ligger inom gränsen: högst ${pc(c.rate)} av ${ak} ${laborTxt(c)}, alltså högst ${D.fmtKr(c.ceiling)}.${c.rate === rot.oldRate ? ` ${windowTxt}, och betalningsdatumet i offerten ligger i det fönstret.` : ""} Ett lägre avdrag än gränsen är inte fel. ${disclaimer}`, source);
+        `ROT-avdraget ${claimTxt} ligger inom gränsen: högst ${pc(c.rate)} av ${ak} ${laborTxt(c)}, alltså högst ${FX(c.ceiling)}.${c.rate === rot.oldRate ? ` ${windowTxt}, och betalningsdatumet i offerten ligger i det fönstret.` : ""} Ett lägre avdrag än gränsen är inte fel. ${disclaimer}`, source);
       return;
     }
     const reasons = [];
@@ -206,21 +210,24 @@ export function runRules(x, ref) {
     const dRows = cands.map((c) => D.mul(c.inclD, toRows));
     const clamp = (v) => (D.lt(v, ZERO) ? ZERO : v);
     const onlyLabor = disc.base === "arbete";
-    if (onlyLabor && disc.rotResolved && dRows.length === 1) return rotUpperBound({ laborD: clamp(D.sub(laborD0, dRows[0])), note: " efter rabatten", roundCeil: true });
+    if (onlyLabor && disc.rotResolved && dRows.length === 1) return rotUpperBound({ laborD: clamp(D.sub(laborD0, dRows[0])), note: " efter rabatten", roundCeil: true, whole: true });
     const claim = D.dec(rotAmt);
     const ceil = (lab, r) => roundOre(D.mul(D.mul(lab, D.dec(f)), D.dec(r)));
     const lowLabor = dRows.length ? clamp(D.sub(laborD0, D.max(dRows))) : null; // hela (största tolkningen av) rabatten dras från arbetet
     if (lowLabor && !D.gt(claim, D.min(period.rates.map((r) => ceil(lowLabor, r))))) {
-      return rotUpperBound({ laborD: lowLabor, note: onlyLabor ? " efter rabatten" : " med hela rabatten avdragen,", roundCeil: true });
+      return rotUpperBound({ laborD: lowLabor, note: onlyLabor ? " efter rabatten" : " med hela rabatten avdragen,", roundCeil: true, whole: true });
     }
     const n0 = out.length;
-    rotUpperBound();
+    rotUpperBound({ whole: true });
     const res = out.length > n0 ? out[out.length - 1] : null;
     if (!res || res.status === "fel") return;
     const maxRate = Math.max(...period.rates);
     const pcm = `${Math.round(maxRate * 100)} %`;
     const c0 = cands.length === 1 ? cands[0] : null;
-    const amt = !c0 ? "" : c0.factor === 1 ? ` ${fmtC(c0.inclD)}${f !== 1 ? " inklusive moms" : ""}` : ` ${fmtC(c0.statedD)} exklusive moms (${fmtC(c0.inclD)} inklusive moms)`;
+    // Rabatt efter ROT med totaler exklusive moms: momsbasen är en tolkning (totalernas), aldrig ett påstående.
+    const amt = !c0 ? "" : c0.factor === 1 ? ` ${fmtC(c0.inclD)}${f !== 1 ? " inklusive moms" : ""}`
+      : disc.afterRot.includes(c0) ? ` ${fmtC(c0.statedD)} (${fmtC(c0.inclD)} inklusive moms om beloppet, som totalerna, är exklusive moms)`
+      : ` ${fmtC(c0.statedD)} exklusive moms (${fmtC(c0.inclD)} inklusive moms)`;
     const open = disc.missing.length ? ` (${disc.missing.join("; ")})` : "";
     let why;
     if (onlyLabor) {
@@ -322,7 +329,7 @@ export function runRules(x, ref) {
     if (mayExplain) {
       const what = disc0.amountSek !== null ? `på ${fmtC(D.dec(disc0.amountSek))}` : `på ${String(disc0.pct).replace(".", ",")} %`;
       add("total_konflikt", "fraga", "Summa före ROT och summa att betala",
-        `Offerten anger både summa före ROT-avdrag (${D.fmtKr(t0.beforeD)}) och summa att betala (${D.fmtKr(t0.toPayD)}). ${rotAmt ? `Efter ROT-avdraget ${D.fmtKr(D.dec(rotAmt))} blir det ${fmtC(t0.expectedPayD)}` : `Utan ROT-avdrag är det ${fmtC(t0.expectedPayD)}`}, en skillnad på ${fmtC(gap0)}. Offerten anger också en rabatt ${what} som inte går att fastställa helt (${disc0.missing.join("; ")}); dras den efter ROT-avdraget kan den förklara skillnaden. Fråga om rabatten dras efter ROT-avdraget och vilket belopp som gäller.`, "");
+        `Offerten anger både summa före ROT-avdrag (${fmtC(t0.beforeD)}) och summa att betala (${fmtC(t0.toPayD)}). ${rotAmt ? `Efter ROT-avdraget ${fmtC(D.dec(rotAmt))} blir det ${D.fmtKr(D.sub(Wk(t0.beforeD), Wk(D.dec(rotAmt))))}` : `Utan ROT-avdrag är det ${fmtC(t0.beforeD)}`}, en skillnad på ${D.fmtKr(D.sub(D.sub(Wk(t0.beforeD), Wk(D.dec(rotAmt || 0))), Wk(t0.toPayD)))}. Offerten anger också en rabatt ${what} som inte går att fastställa helt (${disc0.missing.join("; ")}); dras den efter ROT-avdraget kan den förklara skillnaden. Fråga om rabatten dras efter ROT-avdraget och vilket belopp som gäller.`, "");
     } else if (t0.conflict) {
       add("total_konflikt", "fel", "Summa före ROT och summa att betala",
         `Offerten anger både summa före ROT-avdrag (${D.fmtKr(t0.beforeD)}) och summa att betala (${D.fmtKr(t0.toPayD)}). ${rotAmt ? `Efter ROT-avdraget ${D.fmtKr(D.dec(rotAmt))} borde summan att betala vara ${D.fmtKr(t0.expectedPayD)}` : `Utan ROT-avdrag borde summan att betala vara ${D.fmtKr(t0.expectedPayD)}`}. Uppgifterna stämmer inte med varandra – be om en rättad offert.`, "");
@@ -498,7 +505,7 @@ export function runRules(x, ref) {
     const t = resolveTotals(x);
     if (rotAmt !== null && rotAmt > 0 && t.afterRotDiscountD && disc.base !== "material") {
       add("rabatt_rot", "fraga", "ROT och rabatt",
-        `Rabatten ${fmtC(t.afterRotDiscountD)} dras av efter ROT-avdraget. ROT-avdraget räknas på den arbetskostnad som faktiskt betalas, så en rabatt som också sänker priset på arbetet kan minska avdraget. Fråga om ROT-avdraget är räknat på arbetskostnaden före eller efter rabatten.`,
+        `Rabatten ${fmtC(disc.amountSek !== null ? D.dec(disc.amountSek) : t.afterRotDiscountD)} dras av efter ROT-avdraget. ROT-avdraget räknas på den arbetskostnad som faktiskt betalas, så en rabatt som också sänker priset på arbetet kan minska avdraget. Fråga om ROT-avdraget är räknat på arbetskostnaden före eller efter rabatten.`,
         src(ref, "skatteverket_rot"));
     }
   }
@@ -552,16 +559,42 @@ export function runRules(x, ref) {
     // bara en fråga med det som saknas. Utan rabatt: exakt som förut.
     const sumOpen = !!disc && !disc.sumResolved;
     const capTxt = sumOpen ? ` Rabatten går inte att fastställa helt (${disc.missing.join("; ")}), så det här är en fråga och inget säkert fel. Fråga hur rabatten är räknad och vilket belopp som gäller.` : "";
+    // R3: ett belopp som kan vara ett felläst ROT-avdrag har inte dragits av – summeringen kan då aldrig vara ok.
+    const echoTxt = disc && disc.rotEcho ? ` Offerten anger också en rabatt på ${fmtC(D.dec(disc.amountSek))} som inte har räknats med här, eftersom ${disc.missing.find((m) => /ROT/.test(m))}. Fråga om det är en rabatt utöver ROT-avdraget och om den är avdragen.` : "";
+    const onlyUnmarked = num(x.totalBeforeRotSek) === null && num(x.amountToPaySek) === null && num(x.totalSumSek) !== null;
+    const twinTxt = disc && disc.rotTwin && onlyUnmarked ? " Rabatten är lika stor som ROT-avdraget, och offerten märker inte sin total, så det går inte att avgöra om totalen är summan före ROT-avdrag efter rabatten eller summan att betala efter ROT-avdraget. Fråga vilken summa totalen är." : "";
     const addSumma = (status, text) => {
       if (sumOpen && status === "fel") { add("summa", "fraga", "Summering", text + capTxt, ""); return; }
+      if (echoTxt && status === "ok") { add("summa", "fraga", "Summering", text + echoTxt, ""); return; }
+      if (twinTxt && status === "ok") { add("summa", "fraga", "Summering", text + twinTxt, ""); return; }
       add("summa", status, "Summering", text, "");
     };
     // En summa före ROT som offerten inte själv anger (räknad ur summa att betala och ROT-avdrag) beskrivs aldrig som angiven.
     const tbK = vatFactor(totalBasis(x));
     const beforeStated = (v) => tbK !== null && [x.totalBeforeRotSek, x.totalSumSek, hasRot || ar ? null : x.amountToPaySek].map(num).some((s0) => s0 !== null && near(D.mul(D.dec(s0), D.dec(tbK)), v));
-    const totalIs = (v) => (disc && !beforeStated(v) ? `summan före ROT-avdrag, räknad ur offertens övriga belopp, är ${K(v)}` : `totalen anges till ${K(v)} före ROT-avdrag`);
+    const totalIs = (v, shown = K(v)) => (disc && !beforeStated(v) ? `summan före ROT-avdrag, räknad ur offertens övriga belopp, är ${shown}` : `totalen anges till ${shown} före ROT-avdrag`);
+    // R3: visade belopp räknas ur avrundade delar så att det som visas går ihop; är skillnaden under 3 kr visas den i ören.
+    const W = (v) => D.dec(Math.round(D.toNumber(v)));
+    const FO = (v) => D.fmtKr(roundOre(v));
+    const fineD = (a, b) => D.lt(D.abs(D.sub(a, b)), D.dec(3));
+    // Vilken av offertens summor ett belopp är: den angivna totalen, den angivna summan att betala (utan ROT) eller en uträknad summa.
+    const payIsTotal = (v) => tbK !== null && num(x.totalBeforeRotSek) === null && num(x.totalSumSek) === null && !hasRot && !ar && num(x.amountToPaySek) !== null && near(D.mul(D.dec(x.amountToPaySek), D.dec(tbK)), v);
+    const totalRef = (v) => (payIsTotal(v) ? "summan att betala" : beforeStated(v) ? "totalen" : "summan före ROT-avdrag som följer av offertens summa att betala");
+    // R3 P1: med rabatt måste en uttryckligen angiven summa att betala stämma på kronan för att summeringen ska vara ok.
+    const payCheck = (net) => {
+      const p0 = num(x.amountToPaySek);
+      if (!disc || p0 === null || tbK === null) return null;
+      const exp = D.sub(D.sub(net, rotD), arD), pD = D.mul(D.dec(p0), D.dec(tbK));
+      return near(pD, exp) ? null : { exp, pD };
+    };
+    const payMismatchTxt = (pc) => {
+      const fine = fineD(pc.exp, pc.pD), F = fine ? FO : K;
+      const diff = fine ? FO(D.abs(D.sub(pc.exp, pc.pD))) : D.fmtKr(D.abs(D.sub(W(pc.exp), W(pc.pD))));
+      return ` ${hasRot || ar ? `Efter ${[hasRot ? `ROT-avdrag ${K(rotD)}` : "", ar ? `rabatten ${K(ar)}` : ""].filter(Boolean).join(" och ")} borde` : "Då borde"} summan att betala vara ${F(pc.exp)}, men offerten anger ${F(pc.pD)} – en skillnad på ${diff}. Summeringen kan därför inte bekräftas. Fråga vilken summa att betala som gäller.`;
+    };
     const andDisc = disc && disc.amountSek !== null ? " och rabatten" : "";
-    const rotTail = (net) => (ar ? `Efter ROT-avdrag ${K(rotD)} och rabatten ${K(ar)} blir det ${K(D.sub(D.sub(net, rotD), arD))} att betala` : `efter ROT-avdrag ${K(rotD)} blir det ${K(D.sub(net, rotD))} att betala`);
+    const rotTail = (net) => { const n = W(net), r = W(rotD), a = W(arD);
+      return ar ? `Efter ROT-avdrag ${D.fmtKr(r)} och rabatten ${D.fmtKr(a)} blir det ${D.fmtKr(D.sub(D.sub(n, r), a))} att betala` : `efter ROT-avdrag ${D.fmtKr(r)} blir det ${D.fmtKr(D.sub(n, r))} att betala`; };
     // Summan att betala bekräftas bara när den är härledd ur offertens uppgifter (rader eller uttrycklig summa att betala), eller när en
     // rabatt efter ROT har stämts av mot den.
     // Med rabatt bekräftas summan att betala bara när offerten själv anger den (som summa att betala eller som omärkt total).
@@ -586,15 +619,28 @@ export function runRules(x, ref) {
             addSumma("fraga",
               `Raderna (${rowsTxt}) summerar till ${K(statedIncl)}${inclWord}. Räknas rabatten ${pctTxt} på hela beloppet (${amtParen(hit.c)}) blir det ${K(hit.net)}, vilket stämmer med totalen, men offerten anger inte vad rabatten gäller. Fråga vad rabatten räknas på.`);
           } else if (hit) {
-            addSumma("ok",
-              `Raderna (${rowsTxt}) summerar till ${K(statedIncl)}${inclWord}. Efter ${discLabel(hit.c)} blir det ${K(hit.net)}, vilket stämmer med totalen${toPayOk(hit.net) ? `, och ${rotTail(hit.net)} – det stämmer` : ""}.`);
+            const Nd = D.sub(W(statedIncl), W(hit.c.inclD));   // visas ur avrundade delar
+            const pc = payCheck(hit.net);
+            if (t.grossBeforeD && !pc) {
+              addSumma("ok",
+                `Raderna (${rowsTxt}) summerar till ${K(statedIncl)}${inclWord}, samma som offertens summa före rabatten. Efter ${discLabel(hit.c)} blir det ${D.fmtKr(Nd)}${hasRot ? `, och ${rotTail(Nd)}` : ", vilket är summan att betala"} – det stämmer.`);
+            } else if (pc) {
+              addSumma("fraga",
+                `Raderna (${rowsTxt}) summerar till ${K(statedIncl)}${inclWord}. Efter ${discLabel(hit.c)} blir det ${D.fmtKr(Nd)}, vilket stämmer med ${totalRef(total)}.${payMismatchTxt(pc)}`);
+            } else {
+              addSumma("ok",
+                `Raderna (${rowsTxt}) summerar till ${K(statedIncl)}${inclWord}. Efter ${discLabel(hit.c)} blir det ${D.fmtKr(Nd)}, vilket stämmer med ${totalRef(total)}${toPayOk(hit.net) ? `, och ${rotTail(Nd)} – det stämmer` : ""}.`);
+            }
           } else if (near(statedIncl, total)) {
             addSumma("fraga",
               `Raderna (${rowsTxt}) summerar till totalen ${K(total)}${inclWord} utan att ${pre.length === 1 ? discLabel(pre[0]) : "rabatten"} dras av. Antingen syns rabatten inte i totalen, eller så ingår den redan i radbeloppen. Fråga om rabatten är avdragen och vilket belopp som gäller.`);
           } else if (pre.length === 1) {
             const c = pre[0], net = D.sub(statedIncl, c.inclD);
+            const fine = fineD(net, total);
+            const Nd = fine ? net : D.sub(W(statedIncl), W(c.inclD)), Td = fine ? total : W(total);
+            const F = fine ? FO : D.fmtKr;
             addSumma("fel",
-              `Raderna (${rowsTxt}) summerar till ${K(statedIncl)}${inclWord}, och efter ${discLabel(c)} blir det ${K(net)}${hasRot ? ` (${K(D.sub(D.sub(net, rotD), arD))} efter ROT)` : ""}, men ${totalIs(total)} – en skillnad på ${K(D.abs(D.sub(net, total)))}. Alla fyra posterna (arbete, material, resor och övrigt)${andDisc} anges i offerten.`);
+              `Raderna (${rowsTxt}) summerar till ${F(fine ? statedIncl : W(statedIncl))}${inclWord}, och efter ${discLabel(c)} blir det ${F(Nd)}${hasRot ? ` (${F(fine ? D.sub(D.sub(net, rotD), arD) : D.sub(D.sub(Nd, W(rotD)), W(arD)))} efter ROT)` : ""}, men ${totalIs(total, F(Td))} – en skillnad på ${F(D.abs(D.sub(Nd, Td)))}. Alla fyra posterna (arbete, material, resor och övrigt)${andDisc} anges i offerten.`);
           } else {
             addSumma("fel",
               `Raderna (${rowsTxt}) summerar till ${K(statedIncl)}${inclWord}. Efter rabatten blir det ${pre.map((c) => `${K(D.sub(statedIncl, c.inclD))} om rabatten ${K(c.statedD)} är ${c.factor === 1 ? "inklusive" : "exklusive"} moms`).join(" eller ")}, men ${totalIs(total)}, vilket inte stämmer under någon av tolkningarna. Alla fyra posterna (arbete, material, resor och övrigt)${andDisc} anges i offerten.`);
@@ -610,7 +656,7 @@ export function runRules(x, ref) {
         }
         const m = matched.length ? matched : grossMatched;
         add("summa", "fraga", "Summering",
-          `Raderna (${rowsTxt}) ${matched.length ? "stämmer efter rabatten" : "stämmer utan att rabatten dras av"} med totalen ${m.map((a) => a.label ? `om ${a.label}` : `${K(a.incl)}`).join(" respektive ")}. Offerten anger inte tydligt ${f === null ? "radernas momsläge" : "vilken summa som är före ROT-avdrag och vilket momsläge den har"}, så summeringen kan inte bekräftas – be om ${f === null ? "momsangivelse för raderna" : "summa före ROT-avdrag, summa att betala och momsläge"}, och fråga om rabatten är avdragen.`, "");
+          `Raderna (${rowsTxt}) stämmer med totalen ${matched.length ? "när rabatten dras av" : "utan att rabatten dras av"}, ${m.map((a) => a.label ? `om ${a.label}` : `${K(a.incl)}`).join(" respektive ")}. Offerten anger inte tydligt ${f === null ? "radernas momsläge" : "vilken summa som är före ROT-avdrag och vilket momsläge den har"}, så summeringen kan inte bekräftas – be om ${f === null ? "momsangivelse för raderna" : "summa före ROT-avdrag, summa att betala och momsläge"}, och fråga om rabatten är avdragen.`, "");
         return;
       }
       const matched = alts.filter((a) => rowCands.some((r) => near(r, a.incl)));
@@ -618,15 +664,27 @@ export function runRules(x, ref) {
         const total = alts[0].incl;
         if (near(statedIncl, total)) {
           const afterOk = toPayOk(statedIncl);
-          addSumma("ok",
+          const pc = payCheck(statedIncl);
+          // Med rabatt: en uträknad summa före ROT kallas aldrig "totalen" (utan rabatt: exakt som förut).
+          const sumTo = disc && payIsTotal(total) ? `summerar till summan att betala ${K(total)}${inclWord}`
+            : disc && !beforeStated(total) ? `summerar till ${K(total)}${inclWord}, vilket är summan före ROT-avdrag som följer av offertens summa att betala` : `summerar till totalen ${K(total)}${inclWord}`;
+          if (pc) {
+            addSumma("fraga", `Raderna (${rowsTxt}) ${sumTo}.${payMismatchTxt(pc)}`);
+          } else if (ar && !hasRot) {
+            // Rabatt efter (ett ROT som inte finns): raderna, rabatten och summan att betala/totalen redovisas ur avrundade delar.
+            addSumma("ok", `Raderna (${rowsTxt}) summerar till ${K(statedIncl)}${inclWord}${beforeStated(total) ? ", samma som totalen före rabatten" : ""}. Efter rabatten ${K(ar)} blir det ${D.fmtKr(D.sub(W(statedIncl), W(ar)))}, vilket stämmer med ${num(x.amountToPaySek) !== null ? "summan att betala" : "offertens total"}.`);
+          } else addSumma("ok",
             afterOk
               ? (ar
-                ? `Raderna (${rowsTxt}) summerar till totalen ${K(total)}${inclWord} före ROT-avdrag. ${rotTail(statedIncl)} – det stämmer.`
+                ? `Raderna (${rowsTxt}) ${disc && !beforeStated(total) ? sumTo : `summerar till totalen ${K(total)}${inclWord} före ROT-avdrag`}. ${rotTail(statedIncl)} – det stämmer.`
                 : `Raderna summerar till ${K(statedIncl)}, och efter ROT-avdrag ${K(D.dec(rotAmt))} blir det ${K(t.toPayInclD)} att betala – det stämmer.`)
-              : `Raderna (${rowsTxt}) summerar till totalen ${K(total)}${inclWord}.`);
+              : `Raderna (${rowsTxt}) ${sumTo}.`);
         } else {
+          // Med rabatt visas beloppen ur avrundade delar (ören när skillnaden är under 3 kr); utan rabatt exakt som förut.
+          const fine = !disc || fineD(statedIncl, total), F = !disc ? K : fine ? FO : D.fmtKr;
+          const Ad = fine ? statedIncl : W(statedIncl), Td = fine ? total : W(total);
           addSumma("fel",
-            `Raderna (${rowsTxt}) summerar till ${K(statedIncl)}${inclWord}${hasRot ? ` (${K(D.sub(statedIncl, D.dec(rotAmt)))} efter ROT)` : ""}, men ${totalIs(total)} – en skillnad på ${K(D.abs(D.sub(statedIncl, total)))}. Alla fyra posterna (arbete, material, resor och övrigt) anges i offerten.`);
+            `Raderna (${rowsTxt}) summerar till ${F(Ad)}${inclWord}${hasRot ? ` (${F(fine ? D.sub(statedIncl, D.dec(rotAmt)) : D.sub(Ad, W(D.dec(rotAmt))))} efter ROT)` : ""}, men ${totalIs(total, F(Td))} – en skillnad på ${F(D.abs(D.sub(Ad, Td)))}. Alla fyra posterna (arbete, material, resor och övrigt) anges i offerten.`);
         }
         return;
       }
@@ -647,13 +705,13 @@ export function runRules(x, ref) {
     // GMO-RABATT: delsumman jämförs efter den största tolkningen av rabatten (den mest återhållsamma differensen).
     const discMax = pre.length ? D.max(pre.map((c) => c.inclD)) : null;
     const lowerBound = discMax ? D.sub(statedIncl || stated, discMax) : (statedIncl || stated); // med okänd radmoms är "inklusive"-delsumman minst den angivna
-    const discPart = discMax ? `; efter ${pre.length === 1 ? discLabel(pre[0]) : `rabatten (högst ${K(discMax)} inklusive moms)`} blir det ${K(lowerBound)}` : "";
+    const discPart = discMax ? `; efter ${pre.length === 1 ? discLabel(pre[0]) : `rabatten (högst ${K(discMax)} inklusive moms)`} blir det ${D.fmtKr(D.sub(W(statedIncl || stated), W(discMax)))}` : "";
     const totalTop = D.max(alts.map((a) => a.incl));
     const totalsTxt = alts.length === 1 ? K(alts[0].incl) : alts.map((a) => K(a.incl)).join(" eller ");
     if (D.gt(D.sub(lowerBound, totalTop), ONE)) {
       const excess = D.sub(lowerBound, totalTop);
       add("summa", "fraga", "Summering",
-        `De poster som anges (${rowsTxt}) summerar till ${K(stated)}${statedIncl && f !== 1 ? ` (${K(statedIncl)} inklusive moms)` : ""}${discPart}, vilket är minst ${K(excess)} mer än totalen ${totalsTxt} före ROT-avdrag. ${unknownTxt[0].toUpperCase()}${unknownTxt.slice(1)} anges inte, så en full summering går inte att göra, och skillnaden kan bero på något som inte avlästs – till exempel ${discMax ? "ytterligare en rabatt" : "en rabatt"}, kredit eller justering – eller på en felläst rad.${vatNote} Fråga hur totalen är uppbyggd och vad skillnaden på minst ${K(excess)} beror på.`, "");
+        `De poster som anges (${rowsTxt}) summerar till ${K(stated)}${statedIncl && f !== 1 ? ` (${K(statedIncl)} inklusive moms)` : ""}${discPart}, vilket är minst ${K(excess)} mer än totalen ${totalsTxt} före ROT-avdrag. ${unknownTxt[0].toUpperCase()}${unknownTxt.slice(1)} anges inte, så en full summering går inte att göra, och skillnaden kan bero på något som inte avlästs – till exempel ${discMax ? "ytterligare en rabatt" : disc ? "en kredit eller justering, eller rabatten som anges men inte går att räkna med här" : "en rabatt"}${disc && !discMax ? "" : ", kredit eller justering"} – eller på en felläst rad.${vatNote} Fråga hur totalen är uppbyggd och vad skillnaden på minst ${K(excess)} beror på.`, "");
       return;
     }
     // En differens används bara som förklaring när radernas och totalens momsbas är jämförbara (belagd radmoms). Med okänd radmoms

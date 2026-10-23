@@ -141,7 +141,9 @@ export function discountInfo(x) {
       else if (b && within1(pctOfD(D.mul(b.valueD, D.dec(fRows)), p), statedD)) preFactors = [1];
     }
     if (stage !== "efter_rot") preRot = uniqByValue(preFactors.map((k) => mk(statedD, k)));
-    else afterRot = uniqByValue(factorsFor(vatFactor(totalBasis(x))).map((k) => mk(statedD, k)));
+    // Efter ROT: summan att betala är normalt inklusive moms (faktor 1); med totaler exklusive moms är även den tolkningen möjlig –
+    // två tolkningar, aldrig ett påstående om momsbasen.
+    else afterRot = uniqByValue([...factorsFor(vatFactor(totalBasis(x))), 1].map((k) => mk(statedD, k)));
   } else if (!hasD && p !== null && stage !== "efter_rot") {
     // Bara procentsats: beloppet räknas på radernas egna belopp (samma momsbas som raderna). Underlaget är det angivna eller – som
     // antagande, aldrig som faktum – hela beloppet; går det inte att räkna blir det inga kandidater.
@@ -154,11 +156,14 @@ export function discountInfo(x) {
   const sumResolved = hasD && !rotEcho && stage !== null && amounts.length === 1;
   const missing = [
     !hasD ? "beloppet i kronor anges inte" : null,
-    rotEcho ? "beloppet är lika stort som ROT-avdraget" : null,
+    rotEcho ? (rot !== null && rot > 0 ? "beloppet är lika stort som ROT-avdraget" : "beloppet är exakt så stort som ett ROT-avdrag på arbetskostnaden skulle vara, och inget ROT-avdrag har lästs ut") : null,
     hasD && !rotEcho && amounts.length > 1 ? "det framgår inte om beloppet är inklusive eller exklusive moms" : null,
     stage === null ? "det framgår inte i vilket steg den dras" : null,
   ].filter(Boolean);
-  return { amountSek: hasD ? d : null, pct: p, pctRaw: p0, pctSuspicious, base, baseLabel: base ? BASE_LABEL[base] : null, stage, rotEcho,
+  // ROT-tvilling: rabatten är (i någon tolkning) lika stor som ROT-avdraget. Med bara en omärkt total går det då inte att avgöra om
+  // totalen är summan före ROT efter rabatten eller summan att betala efter ROT-avdraget utan rabatt.
+  const rotTwin = !rotEcho && rot !== null && rot > 0 && amounts.some((c) => within1(c.inclD, D.dec(rot)));
+  return { amountSek: hasD ? d : null, pct: p, pctRaw: p0, pctSuspicious, base, baseLabel: base ? BASE_LABEL[base] : null, stage, rotEcho, rotTwin,
     preRot, afterRot, sumResolved, rotResolved: sumResolved && base !== null, missing };
 }
 
@@ -190,6 +195,8 @@ const kr0 = (n) => (n && typeof n === "object" ? D.fmtKr(n) : `${Math.round(n).t
 const dx = (v, k) => D.mul(D.dec(v), D.dec(k));
 const decNum = (v) => (v === null ? null : D.dec(v));
 
+// Rabatttexter: hela kronor (beloppen jämförs exakt, bara visningen avrundas).
+const krW = (v) => D.fmtKr(D.dec(Math.round(D.toNumber(v))));
 const LABEL_BEFORE = "totalen är summan före ROT-avdrag";
 const LABEL_AFTER = "totalen är summan att betala efter ROT-avdrag";
 
@@ -221,10 +228,18 @@ export function resolveTotals(x) {
       const expectedPay = before * f - (hasRot ? rot : 0);
       // GMO-RABATT: en rabatt som offerten uttryckligen drar EFTER ROT förklarar skillnaden mellan de två summorna – bara när den
       // stämmer på kronan (1 kr, öresavrundning). Okänt steg förklarar aldrig en skillnad.
-      const tailHit = disc && !withinPct(pay * f, expectedPay) ? disc.afterRot.find((c) => within1(dx(pay, f), D.sub(D.sub(dx(before, f), rotD), c.inclD))) : null;
+      const tailHit = disc && disc.sumResolved && !withinPct(pay * f, expectedPay) ? disc.afterRot.find((c) => within1(dx(pay, f), D.sub(D.sub(dx(before, f), rotD), c.inclD))) : null;
       if (tailHit) {
         const beforeD = dx(before, f);
         return { status: "belagd", beforeRotIncl: before * f, beforeRotInclD: beforeD, toPayIncl: pay * f, toPayInclD: dx(pay, f), source: "explicit_fore_rot", basis: tb, afterRotDiscountD: tailHit.inclD };
+      }
+      // GMO-RABATT (R3): en fastställd rabatt före ROT (före eller efter momsen) som står MELLAN offertens bruttosumma och ROT-raden.
+      // Avläsningen har då bruttosumman som "före ROT"; summan som ROT-avdraget dras från är bruttosumman minus rabatten. Bara exakt (1 kr).
+      const midHit = disc && disc.sumResolved && (disc.stage === "fore_moms" || disc.stage === "efter_moms") && !withinPct(pay * f, expectedPay)
+        ? disc.preRot.find((c) => within1(dx(pay, f), D.sub(D.sub(dx(before, f), c.inclD), rotD))) : null;
+      if (midHit) {
+        const grossD = dx(before, f), beforeD = D.sub(grossD, midHit.inclD);
+        return { status: "belagd", beforeRotIncl: D.toNumber(beforeD), beforeRotInclD: beforeD, toPayIncl: pay * f, toPayInclD: dx(pay, f), source: "explicit_att_betala", basis: tb, grossBeforeD: grossD };
       }
       if (!withinPct(pay * f, expectedPay)) {
         const beforeD = dx(before, f), toPayD = dx(pay, f);
@@ -287,6 +302,14 @@ export function resolveTotals(x) {
           ],
         };
       }
+      if (ar && rot === null) {
+        // Rabatt efter ROT men inget ROT-belopp och rader som inte kan avgöra: två tolkningar, ingen uträknad summa som faktum.
+        const plusD = D.add(toPayInclD, ar);
+        return { status: "oklar", reason: "rabatt_efter_rot", basis: tb, alternatives: [
+          { label: `summan att betala ${krW(toPayInclD)} är efter rabatten ${krW(ar)} (före rabatten ${krW(D.add(D.dec(Math.round(D.toNumber(toPayInclD))), D.dec(Math.round(D.toNumber(ar)))))})`, beforeRotIncl: D.toNumber(plusD), beforeRotInclD: plusD, basis: tb },
+          { label: `${krW(toPayInclD)} är hela priset och rabatten ingår redan`, beforeRotIncl: toPayIncl, beforeRotInclD: toPayInclD, basis: tb },
+        ] };
+      }
       return { status: "belagd", beforeRotIncl: hasRot ? toPayIncl + rot : toPayIncl, beforeRotInclD: D.add(toPayInclD, rotD), toPayIncl, toPayInclD, source: hasRot ? "explicit_att_betala" : "ingen_rot", basis: tb };
     }
     return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `summan att betala är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: hasRot ? pay * k + rot : pay * k, beforeRotInclD: D.add(dx(pay, k), rotD), basis: b })) };
@@ -296,6 +319,21 @@ export function resolveTotals(x) {
 
   // Endast en oetiketterad total.
   if (!hasRot) {
+    // GMO-RABATT (R3 #6): utan ROT och med en uttrycklig rabatt efter ROT kan den omärkta totalen vara summan att betala (efter rabatten).
+    // Bara när raderna stämmer exakt med totalen plus rabatten och inte med totalen ensam; annars som förut.
+    const arL = f !== null && disc && disc.afterRot.length === 1 ? disc.afterRot[0].inclD : null;
+    const rowsL = arL ? rowsSumInclD(x) : null;
+    if (arL && rowsL && within1(rowsL, D.add(dx(legacy, f), arL)) && !within1(rowsL, dx(legacy, f))) {
+      const v = dx(legacy, f), bD = D.add(v, arL);
+      return { status: "belagd", beforeRotIncl: D.toNumber(bD), beforeRotInclD: bD, toPayIncl: legacy * f, toPayInclD: v, source: "ingen_rot", basis: tb, afterRotDiscountD: arL };
+    }
+    if (arL && !rowsL) {
+      const v = dx(legacy, f), bD = D.add(v, arL);
+      return { status: "oklar", reason: "rabatt_efter_rot", basis: tb, alternatives: [
+        { label: `totalen ${krW(v)} är efter rabatten ${krW(arL)} (före rabatten ${krW(D.add(D.dec(Math.round(D.toNumber(v))), D.dec(Math.round(D.toNumber(arL)))))})`, beforeRotIncl: D.toNumber(bD), beforeRotInclD: bD, basis: tb },
+        { label: `totalen ${krW(v)} är före rabatten`, beforeRotIncl: legacy * f, beforeRotInclD: v, basis: tb },
+      ] };
+    }
     if (f !== null) { const v = dx(legacy, f); return { status: "belagd", beforeRotIncl: legacy * f, beforeRotInclD: v, toPayIncl: legacy * f, toPayInclD: v, source: "ingen_rot", basis: tb }; }
     return { status: "oklar", reason: "momsbas", alternatives: bases.map(([b, k]) => ({ label: `totalen är ${b === "inkl" ? "inklusive" : "exklusive"} moms`, beforeRotIncl: legacy * k, beforeRotInclD: dx(legacy, k), basis: b })) };
   }
@@ -334,7 +372,8 @@ export function resolveTotals(x) {
     const bl = bb === "inkl" ? "inklusive" : "exklusive";
     const lk = dx(legacy, k);
     alts.push({ label: `${LABEL_BEFORE} (${bl} moms)`, beforeRotIncl: legacy * k, beforeRotInclD: lk, basis: bb });
-    alts.push({ label: `${LABEL_AFTER} (${bl} moms)`, beforeRotIncl: legacy * k + rot, beforeRotInclD: D.add(lk, rotD), basis: bb });
+    const arA = disc && disc.afterRot.length === 1 ? disc.afterRot[0].inclD : null; // rabatt efter ROT ligger mellan totalen och summan före ROT
+    alts.push({ label: `${LABEL_AFTER}${arA ? ` och rabatten ${krW(arA)}` : ""} (${bl} moms)`, beforeRotIncl: legacy * k + rot + (arA ? D.toNumber(arA) : 0), beforeRotInclD: arA ? D.add(D.add(lk, rotD), arA) : D.add(lk, rotD), basis: bb });
   }
   return { status: "oklar", reason: f === null ? "moms_och_rot" : "rot", alternatives: alts };
 }

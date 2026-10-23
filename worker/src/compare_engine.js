@@ -62,9 +62,14 @@ function priceOf(x) {
   const dk = num(x.discountSek);
   const rotEcho = dk !== null && dk > 0 && (rot !== null && rot > 0 ? dk === rot
     : rot === null && num(x.laborSumSek) !== null && fR !== null && [0.3, 0.5].some((r) => Math.abs(x.laborSumSek * fR * r - dk) <= 1));
+  // Rabatt efter momsen är inklusive moms: i radernas momsbas (exkl.) är den beloppet / 1,25.
+  const dRows = (v) => (x.discountStage === "efter_moms" && x.vatMode === "exkl" ? v / VAT : v);
   const discount = x.discountStage === "efter_rot" || rotEcho ? 0
-    : dk !== null && dk > 0 ? dk
+    : dk !== null && dk > 0 ? dRows(dk)
     : pctOk && pctBaseSum !== null ? round(pctBaseSum * x.discountPct / 100) : 0;
+  // R3: okänt steg (som i rules.js): rabatten kan ligga före eller efter ROT. Det ger aldrig ett fynd – bara "stämmer" om någon
+  // tolkning stämmer, annars ej jämförbar.
+  const stageOpen = !!discount && !x.discountStage;
   const gross = known.length >= 2 ? known.reduce((a, b) => a + b, 0) : null;
   // Med rabatt: hela kronor, och ingen delsumma alls om rabatten är större än delposterna (då är något felläst).
   const partsSum = gross === null ? null : !discount ? gross : discount > gross ? null : round(gross - discount);
@@ -93,6 +98,11 @@ function priceOf(x) {
     sumCheck: (() => {
       if (partsSum === null || before === null) return null;
       if (!(x.vatMode === "inkl" || x.vatMode === "exkl") || x.vatMode !== basis) return { state: "ej_jamforbar" };
+      if (stageOpen) {
+        const tolO = Math.max(50, before * 0.02);
+        const fit = [partsSum, gross].find((v) => v !== null && Math.abs(before - v) <= tolO);
+        return fit === undefined ? { state: "ej_jamforbar" } : { state: "stammer", diff: round(before - fit) };
+      }
       const diff = round(before - partsSum);
       const tol = Math.max(50, before * 0.02);
       return Math.abs(diff) <= tol ? { state: "stammer", diff } : { state: "avviker", diff, partsSum, total: before, ...(discount ? { discount } : {}) };

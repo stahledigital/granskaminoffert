@@ -51,6 +51,10 @@ export function buildCheckReport({ order, offer, label, now = Date.now(), receip
     priceType: x.priceType || null, vatMode: x.vatMode || "ej_angivet", totalSumSek: num(x.totalSumSek), totalBeforeRotSek: num(x.totalBeforeRotSek), amountToPaySek: num(x.amountToPaySek),
     totalVatBasis: x.totalVatBasis || null, laborSumSek: num(x.laborSumSek), materialSumSek: num(x.materialSumSek), otherSumSek: num(x.otherSumSek), rotAmountSek: num(x.rotAmountSek),
     areaM2: num(x.areaM2), workDescription: x.workDescription || null, quoteDate: x.quoteDate || null,
+    // GMO-RABATT: rabatten följer med i originalet så att en ny kontroll ser samma underlag (bara när en rabatt finns: utan rabatt
+    // är rapporten byte för byte som förut).
+    ...(num(x.discountSek) > 0 || num(x.discountPct) > 0
+      ? { discountSek: num(x.discountSek), discountPct: num(x.discountPct), discountBase: x.discountBase || null, discountStage: x.discountStage || null } : {}),
   };
   const scopeRows = SCOPE_CATALOG.map((c) => ({ id: c.id, label: c.label, group: c.group, status: (sc[c.id] || {}).status || "framgar_inte", page: (sc[c.id] || {}).page || null, ref: (sc[c.id] || {}).ref || "" }));
   return {
