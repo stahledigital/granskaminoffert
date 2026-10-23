@@ -44,7 +44,7 @@ ALLOWED_ORIGIN = "https://granskaminoffert.se"
 ANTHROPIC_MODEL = "claude-sonnet-5-5"
 # Teknisk spärr före betalt anrop (inte ett budgetbeslut): max antal indatatokens för fil-anrop,
 # mätt med Anthropics gratis tokenräknare. Över gränsen startas ingen granskning.
-INPUT_TOKEN_LIMIT = "60000"
+# INPUT_TOKEN_LIMIT använder standarden 60000 i src/limits.js; platsen behövs för integrationssecrets.
 MAX_UPLOAD_BYTES = "8000000"
 RATE_LIMIT_PER_HOUR = "8"
 # Globalt tak per dygn (UTC) för alla användare tillsammans. Kampanjbeslut 2026-09-17: 300.
