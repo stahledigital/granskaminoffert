@@ -4,6 +4,10 @@
 
 Släppkandidat som slår ihop `claude/f7-s7a` (F7 S7a, spec F7_FORKONTROLL 2026-10-23, oberoende granskad) och `claude/gmo-rabatt` (Anders beslut 2026-10-23, granskad i fyra omgångar) på gren `claude/gmo-v17`. `WORKER_VERSION` gmo-api-v17, `EXTRACT_VERSION` avlasning-5.
 
+### Publiceringsskriptet kör proven först
+
+- `DEPLOY_GRANSKAMINOFFERT_WORKER.command` kör proven innan något annat görs och stoppar med ett svenskt meddelande (ingen publicering) vid röda prov, saknad provfil (`referens`, `rabatt`, `rules`, `rules_d03`) eller saknad Node. Med Miniflare (`MINIFLARE_DIR` eller verktygskopian under `ARBETSKOPIOR/…/tools/mf`) körs hela sviten; utan Miniflare hela sviten utom filerna som kräver workerd-harnesset. KV-uppslaget, bygg-id, `wrangler deploy` och `/health`-kontrollen är oförändrade.
+
 ### F7 S7a: öppen läsväg GET /pro/referens för förkontrollen i MR PRO
 
 - **Ny väg `GET /pro/referens`** före `/pro/`-blocket: `{schema:1, referenceVersion, reglerSha256, reference}` med `reference` = `src/reference.json` oförändrad. Ingen kropp läses, inga cookies, ingen env/KV, inget nät, ingen mätning; samma svar i alla lägen av `PRO_PAYMENTS` och `PRO_KONTO`. Headers `Cache-Control: public, max-age=3600`, `ETag "<referenceVersion>-<sha12>"`, `X-Robots-Tag: noindex`, `nosniff`; andra metoder 405 (`Allow: GET`).

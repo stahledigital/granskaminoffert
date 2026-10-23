@@ -3,6 +3,48 @@
 # Kräver att "npx wrangler login" gjorts en gång på den här datorn (gjort 2026-09-17).
 cd "$(dirname "$0")/worker" || exit 1
 echo "== Granskaminoffert-worker: publicering =="
+# Prov före publicering (gmo-api-v17): ingenting publiceras om proven inte är gröna.
+# Med Miniflare (MINIFLARE_DIR, eller verktygskopian nedan om den finns) körs hela sviten.
+# Utan Miniflare körs hela sviten utom filerna som kräver workerd-harnesset (worker/dev/compare_harness.mjs);
+# regel-, referens- och rabattproven ingår alltid. Röda prov, saknade provfiler eller saknad Node = stopp.
+echo "Kör proven före publicering..."
+if ! command -v node >/dev/null 2>&1; then
+  echo "STOPP: Node.js saknas, så proven kan inte köras. Ingenting har publicerats."
+  read -r -p "Tryck Enter för att stänga."; exit 1
+fi
+for KRAVFIL in test/referens.test.mjs test/rabatt.test.mjs test/rules.test.mjs test/rules_d03.test.mjs; do
+  if [ ! -f "$KRAVFIL" ]; then
+    echo "STOPP: provfilen $KRAVFIL saknas. Ingenting har publicerats."
+    read -r -p "Tryck Enter för att stänga."; exit 1
+  fi
+done
+MF_STANDARD="$HOME/Projekt/Ståhle Digital/ARBETSKOPIOR/claude-code-mottagning-20261021/tools/mf/node_modules/miniflare"
+if [ -z "$MINIFLARE_DIR" ] && [ -d "$MF_STANDARD" ]; then export MINIFLARE_DIR="$MF_STANDARD"; fi
+if [ -n "$MINIFLARE_DIR" ] && [ -f "$MINIFLARE_DIR/dist/src/index.js" ] && [ -f "$MINIFLARE_DIR/../esbuild/lib/main.js" ]; then
+  PROVFILER=$(ls test/*.test.mjs)
+  OMFANG="hela sviten, med Miniflare"
+else
+  unset MINIFLARE_DIR
+  PROVFILER=$(grep -L "compare_harness" test/*.test.mjs)
+  OMFANG="hela sviten utom workerd-harnesset (Miniflare saknas)"
+fi
+PROVLOGG=$(mktemp "${TMPDIR:-/tmp}/gmo-prov.XXXXXX") || { echo "STOPP: kunde inte skapa provloggen. Ingenting har publicerats."; read -r -p "Tryck Enter för att stänga."; exit 1; }
+node --test --test-reporter=spec $PROVFILER >"$PROVLOGG" 2>&1
+PROVSTATUS=$?
+grep -E '^ℹ (tests|pass|fail|cancelled|skipped) ' "$PROVLOGG"
+PROVPASS=$(grep -E '^ℹ pass ' "$PROVLOGG" | awk '{print $3}')
+PROVFAIL=$(grep -E '^ℹ fail ' "$PROVLOGG" | awk '{print $3}')
+if [ "$PROVSTATUS" -ne 0 ] || [ -z "$PROVPASS" ] || [ "$PROVPASS" -eq 0 ] || [ "$PROVFAIL" != "0" ]; then
+  echo
+  echo "Röda prov:"
+  grep -E '^✖ ' "$PROVLOGG" | grep -v '^✖ failing tests' | sort -u | head -40
+  echo
+  echo "STOPP: proven gick inte igenom ($OMFANG). Ingenting har publicerats."
+  echo "Hela provutskriften finns i $PROVLOGG. Ta en skärmbild av texten ovan och skicka i chatten."
+  read -r -p "Tryck Enter för att stänga."; exit 1
+fi
+echo "OK: proven gröna ($OMFANG)."
+echo
 TOML=wrangler.toml
 if grep -q 'REPLACE_AFTER_WRANGLER_KV_NAMESPACE_CREATE' "$TOML"; then
   echo "Letar upp KV-namespace på kontot..."
