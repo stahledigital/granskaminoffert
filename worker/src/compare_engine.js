@@ -50,7 +50,29 @@ function priceOf(x) {
   const rot = num(x.rotAmountSek);
   const parts = [x.laborSumSek, x.materialSumSek, x.travelSumSek, x.otherSumSek].map(num);
   const known = parts.filter((p) => p !== null);
-  const partsSum = known.length >= 2 ? known.reduce((a, b) => a + b, 0) : null;
+  // GMO-RABATT: en rabatt som egen rad före ROT dras från delposterna (radsummorna avläses före rabatten).
+  // Bara procentsats: räknas på det angivna underlaget, annars på delposterna (hela beloppet). Momsbasen är radernas (sumCheck jämför
+  // bara när raderna och totalen har samma momsbas).
+  const pctOk = num(x.discountPct) !== null && x.discountPct >= 1 && x.discountPct <= 100;
+  const pctBaseSum = x.discountBase === "material" ? num(x.materialSumSek) : x.discountBase === "arbete" ? num(x.laborSumSek)
+    : x.discountBase === "material_och_arbete" ? (num(x.laborSumSek) === null || num(x.materialSumSek) === null ? null : x.laborSumSek + x.materialSumSek)
+    : (known.length === 4 ? known.reduce((a, b) => a + b, 0) : null);
+  // ROT-avdraget avläst som rabatt (samma belopp som ROT, eller med tomt ROT-fält exakt 30 %/50 % av arbetet inkl. moms) används inte.
+  const fR = x.vatMode === "exkl" ? 1.25 : x.vatMode === "inkl" ? 1 : null;
+  const dk = num(x.discountSek);
+  const rotEcho = dk !== null && dk > 0 && (rot !== null && rot > 0 ? dk === rot
+    : rot === null && num(x.laborSumSek) !== null && fR !== null && [0.3, 0.5].some((r) => Math.abs(x.laborSumSek * fR * r - dk) <= 1));
+  // Rabatt efter momsen är inklusive moms: i radernas momsbas (exkl.) är den beloppet / 1,25.
+  const dRows = (v) => (x.discountStage === "efter_moms" && x.vatMode === "exkl" ? v / VAT : v);
+  const discount = x.discountStage === "efter_rot" || rotEcho ? 0
+    : dk !== null && dk > 0 ? dRows(dk)
+    : pctOk && pctBaseSum !== null ? round(pctBaseSum * x.discountPct / 100) : 0;
+  // R3: okänt steg (som i rules.js): rabatten kan ligga före eller efter ROT. Det ger aldrig ett fynd – bara "stämmer" om någon
+  // tolkning stämmer, annars ej jämförbar.
+  const stageOpen = !!discount && !x.discountStage;
+  const gross = known.length >= 2 ? known.reduce((a, b) => a + b, 0) : null;
+  // Med rabatt: hela kronor, och ingen delsumma alls om rabatten är större än delposterna (då är något felläst).
+  const partsSum = gross === null ? null : !discount ? gross : discount > gross ? null : round(gross - discount);
   // Normaliserad total före ROT på båda momsbaserna, bara när basen uttryckligen är känd.
   let incVat = null, exVat = null;
   if (before !== null && basis) {
@@ -76,9 +98,14 @@ function priceOf(x) {
     sumCheck: (() => {
       if (partsSum === null || before === null) return null;
       if (!(x.vatMode === "inkl" || x.vatMode === "exkl") || x.vatMode !== basis) return { state: "ej_jamforbar" };
+      if (stageOpen) {
+        const tolO = Math.max(50, before * 0.02);
+        const fit = [partsSum, gross].find((v) => v !== null && Math.abs(before - v) <= tolO);
+        return fit === undefined ? { state: "ej_jamforbar" } : { state: "stammer", diff: round(before - fit) };
+      }
       const diff = round(before - partsSum);
       const tol = Math.max(50, before * 0.02);
-      return Math.abs(diff) <= tol ? { state: "stammer", diff } : { state: "avviker", diff, partsSum, total: before };
+      return Math.abs(diff) <= tol ? { state: "stammer", diff } : { state: "avviker", diff, partsSum, total: before, ...(discount ? { discount } : {}) };
     })(),
   };
 }
@@ -189,7 +216,7 @@ export function compareOffers(rawOffers, labels) {
   if (rotMix) add({ id: "price:rot", weight: 66, category: "pris", offers: offers.filter((o) => o.price.rotAmount === null).map((o) => o.index), text: "ROT-avdrag anges i några offerter men inte i alla. Jämför beloppen före ROT." });
   for (const o of offers) {
     const sc = o.price.sumCheck;
-    if (sc && sc.state === "avviker") add({ id: `price:summa_${o.index}`, weight: 85, category: "pris", offers: [o.index], text: `I ${o.label} summerar delposterna till ${sc.partsSum} kr medan totalen är ${sc.total} kr (skillnad ${Math.abs(sc.diff)} kr). Det kan bero på rader som inte lästes av eller avrundning.` });
+    if (sc && sc.state === "avviker") add({ id: `price:summa_${o.index}`, weight: 85, category: "pris", offers: [o.index], text: `I ${o.label} summerar delposterna${sc.discount ? " efter rabatten" : ""} till ${sc.partsSum} kr medan totalen är ${sc.total} kr (skillnad ${Math.abs(sc.diff)} kr). Det kan bero på rader som inte lästes av eller avrundning.` });
     if (o.readability === "osaker" || o.readability === "svar") add({ id: `read:${o.index}`, weight: o.readability === "svar" ? 92 : 70, category: "avlasning", offers: [o.index], text: o.readability === "svar" ? `${o.label} var mycket svår att läsa av. Beloppen bör bekräftas.` : `Delar av ${o.label} var svårlästa. Kontrollera att beloppen stämmer.` });
     if (o.instructionsInDocument) add({ id: `inj:${o.index}`, weight: 30, category: "avlasning", offers: [o.index], text: `${o.label} innehåller text som försöker styra läsningen. Den har ignorerats.` });
   }
@@ -257,7 +284,7 @@ export function compareOffers(rawOffers, labels) {
     if (o.price.totalBeforeRot === null && o.price.totalUnmarked === null && o.price.amountToPay === null) push("price:total", 78, "Vad blir totalbeloppet för hela arbetet, med angiven momsbas?", "Inget totalbelopp lästes av");
     if (o.price.priceType === "lopande" || o.price.priceType === "ungefarligt") push("price:typ", 84, `Offerten anger ${o.price.priceType === "lopande" ? "löpande räkning" : "ett uppskattat pris"}. Finns ett fast pris eller ett högsta belopp (takpris)?`, "Pristypen kan ändras under arbetet");
     const sc = o.price.sumCheck;
-    if (sc && sc.state === "avviker") push("price:summa", 85, `Delposterna summerar till ${sc.partsSum} kr men totalen är ${sc.total} kr. Vad förklarar skillnaden?`, "Delposter och total stämmer inte");
+    if (sc && sc.state === "avviker") push("price:summa", 85, `Delposterna${sc.discount ? " efter rabatten" : ""} summerar till ${sc.partsSum} kr men totalen är ${sc.total} kr. Vad förklarar skillnaden?`, "Delposter och total stämmer inte");
     if (o.identity && (o.identity.state === "saknas" || o.identity.state === "ej_avlast")) {
       for (const m of [...o.identity.missing, ...o.identity.unreadable]) push(`ident:${m}`, 77, m === "name" ? "Vilket företag ger offerten? Företagsnamnet framgår inte säkert av offerten." : m === "orgnr" ? "Vilket organisationsnummer har företaget? Det framgår inte säkert av offerten." : "Vilken adress eller telefon har företaget? Det framgår inte säkert av offerten.", "Företagsuppgift saknas eller gick inte att läsa");
     }

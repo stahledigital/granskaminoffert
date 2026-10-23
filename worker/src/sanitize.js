@@ -26,6 +26,8 @@ export const PROPERTY_TYPES = new Set(["smahus", "bostadsratt", "flerbostadshus"
 export const TOTAL_CONTRACT = new Set(["ja", "nej"]);
 export const WORK_NATURES = new Set(["nybyggnad", "reparation", "underhall", "ombyggnad", "tillbyggnad"]);
 export const WORK_LOCATIONS = new Set(["invandigt", "utvandigt", "blandat"]);
+export const DISCOUNT_BASES = new Set(["hela", "material", "arbete", "material_och_arbete"]);
+export const DISCOUNT_STAGES = new Set(["fore_moms", "efter_moms", "efter_rot"]);
 export const REVIEW_TRADES = new Set(["bygg", "tak", "vvs", "el", "malning", "mark", "okand"]);
 
 // Rimlighetsgränser. Värden utanför är inte "fel offert" utan "kan inte vara
@@ -73,6 +75,10 @@ export const FIELD_LABELS = {
   workNature: "arbetets art",
   workLocation: "var arbetet utförs",
   advancePayment: "betalning före utfört arbete",
+  discountSek: "rabatt",
+  discountPct: "rabatt i procent",
+  discountBase: "vad rabatten gäller",
+  discountStage: "när rabatten dras av",
   extracted: "avläsningen som helhet",
 };
 
@@ -124,6 +130,13 @@ export function sanitizeExtracted(raw) {
     if (v === undefined || v === null) return null;
     if (!validDate(v)) { bad(k); return null; }
     return v;
+  };
+  // GMO-RABATT: en rabatt är alltid ett avdrag. Ett avläst minustecken ("Rabatt −5 000 kr" → -5000, "−10 %") har ingen annan
+  // tolkning och läses som beloppet; allt annat följer numField (ogiltigt → null och markerad lucka).
+  const deductionField = (k, max) => {
+    const v = get(k);
+    if (typeof v === "number" && Number.isFinite(v) && v < 0 && -v <= max) return -v;
+    return numField(k, max);
   };
   const textField = (k, max) => {
     const v = get(k);
@@ -183,6 +196,10 @@ export function sanitizeExtracted(raw) {
     workNature: enumField("workNature", WORK_NATURES),
     workLocation: enumField("workLocation", WORK_LOCATIONS),
     advancePayment: boolField("advancePayment"),
+    discountSek: deductionField("discountSek", LIMITS.sek),
+    discountPct: deductionField("discountPct", 100),
+    discountBase: enumField("discountBase", DISCOUNT_BASES),
+    discountStage: enumField("discountStage", DISCOUNT_STAGES),
   };
   return { x, issues };
 }
