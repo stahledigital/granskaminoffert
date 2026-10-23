@@ -51,7 +51,15 @@ function priceOf(x) {
   const parts = [x.laborSumSek, x.materialSumSek, x.travelSumSek, x.otherSumSek].map(num);
   const known = parts.filter((p) => p !== null);
   // GMO-RABATT: en rabatt som egen rad före ROT dras från delposterna (radsummorna avläses före rabatten).
-  const discount = num(x.discountSek) !== null && x.discountSek > 0 && x.discountStage !== "efter_rot" ? x.discountSek : 0;
+  // Bara procentsats: räknas på det angivna underlaget, annars på delposterna (hela beloppet). Momsbasen är radernas (sumCheck jämför
+  // bara när raderna och totalen har samma momsbas).
+  const pctOk = num(x.discountPct) !== null && x.discountPct >= 1 && x.discountPct <= 100;
+  const pctBaseSum = x.discountBase === "material" ? num(x.materialSumSek) : x.discountBase === "arbete" ? num(x.laborSumSek)
+    : x.discountBase === "material_och_arbete" ? (num(x.laborSumSek) === null || num(x.materialSumSek) === null ? null : x.laborSumSek + x.materialSumSek)
+    : (known.length === 4 ? known.reduce((a, b) => a + b, 0) : null);
+  const discount = x.discountStage === "efter_rot" ? 0
+    : num(x.discountSek) !== null && x.discountSek > 0 ? x.discountSek
+    : pctOk && pctBaseSum !== null ? round(pctBaseSum * x.discountPct / 100) : 0;
   const partsSum = known.length >= 2 ? known.reduce((a, b) => a + b, 0) - discount : null;
   // Normaliserad total före ROT på båda momsbaserna, bara när basen uttryckligen är känd.
   let incVat = null, exVat = null;
@@ -80,7 +88,7 @@ function priceOf(x) {
       if (!(x.vatMode === "inkl" || x.vatMode === "exkl") || x.vatMode !== basis) return { state: "ej_jamforbar" };
       const diff = round(before - partsSum);
       const tol = Math.max(50, before * 0.02);
-      return Math.abs(diff) <= tol ? { state: "stammer", diff } : { state: "avviker", diff, partsSum, total: before, discount };
+      return Math.abs(diff) <= tol ? { state: "stammer", diff } : { state: "avviker", diff, partsSum, total: before, ...(discount ? { discount } : {}) };
     })(),
   };
 }

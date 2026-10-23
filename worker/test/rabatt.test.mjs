@@ -67,11 +67,9 @@ test("rabatt efter ROT: summering ok, ingen falsk totalkonflikt, men en fråga o
   const q = get(r, "rabatt_rot");
   assert.equal(q.status, "fraga");
   assert.match(txt(q), /Rabatten 2 000 kr dras av efter ROT-avdraget/);
-  // Utan avläst steg (null) förklarar rabatten också skillnaden mellan de två uttryckliga summorna.
+  // R1 P2(1): okänt steg förklarar aldrig skillnaden mellan två uttryckliga summor – totalkonflikten står kvar som på main.
   const r2 = run({ ...o, discountStage: null });
-  assert.equal(get(r2, "total_konflikt"), undefined);
-  assert.equal(get(r2, "summa").status, "ok");
-  assert.equal(get(r2, "rabatt_rot").status, "fraga");
+  assert.equal(get(r2, "total_konflikt").status, "fel");
 });
 
 test("fel summa att betala trots rabatt efter ROT är fortfarande en totalkonflikt", () => {
@@ -98,15 +96,22 @@ test("rabatt bara på material: summering ok, ingen ROT-fråga", () => {
 const MR = { laborSumSek: 36000, materialSumSek: 48000, travelSumSek: 900, otherSumSek: 1500, totalSumSek: 102750,
   rotAmountSek: 12825, rotRatePct: 30, amountToPaySek: 89925, discountSek: -4200 };
 
-test("Materialräknaren PRO kundoffert ('Rabatt: -4 200 kr' före Summa exklusive moms): summering och summa att betala stämmer", () => {
-  for (const stage of ["fore_moms", null]) {
-    const r = run({ ...MR, discountStage: stage });
-    const s = get(r, "summa");
-    assert.equal(s.status, "ok", `${stage}: ${txt(s)}`);
-    assert.match(txt(s), /Efter rabatten 4 200 kr exklusive moms \(5 250 kr inklusive moms\) blir det 102 750 kr, vilket stämmer med totalen, och efter ROT-avdrag 12 825 kr blir det 89 925 kr att betala – det stämmer\./);
-    assert.equal(get(r, "rot_belopp").status, "ok");
-    assert.ok(!r.some((c) => c.status === "fel"), statuses(r).join(" "));
-  }
+test("Materialräknaren PRO kundoffert ('Rabatt: -4 200 kr' före Summa exklusive moms): summering och summa att betala stämmer; ROT-gränsen efter rabatt är en fråga", () => {
+  const r = run({ ...MR, discountStage: "fore_moms" });
+  const s = get(r, "summa");
+  assert.equal(s.status, "ok", txt(s));
+  assert.match(txt(s), /Efter rabatten 4 200 kr exklusive moms \(5 250 kr inklusive moms\) blir det 102 750 kr, vilket stämmer med totalen, och efter ROT-avdrag 12 825 kr blir det 89 925 kr att betala – det stämmer\./);
+  // Kund-PDF:en visar inte hur rabatten fördelas mellan arbete och material: ROT-gränsen efter rabatt kan inte bekräftas (R1 P1-3).
+  const rb = get(r, "rot_belopp");
+  assert.equal(rb.status, "fraga", txt(rb));
+  // Kund-PDF:en anger inte rabattens underlag, så proportionen räknas på alla rader (86 400): 12 844 kr. (MR fördelar på material och arbete: 12 825.)
+  assert.match(txt(rb), /Rabatten 4 200 kr exklusive moms \(5 250 kr inklusive moms\) sänker också arbetskostnaden/);
+  assert.match(txt(rb), /13 500 kr utan rabatt på arbetet och 11 925 kr om hela rabatten dras från arbetet; fördelas rabatten i proportion blir den 12 844 kr\. Offerten anger 12 825 kr, vilket ryms under den proportionella gränsen\./);
+  assert.ok(!r.some((c) => c.status === "fel"), statuses(r).join(" "));
+  // Steget oläst: rabattens momsbas framgår inte (exkl. eller inkl.), så summeringen är en fråga – aldrig ok, aldrig ett påstått momsläge.
+  const s2 = get(run({ ...MR, discountStage: null }), "summa");
+  assert.equal(s2.status, "fraga", txt(s2));
+  assert.match(txt(s2), /anger inte om rabatten 4 200 kr är inklusive eller exklusive moms/);
 });
 
 test("Materialräknaren PRO utan övrigt-rad: delsumman efter rabatten redovisas, aldrig fel och aldrig differensfråga", () => {
@@ -152,13 +157,13 @@ test("rabattbelopp som inte motsvarar angiven procentsats: summering ok men en f
   assert.match(txt(q), /både som 10 % och som 9 000 kr, men de hänger inte ihop: 10 % av hela beloppet \(70 000 kr\) är 7 000 kr\./);
 });
 
-test("bara procentsats (inget belopp): stämmer den mot raderna är summeringen ok; stämmer den inte är det en fråga, aldrig fel", () => {
+test("bara procentsats (inget belopp): stämmer den mot raderna är summeringen ok; stämmer den inte är det fel; oräknebart underlag är aldrig fel", () => {
   const ok = get(run({ ...A, discountPct: 10, discountBase: "hela" }), "summa");
   assert.equal(ok.status, "ok", txt(ok));
   assert.match(txt(ok), /Efter rabatten 10 % av hela beloppet \(7 000 kr exklusive moms, 8 750 kr inklusive moms\) blir det 78 750 kr/);
   const q = get(run({ ...A, totalSumSek: 79750, discountPct: 10, discountBase: "hela" }), "summa");
-  assert.equal(q.status, "fraga", txt(q));
-  assert.match(txt(q), /anger rabatten bara i procent \(10 %\)/);
+  assert.equal(q.status, "fel", txt(q));
+  assert.match(txt(q), /blir det 78 750 kr, men totalen anges till 79 750 kr före ROT-avdrag – en skillnad på 1 000 kr/);
   // Procentsats på ett underlag som inte går att räkna (material saknas): aldrig ett säkert fel.
   const u = get(run({ laborSumSek: 40000, travelSumSek: 2000, otherSumSek: 3000, totalSumSek: 50000, discountPct: 10, discountBase: "material" }), "summa");
   assert.notEqual(u?.status, "fel");
@@ -219,4 +224,104 @@ test("jämförelsen: delposter minus rabatt mot totalen före ROT ger ingen fals
   // Utan rabattfältet avviker även A (65 000 mot 58 500).
   const old = JSON.stringify(compareOffers([offer({}), offer({ totalBeforeRotSek: 61000 })], offerLabels([], 2)));
   assert.match(old, /summerar delposterna till 65000 kr medan totalen är 58500 kr/);
+});
+
+// ---- Granskning R1 (oberoende, 2026-10-23): varje motexempel som regressionstest. Basofferten: arbete 40 000, material 25 000,
+// resor 2 000, övrigt 3 000 exklusive moms; total inklusive moms. Main gav fel på alla P1-fallen; grenen får aldrig ge grönt.
+const R = { laborSumSek: 40000, materialSumSek: 25000, travelSumSek: 2000, otherSumSek: 3000 };
+const noFelButNotOk = (r, id) => { const c = get(r, id); assert.ok(c && c.status !== "ok", `${id}: ${c && c.status} ${txt(c)}`); return c; };
+
+test("R1 P1-1: procentsats utan underlag gäller hela beloppet – 10 % bara på arbetet (82 500) eller bara på materialet (84 375) är fel", () => {
+  for (const total of [82500, 84375]) {
+    const s = get(run({ ...R, totalSumSek: total, discountPct: 10 }), "summa");
+    assert.equal(s.status, "fel", `${total}: ${txt(s)}`);
+    assert.match(txt(s), /rabatten 10 % av hela beloppet \(7 000 kr exklusive moms, 8 750 kr inklusive moms\) blir det 78 750 kr/);
+    assert.match(txt(s), /Offerten anger inte vad procentsatsen räknas på, så den är räknad på hela beloppet\./);
+  }
+});
+
+test("R1 P1-1: belopp 2 500 kr med 10 % och inget underlag ger en fråga om rabatten (10 % av hela beloppet är 7 000 kr)", () => {
+  const r = run({ ...R, totalSumSek: 84375, discountSek: 2500, discountPct: 10, discountStage: "fore_moms" });
+  const q = get(r, "rabatt");
+  assert.equal(q.status, "fraga");
+  assert.match(txt(q), /både som 10 % och som 2 500 kr, men de hänger inte ihop: 10 % av hela beloppet \(70 000 kr\) är 7 000 kr\./);
+});
+
+test("R1 P1-2: rabattbelopp utan steg med två momstolkningar ger aldrig ok och påstår aldrig en momsbas", () => {
+  // 7 000 (exkl.) dragen från summan inkl. moms: 87 500 − 7 000 = 80 500. Rätt vore 78 750.
+  const s = noFelButNotOk(run({ ...R, totalSumSek: 80500, discountSek: 7000 }), "summa");
+  assert.equal(s.status, "fraga");
+  assert.doesNotMatch(txt(s), /7 000 kr inklusive moms/);
+  assert.match(txt(s), /anger inte om rabatten 7 000 kr är inklusive eller exklusive moms: är den exklusive moms blir det 78 750 kr, är den inklusive moms blir det 80 500 kr/);
+  // Med 10 % på hela beloppet är 7 000 kr exakt 10 % av raderna exklusive moms: beloppet är exklusive moms, och 80 500 är fel.
+  const s2 = get(run({ ...R, totalSumSek: 80500, discountSek: 7000, discountPct: 10, discountBase: "hela" }), "summa");
+  assert.equal(s2.status, "fel", txt(s2));
+  assert.match(txt(s2), /blir det 78 750 kr, men totalen anges till 80 500 kr före ROT-avdrag – en skillnad på 1 750 kr/);
+});
+
+test("R1 P1-3: ROT räknat på arbetskostnaden före rabatt blir aldrig ok", () => {
+  // Materialräknarens layout, rabatt 5 % på material och arbete, ROT 13 500 = 30 % av orabatterat arbete. Rätt (proportionellt) 12 825.
+  const base = { laborSumSek: 36000, materialSumSek: 48000, travelSumSek: 900, otherSumSek: 1500, totalSumSek: 102750, rotRatePct: 30 };
+  const r = run({ ...base, rotAmountSek: 13500, amountToPaySek: 89250, discountSek: 4200, discountPct: 5, discountBase: "material_och_arbete", discountStage: "fore_moms" });
+  const rb = get(r, "rot_belopp");
+  assert.equal(rb.status, "fraga", txt(rb));
+  assert.match(txt(rb), /fördelas rabatten i proportion blir den 12 825 kr\. Offerten anger 13 500 kr, vilket är högre än den proportionella gränsen\./);
+  // Rabatt bara på arbetet (10 % = 3 600): gränsen är exakt 30 % av (36 000 − 3 600) × 1,25 = 12 150 → 13 500 är fel.
+  const r2 = run({ ...base, totalSumSek: 103500, rotAmountSek: 13500, amountToPaySek: 90000, discountSek: 3600, discountPct: 10, discountBase: "arbete", discountStage: "fore_moms" });
+  const rb2 = get(r2, "rot_belopp");
+  assert.equal(rb2.status, "fel", txt(rb2));
+  assert.match(txt(rb2), /högst 30 % av arbetskostnaden efter rabatten 32 400 kr exklusive moms \(40 500 kr inklusive moms\), alltså högst 12 150 kr\. Offerten anger 13 500 kr/);
+  // Rätt räknat på rabatterat arbete (12 150) är ok.
+  const r3 = run({ ...base, totalSumSek: 103500, rotAmountSek: 12150, amountToPaySek: 91350, discountSek: 3600, discountPct: 10, discountBase: "arbete", discountStage: "fore_moms" });
+  assert.equal(get(r3, "rot_belopp").status, "ok", txt(get(r3, "rot_belopp")));
+  // Rabatt bara på materialet påverkar inte ROT-gränsen.
+  const r4 = run({ ...R, materialSumSek: 30000, travelSumSek: 1500, otherSumSek: 2500, totalBeforeRotSek: 88750, amountToPaySek: 73750, rotAmountSek: 15000, discountSek: 3000, discountBase: "material", discountStage: "fore_moms" });
+  assert.equal(get(r4, "rot_belopp").status, "ok");
+});
+
+test("R1 P2(1): okänt steg döljer inte en totalkonflikt (rabatten ingår redan i summan före ROT)", () => {
+  for (const extra of [{ materialSumSek: null }, { materialSumSek: 45000, travelSumSek: 0, otherSumSek: 0 }]) {
+    const r = run({ vatMode: "inkl", laborSumSek: 60000, totalBeforeRotSek: 100000, rotAmountSek: 18000, amountToPaySek: 77000, discountSek: 5000, ...extra });
+    assert.equal(get(r, "total_konflikt").status, "fel");
+  }
+  // Även med uttryckligt steg efter ROT måste rabatten stämma på kronan: 78 400 mot 77 000 är en konflikt.
+  const r2 = run({ vatMode: "inkl", laborSumSek: 60000, materialSumSek: 40000, travelSumSek: 0, otherSumSek: 0, totalBeforeRotSek: 100000, rotAmountSek: 18000, amountToPaySek: 78400, discountSek: 5000, discountStage: "efter_rot" });
+  assert.equal(get(r2, "total_konflikt").status, "fel");
+});
+
+test("R1 P2(2): en uträknad summa att betala visas aldrig som 'det stämmer' när offerten inte anger någon", () => {
+  const s = get(run({ vatMode: "inkl", laborSumSek: 40000, materialSumSek: 20000, travelSumSek: 1000, otherSumSek: 0, totalBeforeRotSek: 61000, rotAmountSek: 12000, discountSek: 2000, discountStage: "efter_rot" }), "summa");
+  assert.equal(s.status, "ok");
+  assert.doesNotMatch(txt(s), /att betala|det stämmer/);
+});
+
+test("R1 P2(3): rabatt lika stor som ROT-avdraget används inte och ger en fråga; schemat nämner inte 'Avdrag rabatt'", () => {
+  const r = run({ vatMode: "inkl", laborSumSek: 40000, materialSumSek: 20000, travelSumSek: 1000, otherSumSek: 0, totalSumSek: 49000, rotAmountSek: 12000, discountSek: 12000 });
+  const q = get(r, "rabatt");
+  assert.equal(q.status, "fraga");
+  assert.match(txt(q), /lika mycket som ROT-avdraget/);
+  assert.equal(get(r, "summa").status, "ok"); // samma som main: raderna 61 000 − ROT 12 000 = 49 000
+  assert.doesNotMatch(EXTRACTED_SCHEMA.properties.discountSek.description, /Avdrag rabatt/);
+});
+
+test("R1 P2(4): procentrabatt efter ROT utan belopp ger en fråga, inte en totalkonflikt", () => {
+  const r = run({ vatMode: "inkl", laborSumSek: 40000, materialSumSek: 20000, travelSumSek: 1000, otherSumSek: 0, totalBeforeRotSek: 61000, rotAmountSek: 12000, amountToPaySek: 44100, discountPct: 10, discountStage: "efter_rot" });
+  const k = get(r, "total_konflikt");
+  assert.equal(k.status, "fraga");
+  assert.match(txt(k), /drar en rabatt på 10 % efter det men anger inte rabattens belopp/);
+});
+
+test("R1 P3: procentsats som ser ut som en andel (0,1) används inte och ger en fråga", () => {
+  const r = run({ ...R, totalSumSek: 78750, discountSek: 7000, discountPct: 0.1, discountBase: "hela", discountStage: "fore_moms" });
+  assert.equal(get(r, "summa").status, "ok");
+  const q = get(r, "rabatt");
+  assert.equal(q.status, "fraga");
+  assert.match(txt(q), /lästes som 0,1 %, vilket ser ut som en andel snarare än en procentsats \(10 %\?\)/);
+});
+
+test("R1 övriga motexempel: rabatt som inte syns i totalen, en av två rabattrader avläst, rabatt redan i raderna", () => {
+  assert.equal(get(run({ ...R, totalSumSek: 87500, discountSek: 7000, discountStage: "fore_moms" }), "summa").status, "fraga");
+  assert.equal(get(run({ ...R, totalSumSek: 78750, discountSek: 4000, discountStage: "fore_moms" }), "summa").status, "fel");
+  assert.equal(get(run({ ...R, laborSumSek: 36000, totalSumSek: 82500, discountSek: 4000, discountStage: "fore_moms" }), "summa").status, "fraga");
+  assert.equal(get(run({ ...R, totalSumSek: 78750, discountSek: 7000, discountStage: "fore_moms" }), "summa").status, "ok"); // två rader summerade
 });

@@ -77,29 +77,31 @@ export function rowsSumIncl(x) {
   return s === null || f === null ? null : s * f;
 }
 
-// ---- Rabatt som egen avdragsrad (GMO-RABATT, 2026-10-23) ----
+// ---- Rabatt som egen avdragsrad (GMO-RABATT, 2026-10-23; rättad efter granskning R1) ----
 // Avläsningen har radsummorna FÖRE rabatten och rabatten som eget belopp (discountSek) eller bara procentsats (discountPct).
-// Här avgörs på ETT ställe vilket belopp som dras och i vilken momsbas. Okänd momsbas ger flera kandidater, aldrig ett antagande.
-// Ingen rabatt avläst (eller 0) → null, och alla regler räknar exakt som tidigare.
-//   preRot:   [{ inclD, statedD, factor, fromPct, baseLabel }] – kandidater (inklusive moms) som dras FÖRE ROT-avdraget
-//   afterRot: [{ inclD, statedD, factor }]                       – kandidater som dras EFTER ROT-avdraget (bara discountStage efter_rot)
-//   tail:     samma belopp som afterRot men även när steget är okänt: används bara för att stämma av en uttrycklig
-//             "summa före ROT" mot en uttrycklig "summa att betala" (två angivna summor som annars ser motstridiga ut).
+// Här avgörs på ETT ställe vilket belopp som dras och i vilken momsbas. Ingen rabatt avläst (eller 0) → null, och alla regler
+// räknar exakt som tidigare.
+//   preRot:   [{ inclD, statedD, factor, fromPct, baseLabel }] – rabatt (inklusive moms) som dras FÖRE ROT-avdraget. Mer än en
+//             kandidat = rabattens momsbas framgår inte; reglerna får då aldrig svara ok på en av dem (bara fråga eller, om ingen
+//             tolkning stämmer, fel).
+//   afterRot: [{ inclD, statedD, factor }] – rabatt som dras EFTER ROT-avdraget. Bara när offerten uttryckligen visar det steget.
+//   rotEcho:  rabattbeloppet är lika med ROT-avdraget – troligen samma avdrag avläst två gånger. Rabatten används då inte.
+//   pctSuspicious: procentsatsen ligger mellan 0 och 1 (t.ex. 0,1 för 10 %) – troligen en felläst andel. Den används då inte.
+// Procentsats utan angivet underlag gäller hela beloppet, aldrig "det underlag som råkar stämma".
 const BASE_LABEL = { hela: "hela beloppet", material: "materialet", arbete: "arbetet", material_och_arbete: "material och arbete" };
 
-function pctBases(x, base) {
+function pctBase(x, base) {
   const l = num(x.laborSumSek), m = num(x.materialSumSek), t = num(x.travelSumSek), o = num(x.otherSumSek);
-  const all = {
-    hela: l !== null && m !== null && t !== null && o !== null ? D.sum([l, m, t, o].map(D.dec)) : null,
-    material: m === null ? null : D.dec(m),
-    arbete: l === null ? null : D.dec(l),
-    material_och_arbete: l === null || m === null ? null : D.add(D.dec(l), D.dec(m)),
-  };
-  const keys = base ? [base] : Object.keys(all);
-  return keys.filter((k) => all[k] !== null).map((k) => ({ key: k, label: BASE_LABEL[k], valueD: all[k] }));
+  const key = base || "hela";
+  const valueD = key === "hela" ? (l !== null && m !== null && t !== null && o !== null ? D.sum([l, m, t, o].map((v) => D.dec(v))) : null)
+    : key === "material" ? (m === null ? null : D.dec(m))
+    : key === "arbete" ? (l === null ? null : D.dec(l))
+    : (l === null || m === null ? null : D.add(D.dec(l), D.dec(m)));
+  return valueD === null ? null : { key, label: BASE_LABEL[key], valueD };
 }
 
 export const pctOfD = (valueD, p) => D.mul(D.mul(valueD, D.dec(p)), D.dec("0.01"));
+const within1 = (a, b) => !D.gt(D.abs(D.sub(a, b)), D.dec(1));
 
 function uniqByValue(list) {
   const out = [];
@@ -108,44 +110,56 @@ function uniqByValue(list) {
 }
 
 export function discountInfo(x) {
-  const d = num(x.discountSek), p = num(x.discountPct);
-  const hasD = d !== null && d > 0, hasP = p !== null && p > 0;
-  if (!hasD && !hasP) return null;
+  const d = num(x.discountSek), p0 = num(x.discountPct);
+  const hasD = d !== null && d > 0, pctSuspicious = p0 !== null && p0 > 0 && p0 < 1;
+  const hasP = p0 !== null && p0 >= 1 && p0 <= 100;
+  if (!hasD && !hasP && !pctSuspicious) return null;
+  const p = hasP ? p0 : null;
   const stage = ["fore_moms", "efter_moms", "efter_rot"].includes(x.discountStage) ? x.discountStage : null;
   const base = Object.prototype.hasOwnProperty.call(BASE_LABEL, x.discountBase) ? x.discountBase : null;
+  const rot = num(x.rotAmountSek);
+  const rotEcho = hasD && rot !== null && rot > 0 && d === rot;
   const fRows = vatFactor(x.vatMode), fTot = vatFactor(totalBasis(x));
   const both = [1, 1 + VAT_RATE];
   const factorsFor = (f) => (f === null ? both : [f]);
   const mk = (statedD, factor, extra = {}) => ({ statedD, factor, inclD: D.mul(statedD, D.dec(factor)), ...extra });
-  let preRot = [], afterRot = [], tail = [];
+  let preRot = [], afterRot = [];
+  const info = { amountSek: hasD ? d : null, pct: p, pctRaw: p0, pctSuspicious, base, baseLabel: base ? BASE_LABEL[base] : null, stage, rotEcho, preRot, afterRot };
+  if (rotEcho) return info;
   if (hasD) {
     const statedD = D.dec(d);
     // Momsbasen för ett angivet rabattbelopp följer var det dras: före momsen = radernas bas, efter momsen/ROT = totalernas bas.
-    const preFactors = stage === "fore_moms" ? factorsFor(fRows) : stage === "efter_moms" ? factorsFor(fTot) : [...new Set([...factorsFor(fRows), ...factorsFor(fTot)])];
+    let preFactors = stage === "fore_moms" ? factorsFor(fRows) : stage === "efter_moms" ? factorsFor(fTot) : [...new Set([...factorsFor(fRows), ...factorsFor(fTot)])];
+    // Okänt steg men angiven procentsats: är beloppet exakt procentsatsen av raderna i deras egen momsbas (eller inklusive moms)
+    // är beloppets momsbas belagd av offertens egna siffror.
+    if (preFactors.length > 1 && p !== null && fRows !== null) {
+      const b = pctBase(x, base);
+      if (b && within1(pctOfD(b.valueD, p), statedD)) preFactors = [fRows];
+      else if (b && within1(pctOfD(D.mul(b.valueD, D.dec(fRows)), p), statedD)) preFactors = [1];
+    }
     if (stage !== "efter_rot") preRot = uniqByValue(preFactors.map((k) => mk(statedD, k)));
-    afterRot = stage === "efter_rot" ? uniqByValue(factorsFor(fTot).map((k) => mk(statedD, k))) : [];
-    tail = stage === "efter_rot" || stage === null ? uniqByValue(factorsFor(fTot).map((k) => mk(statedD, k))) : [];
-  } else if (stage !== "efter_rot") {
-    // Bara procentsats: beloppet räknas på radernas egna belopp (samma momsbas som raderna). Okänt underlag → en kandidat per
-    // underlag som går att räkna; inget underlag → inga kandidater (rabatten kan då inte stämmas av).
-    for (const b of pctBases(x, base)) for (const k of factorsFor(fRows)) preRot.push(mk(pctOfD(b.valueD, p), k, { fromPct: true, baseLabel: b.label }));
-    preRot = uniqByValue(preRot);
+    else afterRot = uniqByValue(factorsFor(fTot).map((k) => mk(statedD, k)));
+  } else if (p !== null && stage !== "efter_rot") {
+    // Bara procentsats: beloppet räknas på radernas egna belopp (samma momsbas som raderna). Underlaget är det angivna eller hela
+    // beloppet; går det inte att räkna blir det inga kandidater (rabatten kan då inte stämmas av).
+    const b = pctBase(x, base);
+    if (b) preRot = uniqByValue(factorsFor(fRows).map((k) => mk(pctOfD(b.valueD, p), k, { fromPct: true, baseLabel: b.label })));
   }
-  return { amountSek: hasD ? d : null, pct: hasP ? p : null, base, baseLabel: base ? BASE_LABEL[base] : null, stage, preRot, afterRot, tail };
+  info.preRot = preRot; info.afterRot = afterRot;
+  return info;
 }
 
-// Rabattens belopp mot procentsatsen när båda anges. null = går inte att jämföra (inget underlag), annars { ok, bases }.
+// Rabattens belopp mot procentsatsen när båda anges. null = går inte att jämföra (inget underlag), annars { ok, calc }.
 export function discountPctCheck(x) {
   const info = discountInfo(x);
-  if (!info || info.amountSek === null || info.pct === null) return null;
-  const bases = pctBases(x, info.base);
-  if (!bases.length) return null;
-  const amountD = D.dec(info.amountSek), ONE = D.dec(1);
+  if (!info || info.rotEcho || info.amountSek === null || info.pct === null) return null;
+  const b = pctBase(x, info.base);
+  if (!b) return null;
+  const amountD = D.dec(info.amountSek);
   // Procenten räknas på radernas belopp; dras rabatten från en summa inklusive moms jämförs även med raderna inklusive moms.
   const ks = info.stage === "fore_moms" ? [1] : [...new Set([1, ...(vatFactor(x.vatMode) === null ? [1 + VAT_RATE] : [vatFactor(x.vatMode)])])];
-  const calc = bases.flatMap((b) => ks.map((k) => ({ ...b, k, pctD: pctOfD(D.mul(b.valueD, D.dec(k)), info.pct) })));
-  const ok = calc.some((c) => !D.gt(D.abs(D.sub(c.pctD, amountD)), ONE));
-  return { ok, amountD, pct: info.pct, calc };
+  const calc = ks.map((k) => ({ ...b, k, pctD: pctOfD(D.mul(b.valueD, D.dec(k)), info.pct) }));
+  return { ok: calc.some((c) => within1(c.pctD, amountD)), amountD, pct: info.pct, calc };
 }
 
 // Radsumman inklusive moms minus en rabatt före ROT, som tal (för toleransheuristiken withinPct). Utan rabatt: [radsumman].
@@ -192,8 +206,9 @@ export function resolveTotals(x) {
     // får inte låta den ena försvinna bakom den andra: konflikten redovisas.
     if (f !== null && pay !== null) {
       const expectedPay = before * f - (hasRot ? rot : 0);
-      // GMO-RABATT: en rabatt som dras efter ROT (uttryckligen, eller med okänt steg) förklarar skillnaden mellan de två summorna.
-      const tailHit = disc && !withinPct(pay * f, expectedPay) ? disc.tail.find((c) => withinPct(pay * f, expectedPay - D.toNumber(c.inclD))) : null;
+      // GMO-RABATT: en rabatt som offerten uttryckligen drar EFTER ROT förklarar skillnaden mellan de två summorna – bara när den
+      // stämmer på kronan (1 kr, öresavrundning). Okänt steg förklarar aldrig en skillnad.
+      const tailHit = disc && !withinPct(pay * f, expectedPay) ? disc.afterRot.find((c) => within1(dx(pay, f), D.sub(D.sub(dx(before, f), rotD), c.inclD))) : null;
       if (tailHit) {
         const beforeD = dx(before, f);
         return { status: "belagd", beforeRotIncl: before * f, beforeRotInclD: beforeD, toPayIncl: pay * f, toPayInclD: dx(pay, f), source: "explicit_fore_rot", basis: tb, afterRotDiscountD: tailHit.inclD };
@@ -207,6 +222,8 @@ export function resolveTotals(x) {
             { label: `summan att betala är ${kr0(toPayD)} (som offerten anger)`, beforeRotIncl: hasRot ? pay * f + rot : pay * f, beforeRotInclD: D.add(toPayD, rotD), basis: tb },
           ],
           before: before * f, toPay: pay * f, expectedPay,
+          // En rabatt efter ROT som bara anges i procent kan förklara skillnaden men inte stämmas av: fråga, inte fel.
+          discountMayExplain: !!(disc && disc.stage === "efter_rot" && disc.amountSek === null && disc.pct !== null && pay * f < expectedPay),
           beforeD, toPayD, expectedPayD: D.sub(beforeD, rotD),
         };
       }
