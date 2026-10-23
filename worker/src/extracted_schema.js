@@ -14,6 +14,7 @@ export const EXTRACTED_SCHEMA = {
     "totalBeforeRotSek", "amountToPaySek", "totalVatBasis", "propertyType", "totalContract",
     "quoteDate", "plannedPaymentDate", "customerType", "workDescription", "county", "areaM2", "unitCount", "otherSumSek",
     "workNature", "workLocation", "advancePayment",
+    "discountSek", "discountPct", "discountBase", "discountStage",
   ],
   properties: {
     jobType: { type: ["string", "null"], enum: ["badrum", "altan", "fonster", "tak", "malning", "fasad", "kakel", "bergvarme", "luftvarmepump", "elcentral", "kok", "annat", null],
@@ -55,5 +56,13 @@ export const EXTRACTED_SCHEMA = {
       description: "Var arbetet utförs, bara om offerten uttryckligen anger det: invandigt (inomhus/insidan), utvandigt (utomhus/utsidan) eller blandat (båda uttryckligen). null om det inte står. Gissa aldrig utifrån jobbtyp (tak, fönster, dörr)." },
     advancePayment: { type: ["boolean", "null"],
       description: "true om offerten uttryckligen kräver betalning (hel eller del, t.ex. förskott, handpenning, delbetalning vid avtal eller start) innan arbetet är utfört. false BARA om offerten uttryckligen säger att ingen betalning sker före utfört arbete. null om offerten inte säger något om saken – en saknad uppgift är aldrig false." },
+    // GMO-RABATT (2026-10-23): rabatt som egen avdragsrad. Utan de här fälten saknade reglerna en plats för rabatten och en korrekt
+    // offert med rabatt fick "Summering: fel". Bara uttryckligt stöd i dokumentet; annars null.
+    discountSek: { ...NUM_OR_NULL, description: "Rabatt i kr som offerten drar av som EGEN rad (t.ex. 'Rabatt −5 000 kr', 'Kundrabatt', 'Avdrag rabatt'), skrivet som ett POSITIVT belopp (5000). Flera rabattrader: summan av dem. Radsummorna (laborSumSek, materialSumSek, travelSumSek, otherSumSek) skrivs som de står på sina egna rader, före den här rabatten. Står bara en procentsats och inget belopp: null (räkna aldrig fram beloppet). Ingår rabatten redan i ett radbelopp utan egen avdragsrad: null. ROT-avdrag är aldrig rabatt. null om ingen rabatt anges." },
+    discountPct: { ...NUM_OR_NULL, description: "Rabattens procentsats om offerten uttryckligen anger den (10 för 'Rabatt 10 %'). null annars." },
+    discountBase: { type: ["string", "null"], enum: ["hela", "material", "arbete", "material_och_arbete", null],
+      description: "Vad rabatten gäller, bara om offerten uttryckligen anger det: hela (hela offerten/totalen), material, arbete, material_och_arbete (t.ex. 'Kundrabatt på material och arbete'). null om det inte står." },
+    discountStage: { type: ["string", "null"], enum: ["fore_moms", "efter_moms", "efter_rot", null],
+      description: "Var i uträkningen rabattraden dras av, enligt offertens ordning: fore_moms (före momsen, t.ex. rabatt före 'Summa exkl. moms' eller före momsraden), efter_moms (från en summa inklusive moms men före ROT-avdraget), efter_rot (efter ROT-avdraget, från summan att betala). null om det inte går att se." },
   },
 };

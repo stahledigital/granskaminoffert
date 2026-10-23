@@ -50,7 +50,9 @@ function priceOf(x) {
   const rot = num(x.rotAmountSek);
   const parts = [x.laborSumSek, x.materialSumSek, x.travelSumSek, x.otherSumSek].map(num);
   const known = parts.filter((p) => p !== null);
-  const partsSum = known.length >= 2 ? known.reduce((a, b) => a + b, 0) : null;
+  // GMO-RABATT: en rabatt som egen rad före ROT dras från delposterna (radsummorna avläses före rabatten).
+  const discount = num(x.discountSek) !== null && x.discountSek > 0 && x.discountStage !== "efter_rot" ? x.discountSek : 0;
+  const partsSum = known.length >= 2 ? known.reduce((a, b) => a + b, 0) - discount : null;
   // Normaliserad total före ROT på båda momsbaserna, bara när basen uttryckligen är känd.
   let incVat = null, exVat = null;
   if (before !== null && basis) {
@@ -78,7 +80,7 @@ function priceOf(x) {
       if (!(x.vatMode === "inkl" || x.vatMode === "exkl") || x.vatMode !== basis) return { state: "ej_jamforbar" };
       const diff = round(before - partsSum);
       const tol = Math.max(50, before * 0.02);
-      return Math.abs(diff) <= tol ? { state: "stammer", diff } : { state: "avviker", diff, partsSum, total: before };
+      return Math.abs(diff) <= tol ? { state: "stammer", diff } : { state: "avviker", diff, partsSum, total: before, discount };
     })(),
   };
 }
@@ -189,7 +191,7 @@ export function compareOffers(rawOffers, labels) {
   if (rotMix) add({ id: "price:rot", weight: 66, category: "pris", offers: offers.filter((o) => o.price.rotAmount === null).map((o) => o.index), text: "ROT-avdrag anges i några offerter men inte i alla. Jämför beloppen före ROT." });
   for (const o of offers) {
     const sc = o.price.sumCheck;
-    if (sc && sc.state === "avviker") add({ id: `price:summa_${o.index}`, weight: 85, category: "pris", offers: [o.index], text: `I ${o.label} summerar delposterna till ${sc.partsSum} kr medan totalen är ${sc.total} kr (skillnad ${Math.abs(sc.diff)} kr). Det kan bero på rader som inte lästes av eller avrundning.` });
+    if (sc && sc.state === "avviker") add({ id: `price:summa_${o.index}`, weight: 85, category: "pris", offers: [o.index], text: `I ${o.label} summerar delposterna${sc.discount ? " efter rabatten" : ""} till ${sc.partsSum} kr medan totalen är ${sc.total} kr (skillnad ${Math.abs(sc.diff)} kr). Det kan bero på rader som inte lästes av eller avrundning.` });
     if (o.readability === "osaker" || o.readability === "svar") add({ id: `read:${o.index}`, weight: o.readability === "svar" ? 92 : 70, category: "avlasning", offers: [o.index], text: o.readability === "svar" ? `${o.label} var mycket svår att läsa av. Beloppen bör bekräftas.` : `Delar av ${o.label} var svårlästa. Kontrollera att beloppen stämmer.` });
     if (o.instructionsInDocument) add({ id: `inj:${o.index}`, weight: 30, category: "avlasning", offers: [o.index], text: `${o.label} innehåller text som försöker styra läsningen. Den har ignorerats.` });
   }
@@ -257,7 +259,7 @@ export function compareOffers(rawOffers, labels) {
     if (o.price.totalBeforeRot === null && o.price.totalUnmarked === null && o.price.amountToPay === null) push("price:total", 78, "Vad blir totalbeloppet för hela arbetet, med angiven momsbas?", "Inget totalbelopp lästes av");
     if (o.price.priceType === "lopande" || o.price.priceType === "ungefarligt") push("price:typ", 84, `Offerten anger ${o.price.priceType === "lopande" ? "löpande räkning" : "ett uppskattat pris"}. Finns ett fast pris eller ett högsta belopp (takpris)?`, "Pristypen kan ändras under arbetet");
     const sc = o.price.sumCheck;
-    if (sc && sc.state === "avviker") push("price:summa", 85, `Delposterna summerar till ${sc.partsSum} kr men totalen är ${sc.total} kr. Vad förklarar skillnaden?`, "Delposter och total stämmer inte");
+    if (sc && sc.state === "avviker") push("price:summa", 85, `Delposterna${sc.discount ? " efter rabatten" : ""} summerar till ${sc.partsSum} kr men totalen är ${sc.total} kr. Vad förklarar skillnaden?`, "Delposter och total stämmer inte");
     if (o.identity && (o.identity.state === "saknas" || o.identity.state === "ej_avlast")) {
       for (const m of [...o.identity.missing, ...o.identity.unreadable]) push(`ident:${m}`, 77, m === "name" ? "Vilket företag ger offerten? Företagsnamnet framgår inte säkert av offerten." : m === "orgnr" ? "Vilket organisationsnummer har företaget? Det framgår inte säkert av offerten." : "Vilken adress eller telefon har företaget? Det framgår inte säkert av offerten.", "Företagsuppgift saknas eller gick inte att läsa");
     }

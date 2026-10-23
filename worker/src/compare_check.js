@@ -43,7 +43,7 @@ export function buildCheckReport({ order, offer, label, now = Date.now(), receip
   const needs = [];
   const want = (id, why) => { if (!needs.some((n) => n.id === id)) needs.push({ id, why }); };
   if (!x.priceType || x.priceType !== "fast") want("priceType", "Pristypen är inte tydligt fast.");
-  if (rules.some((r) => ["summa", "rot_belopp", "moms", "total_konflikt", "rot_material", "rot_tak"].includes(r.id) && ["fel", "fraga", "ej_bedombar", "flagga"].includes(r.status)) || x.vatMode !== "inkl" || x.laborSumSek == null) want("amounts", "Summa, moms eller ROT-bas går inte att kontrollera eller stämmer inte.");
+  if (rules.some((r) => ["summa", "rot_belopp", "moms", "total_konflikt", "rot_material", "rot_tak", "rabatt", "rabatt_rot"].includes(r.id) && ["fel", "fraga", "ej_bedombar", "flagga"].includes(r.status)) || x.vatMode !== "inkl" || x.laborSumSek == null) want("amounts", "Summa, moms eller ROT-bas går inte att kontrollera eller stämmer inte.");
   if (unknownScope.length || SCOPE_CATALOG.some((c) => ["stadning", "bortforsling"].includes(c.id) && lacks(c.id))) want("scope", "Omfattning eller avgränsning framgår inte.");
   if (lacks("startdatum") || lacks("tidplan")) want("dates", "Tid framgår inte.");
   if (lacks("garanti")) want("warranty", "Garanti framgår inte (valfritt).");

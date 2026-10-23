@@ -1,5 +1,14 @@
 # Granska min offert – ändringslogg
 
+## Ej släppt – rabatt i avläsning och summering (GMO-RABATT, Anders beslut 2026-10-23, Claude Code, gren `claude/gmo-rabatt`)
+
+- Fel som rättas: avläsningen hade inget rabattfält, så en korrekt offert med rabatt som egen rad fick "Summering: fel" (rött besked) när alla fyra poster var angivna, annars en differensfråga. Rabatt efter ROT gav dessutom en falsk `total_konflikt`. Reproducerat på regelnivå med syntetiska offerter, inklusive Materialräknaren PROs kundoffert ("Rabatt: -X kr" före "Summa … exklusive moms").
+- `extracted_schema.js`: fyra nullbara fält `discountSek` (positivt belopp), `discountPct`, `discountBase` (hela/material/arbete/material_och_arbete), `discountStage` (fore_moms/efter_moms/efter_rot). Båda avläsningsprompterna (`index.js`, `compare_extract.js`) beskriver dem. `sanitize.js`: minustecken läses som beloppet, ogiltiga värden blir null med markerad lucka.
+- `amounts.js`: `discountInfo`, `discountPctCheck`, `rowsNetInclCandidates`; `resolveTotals` räknar med rabatt före ROT (rader) och efter ROT (summa att betala). Ingen rabatt avläst → exakt samma beräkning som förut.
+- `rules.js`: summeringen drar rabatten från raderna (okänd momsbas för rabatten → flera tolkningar). "Fel" bara när rabattbeloppet står i kr och ingen tolkning stämmer; rader utan rabatt = totalen ger en fråga. Nya frågor (aldrig fel): `rabatt` (procent och belopp hänger inte ihop) och `rabatt_rot` (rabatt dras efter ROT-avdraget). `compare_engine.js`: delposter minus rabatt. `compare_check.js`: de nya id:na räknas till "amounts".
+- Tester: `rabatt.test.mjs` (20 nya); full svit 710/710, UI 184/184. Den riktiga AI-avläsningen av en rabattrad är inte körd.
+- Vid sammanslagning med F7 S7a: `rules.js` och `amounts.js` ändras, så `REGLER_SHA256` och MR:s kopia `source/GMO_REGLER` ska uppdateras i samma släpp. `WORKER_VERSION` är inte höjd här.
+
 ## gmo-api-v16 – kundoffert kräver kundnamn vid projektköp (Anders beslut 2026-10-22, Claude Code)
 
 - `POST /pro/konto/projekt/:id/dokument` med typ `kund` (eller utan typ) svarar 422 `kundnamn_saknas` när inget namn är bundet och projektets kundnamn saknar bokstav eller siffra; inget binds. Ett redan bundet namn går före; `intern` och `kontroll` berörs inte.
