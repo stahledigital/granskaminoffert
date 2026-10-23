@@ -452,7 +452,7 @@ test("Modesty §4.2: lagrade fält per tabell är exakt de dokumenterade (ingen 
   const reg = regObj(e).storage.sql, ko = kontoObj(e, kontoId).storage.sql;
   const tabeller = (db) => db.exec(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).toArray().map((x) => x.name);
   assert.deepEqual(tabeller(reg), ["adress", "agarlogg", "grans", "koder", "konto_status", "konton", "kop_projekt", "nonce", "pitr_utlogg", "pro_kop", "pro_kop_sparr", "raderade", "testbevis", "testplatser"]); // K5: +pitr_utlogg, +testplatser
-  assert.deepEqual(tabeller(ko), ["artikelpriser", "enheter", "logg", "meta", "projekt"]); // PRO-PRIS-01: +artikelpriser (byggarens egna priser, bara i kontots objekt)
+  assert.deepEqual(tabeller(ko), ["artikelpriser", "enheter", "int_state", "integration", "logg", "meta", "projekt"]); // PRO-PRIS-01: +artikelpriser (byggarens egna priser, bara i kontots objekt); D7.2: +integration (token bara som AES-GCM-chiffer), +int_state (OAuth-state, 10 min)
   const regText = JSON.stringify(["konton", "koder", "testbevis", "grans", "adress"].map((t) => reg.exec(`SELECT * FROM ${t}`).toArray()));
   assert.ok(!regText.includes(TEST_A) && !regText.includes("testare"), "ingen klartext-e-post i registret");
   assert.deepEqual(kol(ko, "projekt").sort(), ["andrad_ms", "data", "id", "namn", "raderad_ms", "rev", "storlek"]);

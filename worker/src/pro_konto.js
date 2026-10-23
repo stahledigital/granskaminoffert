@@ -25,10 +25,12 @@ import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./co
 import { MEJL } from "./pro_texter.js";
 import { sellerInfo, sellerLines } from "./compare_config.js";
 import { readRoofProject } from "./mr_project2/P4_PROJEKT/pro-projekt-v2.mjs";
+import { INTEGRATION_METODER, integrationRoute } from "./pro_integration.js"; // D7.2 (MR-FORTNOX-SPIRIS-20261023-01)
 
 const DAG = 86400;
 export const KOD_S = 10 * 60, KOD_FORSOK = 5;
 export const SESSION_S = 90 * DAG, FORLANG_S = 3600, MAX_ENHETER = 3;
+const INT_STATE_S = 600; // D7.2: OAuth-state lever högst 10 min (pro_integration.js STATE_S)
 export const GRANS_EPOST = 3, GRANS_EPOST_S = 15 * 60, GRANS_IP = 10, GRANS_IP_S = 3600;
 export const LAS_DAGAR = 90;
 // K2
@@ -534,7 +536,9 @@ export class ProKonto {
     this.fetch = rpc(this, {
       aktiva: (d) => this.aktiva(d), skapa: (d) => this.skapa(d), kolla: (d) => this.kolla(d), lista: (d) => this.lista(d), logga_ut: (d) => this.loggaUt(d),
       epost_satt: (d) => this.epostSatt(d), epost_las: () => this.epostLas(),
-      p_lista: (d) => this.pLista(d), p_hamta: (d) => this.pHamta(d), p_put: (d) => this.pPut(d), p_del: (d) => this.pDel(d), p_kundlas: (d) => this.pKundlas(d), p_dokument: (d) => this.pDokument(d), export: (d) => this.exportera(d), tom: () => this.tom(), ap_hamta: () => this.apHamta(), ap_put: (d) => this.apPut(d),
+      p_lista: (d) => this.pLista(d), p_hamta: (d) => this.pHamta(d), p_put: (d) => this.pPut(d), p_del: (d) => this.pDel(d), p_kundlas: (d) => this.pKundlas(d), p_dokument: (d) => this.pDokument(d),
+      int_lista: () => this.intLista(), int_hamta: (d) => this.intHamta(d), int_state_ny: (d) => this.intStateNy(d), int_state_los: (d) => this.intStateLos(d), int_spara: (d) => this.intSpara(d), int_ta_bort: (d) => this.intTaBort(d), // D7.2
+      export: (d) => this.exportera(d), tom: () => this.tom(), ap_hamta: () => this.apHamta(), ap_put: (d) => this.apPut(d),
     }, { radera: (d) => this.raderaAllt(d), pitr: (d) => this.pitr(d) }, (d) => this.efterPitr(d));
   }
   // K5 (K2-fynd 2): en gång per objektstart frågas registret om en PITR-markering väntar för kontot. Gör den det är detta objekt det
@@ -564,6 +568,9 @@ export class ProKonto {
     sql.exec(`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS logg (id INTEGER PRIMARY KEY AUTOINCREMENT, tid INTEGER NOT NULL, typ TEXT NOT NULL)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS artikelpriser (id INTEGER PRIMARY KEY CHECK (id = 1), rev INTEGER NOT NULL, data TEXT NOT NULL, storlek INTEGER NOT NULL, andrad_ms INTEGER NOT NULL)`);
+    // D7.2: en koppling per leverantör (token bara som AES-GCM-chiffer), OAuth-state med 10 min livslängd. Raderas med kontot (deleteAll).
+    sql.exec(`CREATE TABLE IF NOT EXISTS integration (provider TEXT PRIMARY KEY, tenant TEXT NOT NULL, tenant_namn TEXT NOT NULL, iv TEXT NOT NULL, chiffer TEXT NOT NULL, skapad INTEGER NOT NULL, uppdaterad INTEGER NOT NULL)`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS int_state (state TEXT PRIMARY KEY, provider TEXT NOT NULL, verifier TEXT NOT NULL, skapad INTEGER NOT NULL)`);
   }
   get sql() { return this.storage.sql; }
   aktivaRader(nu) { return rader(this.sql.exec(`SELECT id, namn, senast FROM enheter WHERE utloggad IS NULL AND senast > ? ORDER BY senast DESC`, nu - SESSION_S)); }
@@ -596,6 +603,29 @@ export class ProKonto {
     if (r.utloggad === null) this.sql.exec(`UPDATE enheter SET utloggad = ? WHERE id = ?`, nu, id);
     return { ok: true };
   }
+  // ---------- D7.2 integration (MR-FORTNOX-SPIRIS-20261023-01) ----------
+  intLista() { return { kopplingar: rader(this.sql.exec(`SELECT provider, tenant_namn, skapad FROM integration ORDER BY provider`)) }; }
+  intHamta({ provider }) { const r = forsta(this.sql.exec(`SELECT tenant, iv, chiffer FROM integration WHERE provider = ?`, String(provider))); return r ? { ok: true, ...r } : { ok: false }; }
+  intStateNy({ nu, provider, state, verifier }) {
+    this.sql.exec(`DELETE FROM int_state WHERE skapad <= ?`, nu - INT_STATE_S);
+    if (forsta(this.sql.exec(`SELECT COUNT(*) AS n FROM int_state WHERE provider = ?`, String(provider))).n >= 5) return { ok: false };
+    this.sql.exec(`INSERT INTO int_state (state, provider, verifier, skapad) VALUES (?, ?, ?, ?)`, String(state), String(provider), String(verifier), nu);
+    return { ok: true };
+  }
+  // Förbrukas alltid (även fel leverantör eller utgången), så att samma state aldrig kan lösas in två gånger (I02).
+  intStateLos({ nu, state, provider }) {
+    const r = forsta(this.sql.exec(`SELECT provider, verifier, skapad FROM int_state WHERE state = ?`, String(state)));
+    if (!r) return { ok: false };
+    this.sql.exec(`DELETE FROM int_state WHERE state = ?`, String(state));
+    return r.provider === provider && r.skapad > nu - INT_STATE_S ? { ok: true, verifier: r.verifier } : { ok: false };
+  }
+  intSpara({ nu, provider, tenant, tenant_namn, iv, chiffer }) {
+    if (![tenant, tenant_namn, iv, chiffer].every((v) => typeof v === "string" && v.length > 0 && v.length <= 8192)) return { ok: false };
+    this.sql.exec(`INSERT INTO integration (provider, tenant, tenant_namn, iv, chiffer, skapad, uppdaterad) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(provider) DO UPDATE SET tenant = excluded.tenant, tenant_namn = excluded.tenant_namn, iv = excluded.iv, chiffer = excluded.chiffer, uppdaterad = excluded.uppdaterad`, String(provider), tenant, tenant_namn, iv, chiffer, nu, nu);
+    return { ok: true };
+  }
+  intTaBort({ provider }) { const fanns = !!forsta(this.sql.exec(`SELECT 1 AS x FROM integration WHERE provider = ?`, String(provider))); this.sql.exec(`DELETE FROM integration WHERE provider = ?`, String(provider)); return { ok: true, fanns }; }
   // ---------- K2 ----------
   epostSatt({ epost }) { if (!validMailTo(epost)) return { ok: false }; this.sql.exec(`INSERT INTO meta (k, v) VALUES ('epost', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, epost); return { ok: true }; }
   epostLas() { const r = forsta(this.sql.exec(`SELECT v FROM meta WHERE k = 'epost'`)); return { epost: r ? r.v : null }; }
@@ -960,11 +990,12 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
     const s = await aktivSession(env, request, nu);
     const fornya = s && s.forlangd ? { "set-cookie": satCookie(s.varde) } : {};
     const METODER = { "/jag": ["GET"], "/kop": ["POST"], "/abonnemang": ["GET","POST"], "/projekt": ["GET"], "/artikelpriser": ["GET", "PUT"], "/export": ["GET"], "/radera": ["POST"], "/agare/pitr": ["POST"],
-      "/agare/testplatser": ["GET"], "/agare/inbjud": ["POST"], "/agare/forlang": ["POST"], "/agare/aterkalla": ["POST"] }; // K5
+      "/agare/testplatser": ["GET"], "/agare/inbjud": ["POST"], "/agare/forlang": ["POST"], "/agare/aterkalla": ["POST"], ...INTEGRATION_METODER }; // K5; D7.2 integration
     const tillatna = METODER[vag] || (/^\/projekt\/p_[0-9a-f]{32}\/dokument$/.test(vag) ? ["POST"] : /^\/projekt\/[^/]+$/.test(vag) ? ["GET", "PUT", "DELETE"] : null);
     if (!tillatna || !tillatna.includes(m0)) return svar({ status: "okand_rutt" }, 404); // okänd rutt eller fel metod: 404 före sessionen (som K1)
     if (!s) return svar({ status: "ej_inloggad" }, 401);
     const deps = { aktivPren, proMode, fetchImpl };
+    if (vag.startsWith("/integration/")) return integrationRoute(vag, m0, url, env, s, { konto, nu, fetchImpl, svar }); // D7.2: kontoId bara ur sessionen
 
     if (vag === "/kop") {
       if (!kontoCheckout || proMode(env) === "off") return svar({status:"stangt"},503);
