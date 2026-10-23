@@ -1,7 +1,7 @@
 {
   "version": "2026-10-09",
   "updated": "2026-10-09",
-  "_note": "Referensdata för prislagret i granskaminoffert.se. Alla siffror från PRISUNDERLAG_GRANSKAMINOFFERT.md (Moneyman, rev 2 2026-09-17) och KALLREGISTER_PRISER_GRANSKAMINOFFERT.md (58 källor, lästa 2026-09-17). Märkning: V = verifierad i källan, U = uppgiven av källan utan redovisad metod, E = härledning/uppskattning. Inga kopierade tabeller, inga egna siffror, ingen Beijer-data, inga privata kalkyler. Uppdateras årligen (15 jan) med scripts/update_reference.mjs (SCB lön + BKI) och kvartalsvis läsning av marknadskällor.",
+  "_note": "Referensdata för prislagret i granskaminoffert.se. Alla siffror från Ståhle Digitals prisunderlag (rev 2 2026-09-17) och dess källregister (58 källor, lästa 2026-09-17). Märkning: V = verifierad i källan, U = uppgiven av källan utan redovisad metod, E = härledning/uppskattning. Inga kopierade tabeller, inga egna siffror, ingen Beijer-data, inga privata kalkyler. Uppdateras årligen (15 jan) med SCB lön + BKI och kvartalsvis läsning av marknadskällor.",
   "sources": {
     "skatteverket_rot": {
       "name": "Skatteverket, Rot och rut",
@@ -565,7 +565,7 @@
     }
   },
   "wording": {
-    "_note": "LÅST ordval enligt PRISUNDERLAG avsnittet 'Ordval — låst' (rev 3, 2026-09-18). Ändras inte utan Moneyman/Anders. Tillagt 2026-10-09 (GMO D03, inga nya prisband): hourlyVatUnknownSame, hourlyVatUnknownDiffer, scopeAreaMissing, scopeAreaMismatch, projectBasisUnclear.",
+    "_note": "LÅST ordval enligt prisunderlagets avsnitt 'Ordval — låst' (rev 3, 2026-09-18). Ändras inte utan beslut. Tillagt 2026-10-09 (GMO D03, inga nya prisband): hourlyVatUnknownSame, hourlyVatUnknownDiffer, scopeAreaMissing, scopeAreaMismatch, projectBasisUnclear.",
     "belowFloor": "Timpriset {rate} ligger under vad en anställd {trade} kostar arbetsgivaren per arbetad timme, även med en lön bland de lägsta tio procenten i yrket (referensgolv ~{floor} per timme {unit}, härlett från SCB:s lönestatistik 2025 och Skatteverkets arbetsgivaravgift). Fråga vad som ingår, om företaget har F-skatt och försäkring.",
     "belowNormal": "Timpriset {rate} ligger under det intervall vi ser för {trade} 2026 ({range}; {source}). Lågt pris kan bero på en liten firma med låga omkostnader eller på att vissa kostnader debiteras separat. Fråga vad som ingår – till exempel framkörning, material och bortforsling.",
     "withinNormal": "Timpriset {rate} ligger inom det intervall vi ser för {trade} 2026 ({range}; {source}).",

@@ -514,13 +514,14 @@ const REFERENS_ETAG = `"${REFERENCE.version}-${REGLER_SHA256.slice(0, 12)}"`;
 const REFERENS_KROPP = JSON.stringify({ schema: 1, referenceVersion: REFERENCE.version, reglerSha256: REGLER_SHA256, reference: REFERENCE });
 function proReferens(request) {
   const bas = { "X-Robots-Tag": "noindex", "X-Content-Type-Options": "nosniff" };
-  if (request.method !== "GET") {
+  // HEAD ger samma headers som GET men ingen kropp (HTTP-semantik; granskning F7 P3).
+  if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(JSON.stringify({ status: "metod_ej_tillaten" }), {
       status: 405,
-      headers: { "Content-Type": "application/json; charset=utf-8", "Allow": "GET", "Cache-Control": "no-store", ...bas },
+      headers: { "Content-Type": "application/json; charset=utf-8", "Allow": "GET, HEAD", "Cache-Control": "no-store", ...bas },
     });
   }
-  return new Response(REFERENS_KROPP, {
+  return new Response(request.method === "HEAD" ? null : REFERENS_KROPP, {
     status: 200,
     headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600", "ETag": REFERENS_ETAG, ...bas },
   });
@@ -847,7 +848,7 @@ export default {
       if (r) return r;
     }
 
-    // F7 S7a: exakt /pro/referens före /pro/-blocket, så att varken PRO_PAYMENTS eller PRO_KONTO påverkar den. Bara GET (annars 405).
+    // F7 S7a: exakt /pro/referens före /pro/-blocket, så att varken PRO_PAYMENTS eller PRO_KONTO påverkar den. Bara GET och HEAD (annars 405).
     if (url.pathname === "/pro/referens") return proReferens(request);
 
     // MR PRO (KP-2026-10-16-01): egna rutter och egen CORS, bara under /pro/. PRO_PAYMENTS="off" = stängt utom /pro/status.

@@ -103,14 +103,14 @@ test("GET /pro/referens läser inte env alls (ingen bindning, ingen variabel) oc
   assert.deepEqual(j.reference, REFERENCE);
 });
 
-test("/pro/referens: POST, PUT, DELETE, PATCH, OPTIONS och HEAD ger 405 med Allow: GET, utan att röra env", async () => {
-  for (const method of ["POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]) {
+test("/pro/referens: POST, PUT, DELETE, PATCH och OPTIONS ger 405 med Allow: GET, HEAD, utan att röra env", async () => {
+  for (const method of ["POST", "PUT", "DELETE", "PATCH", "OPTIONS"]) {
     const { last, env } = spionEnv(ENV({ PRO_PAYMENTS: "off", PRO_KONTO: "off" }));
     const init = { method, headers: { Origin: "https://stahledigital.se" } };
-    if (method !== "OPTIONS" && method !== "HEAD") { init.body = JSON.stringify({ belopp: 123456 }); init.headers["content-type"] = "application/json"; }
+    if (method !== "OPTIONS") { init.body = JSON.stringify({ belopp: 123456 }); init.headers["content-type"] = "application/json"; }
     const r = await worker.fetch(new Request(API + "/pro/referens", init), env, ctx());
     assert.equal(r.status, 405, method);
-    assert.equal(r.headers.get("allow"), "GET", method);
+    assert.equal(r.headers.get("allow"), "GET, HEAD", method);
     assert.equal(r.headers.get("cache-control"), "no-store", method);
     assert.equal(r.headers.get("x-robots-tag"), "noindex", method);
     assert.equal(r.headers.get("x-content-type-options"), "nosniff", method);
@@ -118,6 +118,28 @@ test("/pro/referens: POST, PUT, DELETE, PATCH, OPTIONS och HEAD ger 405 med Allo
     assert.deepEqual(last.filter((k) => k !== "ALLOWED_ORIGIN"), [], method);
   }
   assert.deepEqual(natAnrop, []);
+});
+
+test("HEAD /pro/referens: 200 med samma headers som GET och ingen kropp, utan att röra env eller nät", async () => {
+  const get = await worker.fetch(new Request(API + "/pro/referens"), ENV({ PRO_PAYMENTS: "off", PRO_KONTO: "off" }), ctx());
+  const { last, env } = spionEnv(ENV({ PRO_PAYMENTS: "off", PRO_KONTO: "off" }));
+  const c = ctx();
+  const r = await worker.fetch(new Request(API + "/pro/referens", { method: "HEAD" }), env, c);
+  assert.equal(r.status, 200);
+  for (const h of ["content-type", "cache-control", "etag", "x-robots-tag", "x-content-type-options"]) assert.equal(r.headers.get(h), get.headers.get(h), h);
+  assert.equal(r.body, null);
+  assert.equal(await r.text(), "");
+  assert.deepEqual(r.headers.getSetCookie(), []);
+  assert.deepEqual(last.filter((k) => k !== "ALLOWED_ORIGIN"), []);
+  await Promise.all(c.v);
+  assert.equal(c.v.length, 0);
+  assert.deepEqual(natAnrop, []);
+});
+
+test("publika svaret nämner inga interna filer eller personer (granskning F7 P3)", async () => {
+  const r = await worker.fetch(new Request(API + "/pro/referens"), ENV({ PRO_PAYMENTS: "off", PRO_KONTO: "off" }), ctx());
+  const text = await r.text();
+  for (const ord of ["PRISUNDERLAG", "KALLREGISTER", "Moneyman", ".md", "update_reference", "Anders"]) assert.ok(!text.includes(ord), ord);
 });
 
 test("bara exakt /pro/referens: närliggande vägar går till /pro/-blocket som förut (off → 503 stangt)", async () => {
