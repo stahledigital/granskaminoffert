@@ -138,3 +138,45 @@ test("I17: koppla från – Spiris återkallas med refresh-token och raderas lok
   const st = await (await f(env, "/pro/konto/integration/status", { cookie: c })).json(); assert.equal(st.leverantorer.spiris.kopplad, null); assert.equal(st.leverantorer.fortnox.kopplad, null);
   assert.deepEqual(await (await f(env, "/pro/konto/integration/spiris/koppla-fran", { method: "POST", body: {}, cookie: c })).json(), { status: "frankopplad", fanns: false, aterkallning: "ej_kopplad" });
 });
+
+// ---------- steg 1: förbered (frysning med C10 på servern, kvittologg, atomisk reservation) ----------
+import { nyttProjekt } from "../src/mr_project2/P4_PROJEKT/pro-projekt.mjs";
+import { readFileSync } from "node:fs";
+const projekt = (material = [["Takmaterial", "120", "12.50"]]) => { const p = nyttProjekt({ idag: "2026-10-23", cryptoImpl: { getRandomValues: (a) => a.fill(1) } });
+  p.projektnamn = "Syntetisk offert"; p.foretag.namn = "Syntetisk Bygg AB"; p.kund.namn = "Materialräknaren integrationstest";
+  p.material = material.map(([namn, mangd, pris_kr]) => ({ nyckel: "k:" + namn + "|st", namn, mangd, enhet: "st", pris_kr, med: true, borta: false, rabatt_pct: "0", rabatt_kr: null, paslag_pct: "0" })); return p; };
+async function spara(env, c, p) { const kid = await kontoId(env, c), d = JSON.stringify(p);
+  const r = await obj(env, kid).fetch(new Request("https://pro-konto/p_put", { method: "POST", body: JSON.stringify({ nu: Math.floor(NU / 1000), ms: NU, id: p.projektId, rev: 0, data: d, namn: p.projektnamn, storlek: d.length, kontoId: kid }) }));
+  assert.equal((await r.json()).kod, 200); return kid; }
+const forbered = async (env, c, body, p = "spiris") => f(env, `/pro/konto/integration/${p}/forbered`, { method: "POST", body, cookie: c });
+
+test("Förbered: kräver koppling och sparat projekt; ofullständig offert blir ej_klar; inget leverantörsanrop", async () => {
+  const env = kEnv(NYCKLAR), c = await loggaIn(env), p = projekt(); await spara(env, c, p);
+  let r = await forbered(env, c, { projektId: p.projektId }); assert.equal(r.status, 409); assert.deepEqual(await r.json(), { status: "ej_kopplad", provider: "spiris" });
+  await koppla(env, c); const fore = levAnrop().length;
+  assert.equal((await forbered(env, c, { projektId: "p_" + "f".repeat(32) })).status, 404); assert.equal((await forbered(env, c, { projektId: "../x" })).status, 404);
+  const tom = projekt([]); tom.projektId = "p_" + "2".repeat(32); await spara(env, c, tom);
+  r = await forbered(env, c, { projektId: tom.projektId }); assert.equal(r.status, 422); assert.equal((await r.json()).status, "ej_klar");
+  assert.equal(levAnrop().length, fore, "förberedelsen anropar aldrig leverantören (steg 2)");
+});
+
+test("I12/I15: en reservation per offert-ID och version – upprepning och samtidiga försök ger RECONCILE; kvittot bär inget offertinnehåll", async () => {
+  const env = kEnv(NYCKLAR), c = await loggaIn(env), p = projekt(), kid = await spara(env, c, p); await koppla(env, c);
+  const svar = await Promise.all([1, 2, 3].map(() => forbered(env, c, { projektId: p.projektId }).then(async (r) => ({ s: r.status, j: await r.json() }))));
+  const ok = svar.filter((x) => x.j.status === "forberedd"); assert.equal(ok.length, 1, "exakt en vinnare"); assert.ok(svar.filter((x) => x.j.status === "reconcile").every((x) => x.s === 409));
+  assert.equal(ok[0].j.offerId, p.projektId); assert.match(ok[0].j.sha256, /^[a-f0-9]{64}$/);
+  const rader = obj(env, kid).sql.exec("SELECT * FROM int_kvitto").toArray(); assert.equal(rader.length, 1);
+  assert.deepEqual(Object.keys(rader[0]).sort(), ["andrad", "offer_id", "provider", "remote_id", "sha256", "skapad", "status", "tenant", "version"]);
+  assert.equal(rader[0].status, "prepared"); assert.equal(rader[0].tenant, "556000-0000"); assert.ok(!JSON.stringify(rader).includes("integrationstest") && !JSON.stringify(rader).includes("Takmaterial"), "inget kundnamn eller rader i kvittot");
+  const igen = await forbered(env, c, { projektId: p.projektId }); assert.equal(igen.status, 409); assert.equal((await igen.json()).status, "reconcile", "en gammal oklar reservation kringgås aldrig");
+  // ett annat bolag (Fortnox-kopplingen) har en egen nyckel
+  await koppla(env, c, "fortnox"); assert.equal((await (await forbered(env, c, { projektId: p.projektId }, "fortnox")).json()).status, "forberedd");
+});
+
+test("C10-kopiorna i GMO är byte för byte C10 f960812 (och P4-kopiorna PRO-källans); ändras bara med avsikt", () => {
+  const LAS = { "EXPORTER/format-common.mjs": "5a24103974054dcf1d5677e9622dc472dc9464aa97855a99689b82b8d337ac80", "EXPORTER/fortnox-format.mjs": "b750926fcf5ce5c7d732a4556f9c1f39ae4d1f1d0c7d67d35b175b0af0bc8e1a",
+    "EXPORTER/masterdata-format.mjs": "91c69c717ed21c09f9a3d7fa35d48d101f71bd3ddb5748d26c57b7e42557a9cf", "EXPORTER/offert-export.mjs": "936fe1ff0900e3a3de02c009c8a5bc1035d17edeb68e6c5381ccccd9b23bae57",
+    "EXPORTER/spiris-format.mjs": "37137854a0564b3a9ec70cc84f622558ab256c950f78f97a3bea0cd1705c5d64", "P4_PROJEKT/pro-json.mjs": "4b9ce05cc8cd5843d4cef68b0084379a28c48938d9ab02439ef67337d0dae72c",
+    "P1_KALKYLKARNA/pro-kalkyl.mjs": "846b571ed76a6267b06cf9543687c0343734d991af552a62467af5fcb30c0f46" };
+  for (const [fil, sha] of Object.entries(LAS)) assert.equal(createHash("sha256").update(readFileSync(new URL("../src/mr_project2/" + fil, import.meta.url))).digest("hex"), sha, fil);
+});

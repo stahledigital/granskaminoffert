@@ -537,7 +537,7 @@ export class ProKonto {
       aktiva: (d) => this.aktiva(d), skapa: (d) => this.skapa(d), kolla: (d) => this.kolla(d), lista: (d) => this.lista(d), logga_ut: (d) => this.loggaUt(d),
       epost_satt: (d) => this.epostSatt(d), epost_las: () => this.epostLas(),
       p_lista: (d) => this.pLista(d), p_hamta: (d) => this.pHamta(d), p_put: (d) => this.pPut(d), p_del: (d) => this.pDel(d), p_kundlas: (d) => this.pKundlas(d), p_dokument: (d) => this.pDokument(d),
-      int_lista: () => this.intLista(), int_hamta: (d) => this.intHamta(d), int_state_ny: (d) => this.intStateNy(d), int_state_los: (d) => this.intStateLos(d), int_spara: (d) => this.intSpara(d), int_ta_bort: (d) => this.intTaBort(d), // D7.2
+      int_lista: () => this.intLista(), int_hamta: (d) => this.intHamta(d), int_state_ny: (d) => this.intStateNy(d), int_state_los: (d) => this.intStateLos(d), int_spara: (d) => this.intSpara(d), int_ta_bort: (d) => this.intTaBort(d), int_kvitton: (d) => this.intKvitton(d), int_reservera: (d) => this.intReservera(d), // D7.2
       export: (d) => this.exportera(d), tom: () => this.tom(), ap_hamta: () => this.apHamta(), ap_put: (d) => this.apPut(d),
     }, { radera: (d) => this.raderaAllt(d), pitr: (d) => this.pitr(d) }, (d) => this.efterPitr(d));
   }
@@ -571,6 +571,8 @@ export class ProKonto {
     // D7.2: en koppling per leverantör (token bara som AES-GCM-chiffer), OAuth-state med 10 min livslängd. Raderas med kontot (deleteAll).
     sql.exec(`CREATE TABLE IF NOT EXISTS integration (provider TEXT PRIMARY KEY, tenant TEXT NOT NULL, tenant_namn TEXT NOT NULL, iv TEXT NOT NULL, chiffer TEXT NOT NULL, skapad INTEGER NOT NULL, uppdaterad INTEGER NOT NULL)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS int_state (state TEXT PRIMARY KEY, provider TEXT NOT NULL, verifier TEXT NOT NULL, skapad INTEGER NOT NULL)`);
+    // D7.2 kvittologg utan offertinnehåll: nyckeln provider + bolag + offert-ID + version (C10 LocalTransferKey); status prepared/unknown/exported/rejected.
+    sql.exec(`CREATE TABLE IF NOT EXISTS int_kvitto (provider TEXT NOT NULL, tenant TEXT NOT NULL, offer_id TEXT NOT NULL, version INTEGER NOT NULL, sha256 TEXT NOT NULL, status TEXT NOT NULL, remote_id TEXT, skapad INTEGER NOT NULL, andrad INTEGER NOT NULL, PRIMARY KEY (provider, tenant, offer_id, version))`);
   }
   get sql() { return this.storage.sql; }
   aktivaRader(nu) { return rader(this.sql.exec(`SELECT id, namn, senast FROM enheter WHERE utloggad IS NULL AND senast > ? ORDER BY senast DESC`, nu - SESSION_S)); }
@@ -623,6 +625,16 @@ export class ProKonto {
     if (![tenant, tenant_namn, iv, chiffer].every((v) => typeof v === "string" && v.length > 0 && v.length <= 8192)) return { ok: false };
     this.sql.exec(`INSERT INTO integration (provider, tenant, tenant_namn, iv, chiffer, skapad, uppdaterad) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(provider) DO UPDATE SET tenant = excluded.tenant, tenant_namn = excluded.tenant_namn, iv = excluded.iv, chiffer = excluded.chiffer, uppdaterad = excluded.uppdaterad`, String(provider), tenant, tenant_namn, iv, chiffer, nu, nu);
+    return { ok: true };
+  }
+  intKvitton({ provider, tenant }) {
+    return { kvitton: rader(this.sql.exec(`SELECT provider, tenant AS tenantId, offer_id AS offerId, version AS offerVersion, sha256, status, remote_id AS remoteId FROM int_kvitto WHERE provider = ? AND tenant = ? ORDER BY version`, String(provider), String(tenant))) };
+  }
+  // Atomisk reservation (DO:n är enda skrivare, en transaktion): finns nyckeln redan skapas ingen ny – den som kom först vinner (I12).
+  intReservera({ nu, provider, tenant, offerId, offerVersion, sha256 }) {
+    if (!/^[a-f0-9]{64}$/.test(String(sha256)) || !Number.isSafeInteger(offerVersion) || typeof offerId !== "string" || !offerId) return { ok: false };
+    if (forsta(this.sql.exec(`SELECT 1 AS x FROM int_kvitto WHERE provider = ? AND tenant = ? AND offer_id = ? AND version = ?`, String(provider), String(tenant), offerId, offerVersion))) return { ok: false };
+    this.sql.exec(`INSERT INTO int_kvitto (provider, tenant, offer_id, version, sha256, status, remote_id, skapad, andrad) VALUES (?, ?, ?, ?, ?, 'prepared', NULL, ?, ?)`, String(provider), String(tenant), offerId, offerVersion, sha256, nu, nu);
     return { ok: true };
   }
   intTaBort({ provider }) { const fanns = !!forsta(this.sql.exec(`SELECT 1 AS x FROM integration WHERE provider = ?`, String(provider))); this.sql.exec(`DELETE FROM integration WHERE provider = ?`, String(provider)); return { ok: true, fanns }; }
@@ -995,7 +1007,7 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
     if (!tillatna || !tillatna.includes(m0)) return svar({ status: "okand_rutt" }, 404); // okänd rutt eller fel metod: 404 före sessionen (som K1)
     if (!s) return svar({ status: "ej_inloggad" }, 401);
     const deps = { aktivPren, proMode, fetchImpl };
-    if (vag.startsWith("/integration/")) return integrationRoute(vag, m0, url, env, s, { konto, nu, fetchImpl, svar }); // D7.2: kontoId bara ur sessionen
+    if (vag.startsWith("/integration/")) { let kropp = null; if (m0 === "POST") { try { kropp = await lasKropp(request); } catch { kropp = null; } } return integrationRoute(vag, m0, url, env, s, { konto, nu, fetchImpl, svar, kropp }); } // D7.2: kontoId bara ur sessionen
 
     if (vag === "/kop") {
       if (!kontoCheckout || proMode(env) === "off") return svar({status:"stangt"},503);

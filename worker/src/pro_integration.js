@@ -2,6 +2,7 @@
 // Steg 1: OAuth (state + PKCE S256), krypterade token (AES-GCM, nyckeln INTEGRATION_TOKEN_KEY) och status/koppla från. Allt lagras i kontots
 // ProKonto-objekt (jurisdiktion "eu"); inget i KV, webbläsaren eller loggar. Leverantörsadresser och scopes ur INTEGRATION_FORTNOX_SPIRIS.md
 // (källor 2026-10-23) – de verifieras mot sandlåda/licens i steg 2 innan något påstås fungera. Inga anrop görs utan konfigurerade nycklar (I01).
+import { freezeOfferExport, planOfferTransfer } from "./mr_project2/EXPORTER/offert-export.mjs"; // C10 f960812 (kopia, hashlåst i test)
 export const LEV = Object.freeze({
   fortnox: Object.freeze({ namn: "Fortnox", id: "FORTNOX_CLIENT_ID", secret: "FORTNOX_CLIENT_SECRET",
     auth: "https://apps.fortnox.se/oauth-v1/auth", token: "https://apps.fortnox.se/oauth-v1/token", revoke: null,
@@ -85,17 +86,18 @@ export async function aterkalla(env, p, refresh, fetchImpl) {
 
 // Routes under /pro/konto/integration/* (anropas från kontoInre med giltig session; kontoId bara ur sessionen).
 export const INTEGRATION_METODER = { "/integration/status": ["GET"],
-  ...Object.fromEntries(Object.keys(LEV).flatMap((p) => [[`/integration/${p}/start`, ["POST"]], [`/integration/${p}/callback`, ["GET"]], [`/integration/${p}/koppla-fran`, ["POST"]]])) };
+  ...Object.fromEntries(Object.keys(LEV).flatMap((p) => [[`/integration/${p}/start`, ["POST"]], [`/integration/${p}/callback`, ["GET"]], [`/integration/${p}/koppla-fran`, ["POST"]], [`/integration/${p}/forbered`, ["POST"]]])) };
 const tillbaka = (p, resultat) => new Response(null, { status: 303, headers: { Location: `/verkstaden/materialraknaren/offert?integration=${p}&resultat=${resultat}#integration`, "Cache-Control": "no-store" } });
 
-export async function integrationRoute(vag, m0, url, env, s, { konto, nu, fetchImpl, svar }) {
+export async function integrationRoute(vag, m0, url, env, s, { konto, nu, fetchImpl, svar, kropp = null }) {
   if (vag === "/integration/status") {
     const l = await konto(env, s.kontoId, "int_lista", { nu });
     const kopplad = Object.fromEntries((l.kopplingar || []).map((k) => [k.provider, { bolag: k.tenant_namn, sedan: k.skapad }]));
     return svar({ status: "ok", leverantorer: Object.fromEntries(Object.keys(LEV).map((p) => [p, { namn: LEV[p].namn, konfigurerad: konfigurerad(env, p), kopplad: kopplad[p] || null }])) });
   }
-  const m = /^\/integration\/([a-z]+)\/(start|callback|koppla-fran)$/.exec(vag), p = m && m[1];
+  const m = /^\/integration\/([a-z]+)\/(start|callback|koppla-fran|forbered)$/.exec(vag), p = m && m[1];
   if (!m || !ledig(p)) return svar({ status: "okand_rutt" }, 404);
+  if (m[2] === "forbered") return forbered(env, s, p, kropp, { konto, nu, svar });
   if (m[2] === "koppla-fran") {
     const h = konfigurerad(env, p) ? await konto(env, s.kontoId, "int_hamta", { nu, provider: p }) : null;
     let aterkallning = "ej_kopplad";
@@ -126,3 +128,26 @@ export async function integrationRoute(vag, m0, url, env, s, { konto, nu, fetchI
   const r = await konto(env, s.kontoId, "int_spara", { nu, provider: p, tenant: b.tenant, tenant_namn: b.namn, ...c });
   return tillbaka(p, r && r.ok ? "kopplad" : "fel");
 }
+
+// Steg 1 ”export och kvitto”: det SPARADE projektet (aldrig klientens belopp) fryses på servern med C10, planeras mot kontots kvittologg för
+// leverantör + bolag och reserveras atomiskt (en reservation per offert-ID och version; I12). Inget skapas hos leverantören här – det är steg 2,
+// som också kräver bolagets kund-, artikel- och momsuppslag (I06). En gammal oklar reservation kringgås aldrig (RECONCILE).
+async function forbered(env, s, p, kropp, { konto, nu, svar }) {
+  const id = kropp && kropp.projektId;
+  if (!/^p_[0-9a-f]{32}$/.test(String(id))) return svar({ status: "hittas_inte" }, 404);
+  const k = await konto(env, s.kontoId, "int_hamta", { nu, provider: p });
+  if (!k || !k.ok) return svar({ status: "ej_kopplad", provider: p }, 409);
+  const ph = await konto(env, s.kontoId, "p_hamta", { nu, ms: nu * 1000, id });
+  if (!ph || ph.kod !== 200 || !ph.projekt || ph.projekt.data === null) return svar({ status: "hittas_inte" }, 404);
+  const fr = await freezeOfferExport(ph.projekt.data);
+  if (!fr.ok) return svar({ status: "ej_klar", kod: fr.code }, 422);
+  const { offerId, offerVersion } = fr.offer.identity, sha256 = fr.offer.sha256;
+  const kv = await konto(env, s.kontoId, "int_kvitton", { nu, provider: p, tenant: k.tenant });
+  const plan = await planOfferTransfer(fr.offer, { provider: p, tenantId: k.tenant, receipts: kv.kvitton || [], allowNewVersion: !!(kropp && kropp.nyVersion === true) });
+  if (!plan.ok) return svar({ status: "ej_klar", kod: plan.code }, 422);
+  const ut = { offerId, offerVersion, sha256 };
+  if (plan.status !== "READY_TO_PREPARE") return svar({ status: plan.status.toLowerCase(), ...ut, remoteId: plan.remoteId || null }, plan.status === "ALREADY_EXPORTED" ? 200 : 409);
+  const r = await konto(env, s.kontoId, "int_reservera", { nu, provider: p, tenant: k.tenant, offerId, offerVersion, sha256 });
+  return r && r.ok ? svar({ status: "forberedd", ...ut }) : svar({ status: "reconcile", ...ut }, 409); // kapplöpning: en annan enhet hann först
+}
+
