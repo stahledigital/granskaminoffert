@@ -1,5 +1,12 @@
 # Granska min offert – ändringslogg
 
+## gmo-api-v17 – F7 S7a: öppen läsväg GET /pro/referens för förkontrollen i MR PRO (spec F7_FORKONTROLL 2026-10-23, Claude Code)
+
+- **Ny väg `GET /pro/referens`** före `/pro/`-blocket: `{schema:1, referenceVersion, reglerSha256, reference}` med `reference` = `src/reference.json` oförändrad. Ingen kropp läses, inga cookies, ingen env/KV, inget nät, ingen mätning; samma svar i alla lägen av `PRO_PAYMENTS` och `PRO_KONTO`. Headers `Cache-Control: public, max-age=3600`, `ETag "<referenceVersion>-<sha12>"`, `X-Robots-Tag: noindex`, `nosniff`; andra metoder 405 (`Allow: GET`).
+- **Ny `src/regler_version.js`** med `REGLER_SHA256` (sha256 av `rules.js`+`amounts.js`+`money.js`). Testet larmar när regelkoden ändras.
+- `/review`, `/compare`, D17, `reference.json`, `rules.js`, `amounts.js` och `money.js` oförändrade. Sajtens proxy `GET /api/pro/referens` (site-worker via `GMO_API`) kräver att denna version är deployad först.
+- Tester: nytt `referens.test.mjs` (8); `index.test.mjs` väntar `gmo-api-v17`.
+
 ## gmo-api-v16 – kundoffert kräver kundnamn vid projektköp (Anders beslut 2026-10-22, Claude Code)
 
 - `POST /pro/konto/projekt/:id/dokument` med typ `kund` (eller utan typ) svarar 422 `kundnamn_saknas` när inget namn är bundet och projektets kundnamn saknar bokstav eller siffra; inget binds. Ett redan bundet namn går före; `intern` och `kontroll` berörs inte.

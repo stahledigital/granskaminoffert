@@ -32,6 +32,7 @@ import { ANTHROPIC_URL, ANTHROPIC_VERSION, readReview } from "./provider.js";
 import { normalizeClientEvent, clientDatapoint } from "./measure.js";
 import { handlePro, proSchema, aktivPren, proMode, kontoAbonnemang, kontoCheckout } from "./pro_routes.js";
 import { handleKonto, kontoSchema } from "./pro_konto.js";
+import { REGLER_SHA256 } from "./regler_version.js";
 
 // USD-priser per miljon tokens finns i models.js (en tabell, med källa). SEK-omräkning
 // är en grov, deklarerad uppskattning – kostnaden i USD är den mätta siffran, och för
@@ -277,7 +278,7 @@ function corsHeaders(origin, allowedOrigins) {
 // Inga personuppgifter: ingen IP, inget filnamn, ingen fritext, ingen offert.
 // Räknarna är läs-öka-skriv mot KV (inte atomära) — bra nog för statistik,
 // aldrig underlag för fakturering.
-const WORKER_VERSION = "gmo-api-v16";
+const WORKER_VERSION = "gmo-api-v17";
 
 function dayKey(d = new Date()) {
   return d.toISOString().slice(0, 10); // UTC, samma dygnsgräns som dagstaket
@@ -504,6 +505,25 @@ async function readCounters(env) {
   };
   countersCache.set(env, { at: Date.now(), value: result });
   return result;
+}
+
+// ---- F7 S7a: GET /pro/referens (förkontrollen i MR PRO räknar i webbläsaren med GMO:s regler) ----
+// Publik referensdata, samma för alla: ingen kropp läses, inga cookies, ingen KV, inget nät, ingen mätning.
+// Svaret byggs en gång per isolat. /review, /compare och D17 berörs inte.
+const REFERENS_ETAG = `"${REFERENCE.version}-${REGLER_SHA256.slice(0, 12)}"`;
+const REFERENS_KROPP = JSON.stringify({ schema: 1, referenceVersion: REFERENCE.version, reglerSha256: REGLER_SHA256, reference: REFERENCE });
+function proReferens(request) {
+  const bas = { "X-Robots-Tag": "noindex", "X-Content-Type-Options": "nosniff" };
+  if (request.method !== "GET") {
+    return new Response(JSON.stringify({ status: "metod_ej_tillaten" }), {
+      status: 405,
+      headers: { "Content-Type": "application/json; charset=utf-8", "Allow": "GET", "Cache-Control": "no-store", ...bas },
+    });
+  }
+  return new Response(REFERENS_KROPP, {
+    status: 200,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600", "ETag": REFERENS_ETAG, ...bas },
+  });
 }
 
 function jsonResponse(body, status, headers) {
@@ -826,6 +846,9 @@ export default {
       const r = await handleCompare(request, env, ctx, { allowedOrigins });
       if (r) return r;
     }
+
+    // F7 S7a: exakt /pro/referens före /pro/-blocket, så att varken PRO_PAYMENTS eller PRO_KONTO påverkar den. Bara GET (annars 405).
+    if (url.pathname === "/pro/referens") return proReferens(request);
 
     // MR PRO (KP-2026-10-16-01): egna rutter och egen CORS, bara under /pro/. PRO_PAYMENTS="off" = stängt utom /pro/status.
     if (url.pathname.startsWith("/pro/")) {
