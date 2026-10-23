@@ -87,7 +87,8 @@ export async function aterkalla(env, p, refresh, fetchImpl) {
 // Routes under /pro/konto/integration/* (anropas från kontoInre med giltig session; kontoId bara ur sessionen).
 export const INTEGRATION_METODER = { "/integration/status": ["GET"],
   ...Object.fromEntries(Object.keys(LEV).flatMap((p) => [[`/integration/${p}/start`, ["POST"]], [`/integration/${p}/callback`, ["GET"]], [`/integration/${p}/koppla-fran`, ["POST"]], [`/integration/${p}/forbered`, ["POST"]]])) };
-const tillbaka = (p, resultat) => new Response(null, { status: 303, headers: { Location: `/verkstaden/materialraknaren/offert?integration=${p}&resultat=${resultat}#integration`, "Cache-Control": "no-store" } });
+// Steg 1–2: tillbaka till ägarsidan, där panelen finns så länge integrationen bara är ägarens (se spärren i pro_konto.js).
+const tillbaka = (p, resultat) => new Response(null, { status: 303, headers: { Location: `/verkstaden/materialraknaren/konto/agare?integration=${p}&resultat=${resultat}#integration`, "Cache-Control": "no-store" } });
 
 export async function integrationRoute(vag, m0, url, env, s, { konto, nu, fetchImpl, svar, kropp = null }) {
   if (vag === "/integration/status") {

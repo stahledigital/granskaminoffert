@@ -99,7 +99,7 @@ test("Start: exakt callback, scopes, state 32 byte och PKCE S256 mot den sparade
 
 test("I04: godkänd koppling – kod växlas med Basic och PKCE, bolaget visas, token finns bara som chiffer bundet till kontot", async () => {
   const env = kEnv(NYCKLAR), c = await loggaIn(env), { s, r } = await koppla(env, c);
-  assert.equal(r.status, 303); assert.equal(r.headers.get("location"), "/verkstaden/materialraknaren/offert?integration=spiris&resultat=kopplad#integration");
+  assert.equal(r.status, 303); assert.equal(r.headers.get("location"), "/verkstaden/materialraknaren/konto/agare?integration=spiris&resultat=kopplad#integration");
   const t = levAnrop().find((x) => x.u === LEV.spiris.token), form = new URLSearchParams(t.init.body);
   assert.equal(t.init.headers.Authorization, "Basic " + Buffer.from("spiris-klient:spiris-hemlighet").toString("base64"));
   assert.equal(form.get("grant_type"), "authorization_code"); assert.equal(form.get("code"), "kod123"); assert.equal(form.get("redirect_uri"), callbackUrl("spiris"));
