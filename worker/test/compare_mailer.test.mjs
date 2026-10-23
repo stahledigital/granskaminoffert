@@ -6,6 +6,8 @@ import assert from "node:assert/strict";
 import { mailerKind, acceptingOrders } from "../src/compare_config.js";
 import { mailHttpConfig, IDEM_WINDOW_MS } from "../src/compare_mailer.js";
 import { makeEnv, installFetch, api, readyOrder, startCheckout, paidSession, webhook, MAIL_WH_SECRET, mailEvent, flushMailEvents, pdfText, pdfLinks, fullText } from "./helpers/compare_env.mjs";
+// Väntar tills villkoret gäller i stället för en fast paus (en fast 30 ms-väntan var flakig under last).
+const tills = async (p, ms = 5000) => { const t0 = Date.now(); while (!p()) { if (Date.now() - t0 > ms) throw new Error("väntan"); await new Promise((r) => setTimeout(r, 1)); } };
 
 const KEY = "re_TESTONLY_syntheticKey0123456789";
 const ON = { COMPARE_MAIL_HTTP: "1", COMPARE_MAIL_HTTP_VERIFIED: "1", COMPARE_MAIL_FROM: "Jämför mina offerter <jamfor@example.test>", COMPARE_MAIL_DAY_CAP: "5", COMPARE_MAIL_API_KEY: KEY, COMPARE_MAIL_WEBHOOK_SECRET: MAIL_WH_SECRET };
@@ -122,7 +124,7 @@ test("samtidighet: parallell dränering skickar inte dubbelt (lease)", async () 
     assert.equal((await startCheckout(env, orderId, token)).status, 200);
     await webhook(env, "checkout.session.completed", paidSession([...f.sessions.values()].pop()));
     const obj = env.COMPARE_ORDERS.peek(orderId).obj;
-    const p1 = obj.alarm(); await new Promise((r) => setTimeout(r, 30)); // första sändningen hänger hos leverantören
+    const p1 = obj.alarm(); await tills(() => f.log.mailSent.length === 1); // första sändningen hänger hos leverantören
     await obj.alarm(); await obj.alarm(); // parallella dräneringar medan lease gäller
     assert.equal(f.log.mail.length, 1, "lease hindrar fler sändningar"); assert.equal(f.log.anthropic.length, 0, "ingen generation före ack");
     release(); await p1; await env.COMPARE_ORDERS.runAlarms(3);
@@ -149,7 +151,7 @@ test("409: annan nyttolast ⇒ stoppas (failed, inga fler försök); 409 pågåe
     assert.equal((await startCheckout(env, orderId, token)).status, 200);
     await webhook(env, "checkout.session.completed", paidSession([...g.sessions.values()].pop()));
     const obj = env.COMPARE_ORDERS.peek(orderId).obj; const ev = obj.alarm();
-    await new Promise((r) => setTimeout(r, 30));
+    await tills(() => g.log.mailSent.length === 1);
     // en andra process (utan lease, t.ex. efter omstart) provar samma nyckel medan den första ännu pågår hos leverantören
     reset(env, orderId); await obj.alarm();
     assert.equal(g.log.mail.length, 2); assert.equal(conf(env, orderId).lastError, "mejl_409_pagar"); assert.equal(conf(env, orderId).state, "queued"); assert.equal(g.log.mail[1].idem, g.log.mail[0].idem);

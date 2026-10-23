@@ -135,6 +135,8 @@ export function sanitizeExtracted(raw) {
   // tolkning och läses som beloppet; allt annat följer numField (ogiltigt → null och markerad lucka).
   const deductionField = (k, max) => {
     const v = get(k);
+    // Belopp mindre än ett halvt öre (utom 0) är ingen rabatt utan ett läsfel; de skulle annars ge NaN i öresräkningen.
+    if (typeof v === "number" && v !== 0 && Math.abs(v) < 0.005) { bad(k); return null; }
     if (typeof v === "number" && Number.isFinite(v) && v < 0 && -v <= max) return -v;
     return numField(k, max);
   };

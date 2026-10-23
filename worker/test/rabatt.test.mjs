@@ -561,3 +561,10 @@ test("R3 adv: rabatt efter ROT utan ROT-belopp och med okänd radmoms – rabatt
     assert.notEqual(s.status, "fel", `${JSON.stringify(k)}: ${txt(s)}`);
   }
 });
+
+test("v17: ett rabattbelopp mindre än ett halvt öre är ett läsfel, inte en rabatt (ingen krasch i öresräkningen)", () => {
+  for (const v of [5e-324, 1e-306, 0.004, -0.004]) {
+    assert.equal(sanitizeExtracted({ ...BASE, discountSek: v }).x.discountSek, null, String(v));
+    assert.doesNotThrow(() => run({ discountSek: v }), String(v));
+  }
+});
