@@ -4,4 +4,4 @@
 // test/referens.test.mjs räknar om summan och larmar vid olikhet. Den som ändrar reglerna uppdaterar konstanten
 // (och MR:s kopia, source/GMO_REGLER, med dess synka.mjs). Konstanten skickas i GET /pro/referens.
 export const REGLER_FILER = ["rules.js", "amounts.js", "money.js"];
-export const REGLER_SHA256 = "f8fbc459dae255a210f4c687872e119ca0726a8e9a4f979994ae64ca1ec423ab";
+export const REGLER_SHA256 = "87b71d08f33febd6e8777990126be88a156dba1245384b4c17e6ff155aededb3";

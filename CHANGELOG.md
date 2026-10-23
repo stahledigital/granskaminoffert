@@ -10,6 +10,7 @@ Släppkandidat som slår ihop `claude/f7-s7a` (F7 S7a, spec F7_FORKONTROLL 2026-
 - **Ny `src/regler_version.js`** med `REGLER_SHA256` (sha256 av `rules.js`+`amounts.js`+`money.js`). Testet larmar när regelkoden ändras.
 - F7-delen ändrar inte `/review`, `/compare`, D17, `reference.json`, `rules.js`, `amounts.js` eller `money.js` (regelfilerna ändras av rabattdelen nedan). Sajtens proxy `GET /api/pro/referens` (site-worker via `GMO_API`) kräver att denna version är deployad först.
 - Tester: nytt `referens.test.mjs` (8); `index.test.mjs` väntar `gmo-api-v17`.
+- Efter sammanslagningen med rabattdelen är `REGLER_SHA256` = `87b71d08f33febd6e8777990126be88a156dba1245384b4c17e6ff155aededb3` (v16:s regelfiler gav `f8fbc459…`, som aldrig släpptes). MR:s hashlåsta kopia `source/GMO_REGLER` (F7 S7b) finns ännu inte någonstans, så inget att synka nu; S7b synkar mot v17-värdet.
 
 ### Rabatt i avläsning och summering (GMO-RABATT)
 
