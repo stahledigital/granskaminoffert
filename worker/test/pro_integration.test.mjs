@@ -77,6 +77,14 @@ test("Utan session 401, utan X-MR-Pro 403, okänd leverantör 404 – före varj
   assert.deepEqual(levAnrop(), []);
 });
 
+test("Steg 1–2: bara ägarkontot når integrationen – andra konton får 404 utan nyckel- eller leverantörsanrop", async () => {
+  const env = kEnv(NYCKLAR), c = await loggaIn(env); env.PRO_OWNER_EMAIL = "annan@example.se"; // samma konto är inte längre ägaren
+  for (const [v, m] of [["/pro/konto/integration/status", "GET"], ["/pro/konto/integration/spiris/start", "POST"], ["/pro/konto/integration/spiris/forbered", "POST"], ["/pro/konto/integration/spiris/callback?code=k&state=" + "A".repeat(43), "GET"]]) {
+    const r = await f(env, v, { method: m, body: m === "POST" ? {} : undefined, cookie: c }); assert.equal(r.status, 404, v); assert.deepEqual(await r.json(), { status: "okand_rutt" });
+  }
+  assert.deepEqual(levAnrop(), []);
+});
+
 test("Start: exakt callback, scopes, state 32 byte och PKCE S256 mot den sparade verifieraren; Spiris prompt=select_account", async () => {
   const env = kEnv(NYCKLAR), c = await loggaIn(env);
   for (const p of ["spiris", "fortnox"]) {

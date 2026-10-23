@@ -1007,6 +1007,9 @@ async function kontoInre(request, env, ctx, { now = () => Date.now(), fetchImpl 
     if (!tillatna || !tillatna.includes(m0)) return svar({ status: "okand_rutt" }, 404); // okänd rutt eller fel metod: 404 före sessionen (som K1)
     if (!s) return svar({ status: "ej_inloggad" }, 401);
     const deps = { aktivPren, proMode, fetchImpl };
+    // D7.2 steg 1–2: bara ägaren (PRO_OWNER_EMAIL, prövad på servern) tills leverantörsflödet är verifierat i sandlåda/licens. Andra konton får 404,
+    // så att en Spiris-knapp aldrig leder till en oregistrerad callback. Öppnas med en kodändring, ingen ny Worker-variabel (62/64).
+    if (vag.startsWith("/integration/") && (await rattFor(env, s.kontoId, nu, deps)).roll !== "agare") return svar({ status: "okand_rutt" }, 404);
     if (vag.startsWith("/integration/")) { let kropp = null; if (m0 === "POST") { try { kropp = await lasKropp(request); } catch { kropp = null; } } return integrationRoute(vag, m0, url, env, s, { konto, nu, fetchImpl, svar, kropp }); } // D7.2: kontoId bara ur sessionen
 
     if (vag === "/kop") {
