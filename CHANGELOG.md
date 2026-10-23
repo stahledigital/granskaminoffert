@@ -4,6 +4,10 @@
 
 Släppkandidat som slår ihop `claude/f7-s7a` (F7 S7a, spec F7_FORKONTROLL 2026-10-23, oberoende granskad) och `claude/gmo-rabatt` (Anders beslut 2026-10-23, granskad i fyra omgångar) på gren `claude/gmo-v17`. `WORKER_VERSION` gmo-api-v17, `EXTRACT_VERSION` avlasning-5.
 
+### Femte testplatsen (Anders 2026-10-23)
+
+- `MAX_TESTPLATSER` 4 → 5 i `pro_konto.js`; `TEST_STD_S` (30 d) och `TEST_MAX_S` (90 d) oförändrade. En femte aktiv plats tas emot, en sjätte ger 409 `{status:"fullt", max:5}`; befintliga platser påverkas inte. Inga platser skapas av släppet och ingen ny väg förbi ägarens inbjudan med mejlad steg-kod (`/pro/konto/agare/inbjud`). Tester: `pro_konto_k5.test.mjs`. Sajtens ägarvy visar räknaren ur API:ets `max`, men texterna `konto/k5.ingress` ("Högst 3 …") och `konto/k5.fel_fullt` ("Alla 3 testplatser …") är hårdkodade i Materialräknarens `agare-ui.js` och ändras inte här.
+
 ### Publiceringsskriptet kör proven först
 
 - `DEPLOY_GRANSKAMINOFFERT_WORKER.command` kör proven innan något annat görs och stoppar med ett svenskt meddelande (ingen publicering) vid röda prov, saknad provfil (`referens`, `rabatt`, `rules`, `rules_d03`) eller saknad Node. Med Miniflare (`MINIFLARE_DIR` eller verktygskopian under `ARBETSKOPIOR/…/tools/mf`) körs hela sviten; utan Miniflare hela sviten utom filerna som kräver workerd-harnesset. KV-uppslaget, bygg-id, `wrangler deploy` och `/health`-kontrollen är oförändrade.
