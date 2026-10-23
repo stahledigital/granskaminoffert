@@ -57,10 +57,17 @@ function priceOf(x) {
   const pctBaseSum = x.discountBase === "material" ? num(x.materialSumSek) : x.discountBase === "arbete" ? num(x.laborSumSek)
     : x.discountBase === "material_och_arbete" ? (num(x.laborSumSek) === null || num(x.materialSumSek) === null ? null : x.laborSumSek + x.materialSumSek)
     : (known.length === 4 ? known.reduce((a, b) => a + b, 0) : null);
-  const discount = x.discountStage === "efter_rot" ? 0
-    : num(x.discountSek) !== null && x.discountSek > 0 ? x.discountSek
+  // ROT-avdraget avläst som rabatt (samma belopp som ROT, eller med tomt ROT-fält exakt 30 %/50 % av arbetet inkl. moms) används inte.
+  const fR = x.vatMode === "exkl" ? 1.25 : x.vatMode === "inkl" ? 1 : null;
+  const dk = num(x.discountSek);
+  const rotEcho = dk !== null && dk > 0 && (rot !== null && rot > 0 ? dk === rot
+    : rot === null && num(x.laborSumSek) !== null && fR !== null && [0.3, 0.5].some((r) => Math.abs(x.laborSumSek * fR * r - dk) <= 1));
+  const discount = x.discountStage === "efter_rot" || rotEcho ? 0
+    : dk !== null && dk > 0 ? dk
     : pctOk && pctBaseSum !== null ? round(pctBaseSum * x.discountPct / 100) : 0;
-  const partsSum = known.length >= 2 ? known.reduce((a, b) => a + b, 0) - discount : null;
+  const gross = known.length >= 2 ? known.reduce((a, b) => a + b, 0) : null;
+  // Med rabatt: hela kronor, och ingen delsumma alls om rabatten är större än delposterna (då är något felläst).
+  const partsSum = gross === null ? null : !discount ? gross : discount > gross ? null : round(gross - discount);
   // Normaliserad total före ROT på båda momsbaserna, bara när basen uttryckligen är känd.
   let incVat = null, exVat = null;
   if (before !== null && basis) {
