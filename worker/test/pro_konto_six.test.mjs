@@ -78,11 +78,12 @@ test('six seats: real owner handler admits sixth, preserves five, rejects sevent
  const six=await bjudIn(e,O,T6);assert.equal(six.r.status,200,'sixth actual invite');assert.equal(six.j.testplats.slut,nuS()+30*DAG);assert.equal(six.j.mejl,'av');A3(six.r,'sixth');
  const l=await agare(e,O,'testplatser'),j=await l.json();assert.equal(l.status,200);assert.equal(j.max,6);assert.equal(j.aktiva,6);assert.equal(j.testplatser.length,6);assert.equal(MAX_TESTPLATSER,6);
  for(const p of old)assert.deepEqual(j.testplatser.find(x=>x.id===p.id),p,'original seat bytes');
+ const sixthSession=await loggaIn(e,T6);
  const code=await stegkod(e),seven=await agare(e,O,'inbjud',{epost:T7,kod:code});assert.equal(seven.status,409);assert.deepEqual(await seven.json(),{status:'fullt',max:6});A3(seven,'seventh');
  assert.deepEqual((await(await agare(e,O,'testplatser')).json()).testplatser,j.testplatser,'rejection leaves all seats intact');
  assert.equal((await agare(e,O,'aterkalla',{id:six.j.testplats.id,kod:code})).status,200,'full response did not consume code');
  for(const ep of[T1,T2,T3,T4,T5])assert.equal((await jag(e,await loggaIn(e,ep))).roll,'test','old test right');
- assert.equal((await jag(e,await loggaIn(e,T6))).roll,'ingen','revoked sixth');assert.deepEqual(natAnrop.filter(u=>u!=='https://api.resend.com/emails'),[]);
+ assert.equal((await jag(e,sixthSession)).roll,'ingen','revoked sixth');assert.deepEqual(natAnrop.filter(u=>u!=='https://api.resend.com/emails'),[]);
 });
 test('sixth needs actual owner step-up; non-owner and expired code cannot take additional seat',async()=>{
  const e=kEnv(),O=await loggaIn(e);for(const ep of[T1,T2,T3,T4,T5])assert.equal((await bjudIn(e,O,ep)).r.status,200);
