@@ -1,3 +1,4 @@
+import { proPublicUrl, proSite as sajt } from "./pro_public_url.js";
 // Materialräknaren PRO – köp, rätt att använda, bekräftelse och ångerfunktion (stödkandidat P3 v2, Claude, 2026-10-17). WORK-ID KP-2026-10-16-01.
 // Avsedd för den befintliga GMO-workern `granskaminoffert-api` (Stripe live/test, Resend och KV finns redan bundna):
 // INGA nya hemligheter, konton eller domäner. Don integrerar enligt README (index.js-rutt, valfri webhookkrok, cron för proSchema).
@@ -50,10 +51,9 @@ function cors(origin, env) {
   return ok ? { "access-control-allow-origin": origin, vary: "Origin", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "content-type", "access-control-max-age": "600" } : { vary: "Origin" };
 }
 const httpsUrl = (v, def) => { const u = String(v || def); return /^https:\/\/[^\s"'<>]+$/.test(u) ? u : null; };
-const sajt = (env) => httpsUrl(env.PRO_SITE_URL, "https://stahledigital.se").replace(/\/$/, "");
-function returUrl(env) { return httpsUrl(env.PRO_RETURN_URL, sajt(env) + "/verkstaden/materialraknaren/offert"); }
-const angraUrl = (env) => sajt(env) + "/verkstaden/materialraknaren/angra";
-const villkorUrl = (env) => sajt(env) + "/verkstaden/materialraknaren/villkor";
+function returUrl(env) { return httpsUrl(env.PRO_RETURN_URL, proPublicUrl(env, "/offert")); }
+const angraUrl = (env) => proPublicUrl(env, "/angra");
+const villkorUrl = (env) => proPublicUrl(env, "/villkor");
 
 // ---------- priser (servern äger dem; vakt = Anders ramar) ----------
 const rhuExkl = (inkl) => Math.floor((8 * inkl + 5) / 10); // RHU(inkl / 1,25) för 25 % moms, heltal öre

@@ -1,3 +1,4 @@
+import { proPublicUrl } from "./pro_public_url.js";
 // Materialräknaren PRO · konto, engångskod och sessioner (KONTO-SYNK K1, Donatello 2026-10-18). WORK-ID KP-2026-10-16-01.
 // Spec: SAJT OCH APPAR/GRANSKNINGAR/Materialraknaren-PRO-2026-10-16/KONTO_SYNK/ETAPPSPEC_KONTO_SYNK_V1.md (sha cb18ec93…) §1 och §2 K1.
 //
@@ -800,13 +801,12 @@ const enhetNamn = (b, request) => {
   const br = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "";
   return [br, os].filter(Boolean).join(" på ") || "Okänd enhet";
 };
-const sajt = (env) => { const u = String(env.PRO_SITE_URL || "https://stahledigital.se"); return (/^https:\/\/[^\s"'<>]+$/.test(u) ? u : "https://stahledigital.se").replace(/\/$/, ""); };
 
 async function skickaKod(env, { till, kodId, kod }) {
   const m = mailHttpConfig(env); if (!m.on) return { ok: false, kod: "mejl_av" };
   if (!validMailTo(till)) return { ok: false, kod: "ogiltig_mottagare" };
   const from = String(env.PRO_MAIL_FROM || "").trim() || m.from.replace(/^[^<]*</, `${MEJL.avsandare_namn} <`);
-  const lank = `${sajt(env)}/verkstaden/materialraknaren/offert#pro-konto=${kodId}.${kod}`; // fragment: når aldrig någon serverlogg eller Referer
+  const lank = `${proPublicUrl(env, "/offert")}#pro-konto=${kodId}.${kod}`; // fragment: når aldrig någon serverlogg eller Referer
   const ut = await sendViaHttp(env, { req: buildMailRequest({ from, to: till, subject: KONTO_TEXT.kod_amne, text: fyll(KONTO_TEXT.kod, { kod, lank }) }), idemKey: `pro-konto-kod-${kodId}` });
   return ut.ok ? { ok: true } : { ok: false, kod: ut.code || ut.kind };
 }
@@ -1158,7 +1158,7 @@ async function skickaTestMejl(env, { till, id, slut, nu }) {
   if (!validMailTo(till)) return "ogiltig_mottagare";
   const from = String(env.PRO_MAIL_FROM || "").trim() || m.from.replace(/^[^<]*</, `${MEJL.avsandare_namn} <`);
   const sel = sellerInfo(env), dagar = Math.max(1, Math.round((slut - nu) / DAG));
-  const text = fyll(KONTO_TEXT.test, { dagar, slutdatum: datumSv(slut), lank: `${sajt(env)}/verkstaden/materialraknaren/offert`, kontakt: sel.email || "", saljare: sellerLines(sel).join("\n") });
+  const text = fyll(KONTO_TEXT.test, { dagar, slutdatum: datumSv(slut), lank: `${proPublicUrl(env, "/offert")}`, kontakt: sel.email || "", saljare: sellerLines(sel).join("\n") });
   const ut = await sendViaHttp(env, { req: buildMailRequest({ from, to: till, subject: fyll(KONTO_TEXT.test_amne, { dagar }), text }), idemKey: `pro-konto-test-${id}-${slut}` });
   return ut.ok ? "skickat" : "fel";
 }
@@ -1222,7 +1222,7 @@ export async function kontoSchema(env, { now = () => Date.now(), fetchImpl = fet
       const from = String(env.PRO_MAIL_FROM || "").trim() || m.from.replace(/^[^<]*</, `${MEJL.avsandare_namn} <`);
       const datum = new Date((nu + RADERA_EFTER_AVISERING_S) * 1000).toISOString().slice(0, 10);
       const ut = await sendViaHttp(env, { req: buildMailRequest({ from, to: epost, subject: KONTO_TEXT.avisering_amne,
-        text: fyll(KONTO_TEXT.avisering, { datum, lank: `${sajt(env)}/verkstaden/materialraknaren/offert` }) }), idemKey: `pro-konto-avisering-${x.kontoId}-${x.senast_slut}` });
+        text: fyll(KONTO_TEXT.avisering, { datum, lank: `${proPublicUrl(env, "/offert")}` }) }), idemKey: `pro-konto-avisering-${x.kontoId}-${x.senast_slut}` });
       if (!ut.ok) throw new Error("mejl:" + (ut.code || ut.kind));
     }
     await register(env, "markera_aviserad", { nu, kontoId: x.kontoId }); rapport.aviserade++;

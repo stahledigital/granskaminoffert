@@ -300,3 +300,11 @@ test("hjälpfunktioner: belopp och projektkod som P2/P4", () => {
   assert.deepEqual([krText(14900), krText(11920), krText(224100), krText(-2980)], ["149", "119,20", "2 241", "-29,80"]);
   assert.match(projektKod(PID), /^[A-HJ-NP-Z2-9]{4}$/);
 });
+
+test('new-domain checkout uses direct product return paths',async()=>{
+ const env=ENV({PRO_SITE_URL:'https://materialraknaren.se'}), fs=fakeStripe();
+ const r=await handlePro(req('/pro/checkout',{method:'POST',body:KOP('projekt')}),env,{}, {fetchImpl:fs,now:nu});assert.equal(r.status,200);
+ const body=fs.st.anrop.find(a=>a.path==='/checkout/sessions'&&a.m==='POST').b;
+ assert.equal(body.success_url,'https://materialraknaren.se/offert?pro=ok&session_id={CHECKOUT_SESSION_ID}');
+ assert.equal(body.cancel_url,'https://materialraknaren.se/offert?pro=avbrutet');
+});

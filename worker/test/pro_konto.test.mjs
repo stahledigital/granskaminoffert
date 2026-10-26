@@ -344,3 +344,10 @@ test("okänd rutt och fel metod under /pro/konto i inbjudna: 404; OPTIONS 403 (i
   assert.equal((await f(e, "/pro/konto/jag", { method: "POST", body: {} })).status, 404);
   assert.equal((await f(e, "/pro/konto/kod", { method: "OPTIONS" })).status, 403);
 });
+
+test('new-domain account code mail links directly to the same product account flow',async()=>{
+ const e=kEnv({PRO_SITE_URL:'https://materialraknaren.se'});
+ const r=await f(e,'/pro/konto/kod',{method:'POST',body:{epost:AGARE}});assert.equal(r.status,202);assert.equal(mejl.length,1);
+ assert.match(mejl[0].text,/https:\/\/materialraknaren\.se\/offert#pro-konto=/);
+ assert.doesNotMatch(mejl[0].text,/\/verkstaden\/materialraknaren/);
+});
