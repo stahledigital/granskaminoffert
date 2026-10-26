@@ -17,7 +17,7 @@
 //   ärende med paginering, ångerns steg 2 förbrukar inte bekräftelsen före registreringen, mottagningsbevis alltid till köpets e-post,
 //   inloggning svarar alltid 202 och hittar e-post med versaler, /pro/aterhamta för projektköp i en annan webbläsare, gränser per IP.
 import { hmacSha256Hex, timingSafeEqual, b64url, randomToken, sha256Hex, jsonResponse } from "./compare_util.js";
-import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./compare_mailer.js";
+import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./pro_mailer.js";
 import { sellerInfo, sellerLines } from "./compare_config.js";
 import { SAMTYCKE_VERSION, VILLKOR_VERSION, SAMTYCKE_TEXT, MEJL, fyll, planNamn, mejlTexter } from "./pro_texter.js";
 import { register, epostHash } from "./pro_konto.js";

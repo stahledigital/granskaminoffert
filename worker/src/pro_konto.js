@@ -21,7 +21,7 @@
 //   A4 EU-jurisdiktion för DO-id:n bakom var PRO_DO_JURISDIKTION="eu": lokal workerd svarar "Jurisdiction restrictions are not
 //      implemented in workerd" (provat 2026-10-18), så den provas i node-dubbeln och live. K6 slår på den i wrangler.toml (se nr()).
 import { hmacSha256Hex, timingSafeEqual, randomToken, randomHex, sha256Hex, jsonResponse } from "./compare_util.js";
-import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./compare_mailer.js";
+import { mailHttpConfig, buildMailRequest, sendViaHttp, validMailTo } from "./pro_mailer.js";
 import { MEJL } from "./pro_texter.js";
 import { sellerInfo, sellerLines } from "./compare_config.js";
 import { readRoofProject } from "./mr_project2/P4_PROJEKT/pro-projekt-v2.mjs";

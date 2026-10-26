@@ -116,6 +116,8 @@ PRO_ALLOWED_ORIGIN = "https://stahledigital.se,https://materialraknaren.se"
 # Deploy this final configuration only once the new public frontend is verified.
 PRO_SITE_URL = "https://materialraknaren.se"
 PRO_MAIL_FROM = "Materialräknaren <support@materialraknaren.se>"
+# Secret PRO_MAIL_API_KEY: Resend Sending access restricted to materialraknaren.se.
+# Set only in Cloudflare secret storage; never replace the company COMPARE_MAIL_API_KEY.
 # KONTO-SYNK K1 (KP-2026-10-16-01): konto, engångskod och sessioner under /pro/konto/*. off = 503 för allt där, inga mejl, inga DO-anrop.
 # "inbjudna" = koder bara till ägaren och aktiva testbevis; övriga får samma 202 utan mejl. Läget ändras först i K6 enligt specen.
 # K6 (KP-2026-10-16-01, Anders GO 08:45 och 11:51/14:23, betalning off): "inbjudna". Bara inloggningskoden (MEJL_KONTO) går ut;
