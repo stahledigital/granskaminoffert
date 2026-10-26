@@ -100,11 +100,13 @@ test("/pro utan snedstreck och /proX går inte till PRO-rutterna", async () => {
   }
 });
 
-test("wrangler.toml: avgränsad TEST enligt nattmandatet, samma origin/cron och inga kampanjkoder", () => {
+test("wrangler.toml: avgränsad TEST enligt nattmandatet, godkända origins/samma cron och inga kampanjkoder", () => {
   const t = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
   assert.match(t, /^\[triggers\]\ncrons = \["17 \* \* \* \*"\]$/m);
   assert.match(t, /^PRO_PAYMENTS = "live"$/m); // Anders nattmandat: live först efter verklig treplans-Testkedja.
-  assert.match(t, /^PRO_ALLOWED_ORIGIN = "https:\/\/stahledigital\.se"$/m);
+  assert.match(t, /^PRO_ALLOWED_ORIGIN = "https:\/\/stahledigital\.se,https:\/\/materialraknaren\.se"$/m);
+  assert.match(t, /^PRO_SITE_URL = "https:\/\/materialraknaren\.se"$/m);
+  assert.match(t, /^PRO_MAIL_FROM = "Materialräknaren <support@materialraknaren\.se>"$/m);
   assert.equal((t.match(/^PRO_PAYMENTS\s*=/gm) || []).length, 1);
   assert.doesNotMatch(t, /^PRO_KAMPANJKODER\s*=/m);
   assert.doesNotMatch(t, /^PRO_PRIS_/m);
