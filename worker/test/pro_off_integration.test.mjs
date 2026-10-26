@@ -106,7 +106,7 @@ test("wrangler.toml: avgränsad TEST enligt nattmandatet, godkända origins/samm
   assert.match(t, /^PRO_PAYMENTS = "live"$/m); // Anders nattmandat: live först efter verklig treplans-Testkedja.
   assert.match(t, /^PRO_ALLOWED_ORIGIN = "https:\/\/stahledigital\.se,https:\/\/materialraknaren\.se"$/m);
   assert.match(t, /^PRO_SITE_URL = "https:\/\/materialraknaren\.se"$/m);
-  assert.match(t, /^PRO_MAIL_FROM = "Materialräknaren <support@materialraknaren\.se>"$/m);
+  assert.doesNotMatch(t, /^PRO_MAIL_FROM\s*=/m); // product adapter selects sender without another runtime slot
   assert.equal((t.match(/^PRO_PAYMENTS\s*=/gm) || []).length, 1);
   assert.doesNotMatch(t, /^PRO_KAMPANJKODER\s*=/m);
   assert.doesNotMatch(t, /^PRO_PRIS_/m);

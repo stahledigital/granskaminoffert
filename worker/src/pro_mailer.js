@@ -3,7 +3,7 @@ import {mailHttpConfig as baseConfig,sendViaHttp as baseSend} from './compare_ma
 export {buildMailRequest,validMailTo} from './compare_mailer.js';
 function transportEnv(env) {
   return env && Object.prototype.hasOwnProperty.call(env,'PRO_MAIL_API_KEY')
-    ? {...env,COMPARE_MAIL_API_KEY:env.PRO_MAIL_API_KEY} : env;
+    ? {...env,COMPARE_MAIL_API_KEY:env.PRO_MAIL_API_KEY,COMPARE_MAIL_FROM:env.PRO_MAIL_FROM || "Materialräknaren <support@materialraknaren.se>"} : env;
 }
 export const mailHttpConfig=env=>baseConfig(transportEnv(env));
 export function sendViaHttp(env,data) {

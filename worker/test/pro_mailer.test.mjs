@@ -7,6 +7,7 @@ test('PRO transport selects its restricted key without changing the company adap
  globalThis.fetch=async(url,init)=>{assert.equal(url,'https://api.resend.com/emails');auth.push(init.headers.authorization);return Response.json({id:'synthetic_msg_123456'})};
  try {
   assert.equal(mailHttpConfig(e).on,true);
+  assert.equal(mailHttpConfig(e).from,"Materialräknaren <support@materialraknaren.se>");
   await sendViaHttp(e,{req:{from:'Materialräknaren <support@materialraknaren.se>',to:['synthetic@example.test'],text:'synthetic'},idemKey:'synthetic'});
   assert.equal(auth[0],'Bearer '+fresh);assert.equal(e.COMPARE_MAIL_API_KEY,old);
   const {sendViaHttp:companySend}=await import('../src/compare_mailer.js');await companySend(e,{req:{},idemKey:'company-fixture'});
