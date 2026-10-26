@@ -12,6 +12,10 @@ Ladda upp, fota eller klistra in en hantverkaroffert och få en begriplig genomg
 Frontend: committa på `main`, dubbelklicka `Kommandon/PUSH_GRANSKAMINOFFERT.command` (eller `Kommandon/PUSH_ALLT.command`) i Ståhle Digital. Pages bygger på någon minut; verifiera att `app-version` på live matchar.
 Backend: dubbelklicka `DEPLOY_GRANSKAMINOFFERT_WORKER.command` (wrangler deploy + /health-kontroll). Reserv: Quick Edit i Cloudflare, se `worker/README.md`. Ordning vid prisändringar: frontend/metodsida först, sedan workern – prisjämförelsen får inte vara live utan `/sa-granskar-vi-priser/`.
 
+## FAQ och instruktionsfilmer
+
+`/faq/` innehåller statiska svar och fem publicerade instruktionsfilmer. `assets/gmo-help.js` lägger in en YouTube-spelare först efter uttryckligt knapptryck; sidans bilder ligger lokalt och länkarna fungerar utan JavaScript. Alla tre appingångarna har en hjälplänk i ny flik så att pågående offertarbete bevaras.
+
 ## Test
 `cd worker && node --test test/*.test.mjs` – workern utan nätverk, inkl. fem testofferter för prisreglerna och kontroll av förbjudna ord. Frontend verifieras headless på 375 och 1280 px (inga konsolfel, ingen sidoscroll, exempelflödet renderar).
 

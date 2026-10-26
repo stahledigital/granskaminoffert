@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## gmo-v24-faq – instruktionsfilmer och FAQ (Codex 2026-10-26)
+
+Ny `/faq/` med fem korrektmappade instruktionsfilmer och kompletterande svar. Spelare laddas först efter användarval via youtube-nocookie.com; inga YouTube-bilder eller externa skript i första laddningen. Text och direktlänkar fungerar utan JavaScript. Alla tre appingångarna länkar till hjälp i ny flik för att bevara pågående arbete. Stabila frågeankare, canonical, sitemap och faktiska VideoObject-uppgifter. Inga ändringar i granskning, betalning, konto eller backend.
+
 ## gmo-api-v17 – F7 S7a GET /pro/referens + rabatt i avläsning och summering (GMO-RABATT) (Claude Code 2026-10-23)
 
 Släppkandidat som slår ihop `claude/f7-s7a` (F7 S7a, spec F7_FORKONTROLL 2026-10-23, oberoende granskad) och `claude/gmo-rabatt` (Anders beslut 2026-10-23, granskad i fyra omgångar) på gren `claude/gmo-v17`. `WORKER_VERSION` gmo-api-v17, `EXTRACT_VERSION` avlasning-5.
