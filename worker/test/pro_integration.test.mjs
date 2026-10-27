@@ -9,6 +9,45 @@ import { ProRegister, ProKonto } from "../src/pro_konto.js";
 import { dekryptera, callbackUrl, LEV } from "../src/pro_integration.js";
 import { namnrymd } from "./helpers/pro_do_dubbel.mjs";
 import { ENV } from "./stripe_dubbel.mjs";
+test("Spiris ny domän: authorize och kodväxling använder samma registrerade URI; återkomst går till nya ägarsidan", async () => {
+  const env = kEnv({ ...NYCKLAR, PRO_SITE_URL: "https://materialraknaren.se" }), c = await loggaIn(env);
+  const { s, r } = await koppla(env, c, "spiris");
+  assert.equal(new URL(s.url).searchParams.get("redirect_uri"), "https://materialraknaren.se/api/pro/konto/integration/spiris/callback");
+  const token = levAnrop().find((x) => x.u === LEV.spiris.token);
+  assert.equal(new URLSearchParams(token.init.body).get("redirect_uri"), "https://materialraknaren.se/api/pro/konto/integration/spiris/callback");
+  assert.equal(r.status, 303);
+  assert.equal(r.headers.get("location"), "https://materialraknaren.se/konto/agare?integration=spiris&resultat=kopplad#integration");
+  assert.equal(r.headers.get("cache-control"), "no-store");
+  assert.equal(await r.text(), "");
+});
+
+test("Spiris avbrott och fel på nya domänen återför till samma ägarsida utan nya nycklar eller tokenläckage", async () => {
+  const env = kEnv({ ...NYCKLAR, PRO_SITE_URL: "https://materialraknaren.se" }), c = await loggaIn(env);
+  const cb = (q) => f(env, "/pro/konto/integration/spiris/callback?" + q, { cookie: c });
+  const check = (r, result) => assert.equal(r.headers.get("location"), "https://materialraknaren.se/konto/agare?integration=spiris&resultat=" + result + "#integration");
+  check(await cb("error=access_denied"), "avbruten");
+  check(await cb("code=x&state=" + "A".repeat(43)), "ogiltig");
+  const st = await (await f(env, "/pro/konto/integration/spiris/start", { method: "POST", body: {}, cookie: c })).json();
+  lev.token = { status: 400, body: { error: "invalid_grant" } };
+  check(await cb("code=x&state=" + new URL(st.url).searchParams.get("state")), "fel");
+  delete env.SPIRIS_CLIENT_SECRET;
+  const before = levAnrop().length;
+  check(await cb("error=access_denied"), "ej_konfigurerad");
+  assert.equal(levAnrop().length, before, "saknad credential gör inga leverantörsanrop");
+});
+
+test("Spiris domänbyte behåller äldre konfiguration och byter inte Fortnox ännu oregistrerade callback", async () => {
+  for (const [site, provider, want] of [
+    [undefined, "spiris", "https://stahledigital.se/api/pro/konto/integration/spiris/callback"],
+    ["https://stahledigital.se", "spiris", "https://stahledigital.se/api/pro/konto/integration/spiris/callback"],
+    ["https://materialraknaren.se", "fortnox", "https://stahledigital.se/api/pro/konto/integration/fortnox/callback"],
+    ["https://materialraknaren.se.evil.example", "spiris", "https://stahledigital.se/api/pro/konto/integration/spiris/callback"],
+  ]) {
+    const env = kEnv({ ...NYCKLAR, PRO_SITE_URL: site }), c = await loggaIn(env);
+    const s = await (await f(env, "/pro/konto/integration/" + provider + "/start", { method: "POST", body: {}, cookie: c })).json();
+    assert.equal(new URL(s.url).searchParams.get("redirect_uri"), want);
+  }
+});
 
 const API = "https://granskaminoffert-api.anders-316.workers.dev", SAJT = "https://stahledigital.se", AGARE = "anders@stahledigital.se";
 const NYCKEL = Buffer.alloc(32, 7).toString("base64"), TOKEN = { access: "AT-hemlig-" + "a".repeat(40), refresh: "RT-hemlig-" + "b".repeat(40) };

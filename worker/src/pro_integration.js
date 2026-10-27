@@ -3,6 +3,7 @@
 // ProKonto-objekt (jurisdiktion "eu"); inget i KV, webbläsaren eller loggar. Leverantörsadresser och scopes ur INTEGRATION_FORTNOX_SPIRIS.md
 // (källor 2026-10-23) – de verifieras mot sandlåda/licens i steg 2 innan något påstås fungera. Inga anrop görs utan konfigurerade nycklar (I01).
 import { freezeOfferExport, planOfferTransfer } from "./mr_project2/EXPORTER/offert-export.mjs"; // C10 f960812 (kopia, hashlåst i test)
+import { proSite, proPublicUrl } from "./pro_public_url.js";
 export const LEV = Object.freeze({
   fortnox: Object.freeze({ namn: "Fortnox", id: "FORTNOX_CLIENT_ID", secret: "FORTNOX_CLIENT_SECRET",
     auth: "https://apps.fortnox.se/oauth-v1/auth", token: "https://apps.fortnox.se/oauth-v1/token", revoke: null,
@@ -18,7 +19,10 @@ const ENC = new TextEncoder(), DEC = new TextDecoder();
 const b64u = (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const fran64 = (s) => Uint8Array.from(atob(String(s)), (c) => c.charCodeAt(0));
 const slump = (n) => crypto.getRandomValues(new Uint8Array(n));
-export const callbackUrl = (p) => `${ORIGIN}/api/pro/konto/integration/${p}/callback`;
+// Spiris har registrerat nya domänen. Fortnox behåller sin adress tills dess
+// separata portalregistrering är verifierad; inga nya runtime-inställningar behövs.
+const nySpirisSajt = (p, env) => p === "spiris" && proSite(env) === "https://materialraknaren.se";
+export const callbackUrl = (p, env) => `${nySpirisSajt(p, env) ? "https://materialraknaren.se" : ORIGIN}/api/pro/konto/integration/${p}/callback`;
 export const ledig = (p) => Object.prototype.hasOwnProperty.call(LEV, p);
 
 // Konfigurerad = båda klientnycklarna och krypteringsnyckeln finns. Värdena läses aldrig ut eller loggas; saknas något görs inga anrop (I01).
@@ -48,7 +52,7 @@ export async function dekryptera(env, kontoId, p, { iv, chiffer }) {
 // OAuth-start: state (32 byte) och PKCE-verifierare sparas i kontots objekt med 10 min livslängd; adressen byggs med exakt registrerad callback.
 export async function startUrl(env, p, { state, verifier }) {
   const L = LEV[p], ch = b64u(new Uint8Array(await crypto.subtle.digest("SHA-256", ENC.encode(verifier))));
-  const q = new URLSearchParams({ client_id: env[L.id], redirect_uri: callbackUrl(p), response_type: "code", scope: L.scope, state, code_challenge: ch, code_challenge_method: "S256", ...L.extra });
+  const q = new URLSearchParams({ client_id: env[L.id], redirect_uri: callbackUrl(p, env), response_type: "code", scope: L.scope, state, code_challenge: ch, code_challenge_method: "S256", ...L.extra });
   return `${L.auth}?${q}`;
 }
 export const nyState = () => ({ state: b64u(slump(32)), verifier: b64u(slump(48)) });
@@ -64,7 +68,7 @@ async function tokenAnrop(env, p, form, fetchImpl) {
   const exp = Number(j.expires_in);
   return { access: j.access_token, refresh: j.refresh_token, utgar: Number.isFinite(exp) && exp > 0 ? exp : 3600 };
 }
-export const vaxlaKod = (env, p, { kod, verifier }, fetchImpl) => tokenAnrop(env, p, { grant_type: "authorization_code", code: kod, redirect_uri: callbackUrl(p), code_verifier: verifier }, fetchImpl);
+export const vaxlaKod = (env, p, { kod, verifier }, fetchImpl) => tokenAnrop(env, p, { grant_type: "authorization_code", code: kod, redirect_uri: callbackUrl(p, env), code_verifier: verifier }, fetchImpl);
 export const fornya = (env, p, refresh, fetchImpl) => tokenAnrop(env, p, { grant_type: "refresh_token", refresh_token: refresh }, fetchImpl);
 
 // Bolaget som användaren valde hos leverantören (visas i PRO; I04). Saknas ett identifierande bolag sparas ingen koppling.
@@ -88,7 +92,10 @@ export async function aterkalla(env, p, refresh, fetchImpl) {
 export const INTEGRATION_METODER = { "/integration/status": ["GET"],
   ...Object.fromEntries(Object.keys(LEV).flatMap((p) => [[`/integration/${p}/start`, ["POST"]], [`/integration/${p}/callback`, ["GET"]], [`/integration/${p}/koppla-fran`, ["POST"]], [`/integration/${p}/forbered`, ["POST"]]])) };
 // Steg 1–2: tillbaka till ägarsidan, där panelen finns så länge integrationen bara är ägarens (se spärren i pro_konto.js).
-const tillbaka = (p, resultat) => new Response(null, { status: 303, headers: { Location: `/verkstaden/materialraknaren/konto/agare?integration=${p}&resultat=${resultat}#integration`, "Cache-Control": "no-store" } });
+const tillbaka = (env, p, resultat) => {
+  const path = nySpirisSajt(p, env) ? proPublicUrl(env, "/konto/agare") : "/verkstaden/materialraknaren/konto/agare";
+  return new Response(null, { status: 303, headers: { Location: `${path}?integration=${p}&resultat=${resultat}#integration`, "Cache-Control": "no-store" } });
+};
 
 export async function integrationRoute(vag, m0, url, env, s, { konto, nu, fetchImpl, svar, kropp = null }) {
   if (vag === "/integration/status") {
@@ -106,7 +113,7 @@ export async function integrationRoute(vag, m0, url, env, s, { konto, nu, fetchI
     const r = await konto(env, s.kontoId, "int_ta_bort", { nu, provider: p });
     return svar({ status: "frankopplad", fanns: !!(r && r.fanns), aterkallning });
   }
-  if (!konfigurerad(env, p)) return m[2] === "callback" ? tillbaka(p, "ej_konfigurerad") : svar({ status: "ej_konfigurerad", provider: p }, 503);
+  if (!konfigurerad(env, p)) return m[2] === "callback" ? tillbaka(env, p, "ej_konfigurerad") : svar({ status: "ej_konfigurerad", provider: p }, 503);
   if (m[2] === "start") {
     const st = nyState();
     const r = await konto(env, s.kontoId, "int_state_ny", { nu, provider: p, state: st.state, verifier: st.verifier });
@@ -117,17 +124,17 @@ export async function integrationRoute(vag, m0, url, env, s, { konto, nu, fetchI
   const state = url.searchParams.get("state") || "", kod = url.searchParams.get("code") || "";
   if (url.searchParams.get("error") || !/^[A-Za-z0-9_-]{43}$/.test(state) || !kod || kod.length > 2048) {
     if (/^[A-Za-z0-9_-]{43}$/.test(state)) await konto(env, s.kontoId, "int_state_los", { nu, state, provider: p });
-    return tillbaka(p, "avbruten");
+    return tillbaka(env, p, "avbruten");
   }
   const l = await konto(env, s.kontoId, "int_state_los", { nu, state, provider: p });
-  if (!l || !l.ok) return tillbaka(p, "ogiltig");
+  if (!l || !l.ok) return tillbaka(env, p, "ogiltig");
   const t = await vaxlaKod(env, p, { kod, verifier: l.verifier }, fetchImpl);
-  if (!t) return tillbaka(p, "fel");
+  if (!t) return tillbaka(env, p, "fel");
   const b = await lasBolag(p, t.access, fetchImpl);
-  if (!b) return tillbaka(p, "fel");
+  if (!b) return tillbaka(env, p, "fel");
   const c = await kryptera(env, s.kontoId, p, { access: t.access, refresh: t.refresh, utgar: nu + t.utgar });
   const r = await konto(env, s.kontoId, "int_spara", { nu, provider: p, tenant: b.tenant, tenant_namn: b.namn, ...c });
-  return tillbaka(p, r && r.ok ? "kopplad" : "fel");
+  return tillbaka(env, p, r && r.ok ? "kopplad" : "fel");
 }
 
 // Steg 1 ”export och kvitto”: det SPARADE projektet (aldrig klientens belopp) fryses på servern med C10, planeras mot kontots kvittologg för
