@@ -70,34 +70,35 @@ async function bjudIn(e, O, epost, extra = {}) {
   const r = await agare(e, O, "inbjud", { epost, kod: await stegkod(e), ...extra }); return { r, j: await r.json() };
 }
 
-// Anders 2026-10-25: sixth additional free PRO seat; existing five stay intact.
-const T7='testare.sju@example.se';
-test('six seats: real owner handler admits sixth, preserves five, rejects seventh before step-up consumption',async()=>{
+// Anders 2026-10-28: two requested free test seats; all existing six stay intact.
+const T7='testare.sju@example.se',T8='testare.atta@example.se',T9='testare.nio@example.se';
+test('eight seats: real owner handler admits requested seventh and eighth, preserves six, rejects ninth before step-up consumption',async()=>{
  const e=kEnv(),O=await loggaIn(e),old=[];
- for(const ep of[T1,T2,T3,T4,T5]){const x=await bjudIn(e,O,ep);assert.equal(x.r.status,200);old.push(x.j.testplats);}
- const six=await bjudIn(e,O,T6);assert.equal(six.r.status,200,'sixth actual invite');assert.equal(six.j.testplats.slut,nuS()+30*DAG);assert.equal(six.j.mejl,'av');A3(six.r,'sixth');
- const l=await agare(e,O,'testplatser'),j=await l.json();assert.equal(l.status,200);assert.equal(j.max,6);assert.equal(j.aktiva,6);assert.equal(j.testplatser.length,6);assert.equal(MAX_TESTPLATSER,6);
- for(const p of old)assert.deepEqual(j.testplatser.find(x=>x.id===p.id),p,'original seat bytes');
- const sixthSession=await loggaIn(e,T6);
- const code=await stegkod(e),seven=await agare(e,O,'inbjud',{epost:T7,kod:code});assert.equal(seven.status,409);assert.deepEqual(await seven.json(),{status:'fullt',max:6});A3(seven,'seventh');
+ for(const ep of[T1,T2,T3,T4,T5,T6]){const x=await bjudIn(e,O,ep);assert.equal(x.r.status,200);old.push(x.j.testplats);}
+ const seven=await bjudIn(e,O,T7);assert.equal(seven.r.status,200,'seventh actual invite');
+ const eight=await bjudIn(e,O,T8);assert.equal(eight.r.status,200,'eighth actual invite');assert.equal(eight.j.testplats.slut,nuS()+30*DAG);assert.equal(eight.j.mejl,'av');A3(eight.r,'eighth');
+ const l=await agare(e,O,'testplatser'),j=await l.json();assert.equal(l.status,200);assert.equal(j.max,8);assert.equal(j.aktiva,8);assert.equal(j.testplatser.length,8);assert.equal(MAX_TESTPLATSER,8);
+ for(const p of old)assert.deepEqual(j.testplatser.find(x=>x.id===p.id),p,'original six seat bytes');
+ const eighthSession=await loggaIn(e,T8);
+ const code=await stegkod(e),nine=await agare(e,O,'inbjud',{epost:T9,kod:code});assert.equal(nine.status,409);assert.deepEqual(await nine.json(),{status:'fullt',max:8});A3(nine,'ninth');
  assert.deepEqual((await(await agare(e,O,'testplatser')).json()).testplatser,j.testplatser,'rejection leaves all seats intact');
- assert.equal((await agare(e,O,'aterkalla',{id:six.j.testplats.id,kod:code})).status,200,'full response did not consume code');
- for(const ep of[T1,T2,T3,T4,T5])assert.equal((await jag(e,await loggaIn(e,ep))).roll,'test','old test right');
- assert.equal((await jag(e,sixthSession)).roll,'ingen','revoked sixth');assert.deepEqual(natAnrop.filter(u=>u!=='https://api.resend.com/emails'),[]);
+ assert.equal((await agare(e,O,'aterkalla',{id:eight.j.testplats.id,kod:code})).status,200,'full response did not consume code');
+ for(const ep of[T1,T2,T3,T4,T5,T6])assert.equal((await jag(e,await loggaIn(e,ep))).roll,'test','old test right');
+ assert.equal((await jag(e,eighthSession)).roll,'ingen','revoked eighth');assert.deepEqual(natAnrop.filter(u=>u!=='https://api.resend.com/emails'),[]);
 });
-test('sixth needs actual owner step-up; non-owner and expired code cannot take additional seat',async()=>{
- const e=kEnv(),O=await loggaIn(e);for(const ep of[T1,T2,T3,T4,T5])assert.equal((await bjudIn(e,O,ep)).r.status,200);
- const before=await(await agare(e,O,'testplatser')).json();assert.equal((await agare(e,O,'inbjud',{epost:T6})).status,401);
- const T=await loggaIn(e,T1);assert.equal((await agare(e,T,'inbjud',{epost:T6,kod:'123456'})).status,403);
- const stale=await stegkod(e);fram(11*60);assert.equal((await agare(e,O,'inbjud',{epost:T6,kod:stale})).status,401);
- const after=await(await agare(e,O,'testplatser')).json();assert.deepEqual(after.testplatser,before.testplatser);assert.equal(after.aktiva,5);assert.equal((await bjudIn(e,O,T6)).r.status,200);
+test('eighth needs actual owner step-up; non-owner and expired code cannot take additional seat',async()=>{
+ const e=kEnv(),O=await loggaIn(e);for(const ep of[T1,T2,T3,T4,T5,T6,T7])assert.equal((await bjudIn(e,O,ep)).r.status,200);
+ const before=await(await agare(e,O,'testplatser')).json();assert.equal((await agare(e,O,'inbjud',{epost:T8})).status,401);
+ const T=await loggaIn(e,T1);assert.equal((await agare(e,T,'inbjud',{epost:T8,kod:'123456'})).status,403);
+ const stale=await stegkod(e);fram(11*60);assert.equal((await agare(e,O,'inbjud',{epost:T8,kod:stale})).status,401);
+ const after=await(await agare(e,O,'testplatser')).json();assert.deepEqual(after.testplatser,before.testplatser);assert.equal(after.aktiva,7);assert.equal((await bjudIn(e,O,T8)).r.status,200);
 });
-test('expired seat extension shares six-capacity boundary and rejection code can free one seat',async()=>{
- const e=kEnv(),O=await loggaIn(e),expired=await bjudIn(e,O,T7,{slut:nuS()+DAG});assert.equal(expired.r.status,200);fram(2*DAG);
- for(const ep of[T1,T2,T3,T4,T5,T6])assert.equal((await bjudIn(e,O,ep)).r.status,200);
- const list=await(await agare(e,O,'testplatser')).json();assert.equal(list.aktiva,6);assert.equal(list.testplatser.find(x=>x.id===expired.j.testplats.id).status,'utgangen');
- const code=await stegkod(e),r=await agare(e,O,'forlang',{id:expired.j.testplats.id,slut:nuS()+30*DAG,kod:code});assert.equal(r.status,409);assert.deepEqual(await r.json(),{status:'fullt',max:6});
- const sixth=list.testplatser.find(x=>x.id!==expired.j.testplats.id&&x.status==='aktiv');assert.equal((await agare(e,O,'aterkalla',{id:sixth.id,kod:code})).status,200);
+test('expired seat extension shares eight-capacity boundary and rejection code can free one seat',async()=>{
+ const e=kEnv(),O=await loggaIn(e),expired=await bjudIn(e,O,T9,{slut:nuS()+DAG});assert.equal(expired.r.status,200);fram(2*DAG);
+ for(const ep of[T1,T2,T3,T4,T5,T6,T7,T8])assert.equal((await bjudIn(e,O,ep)).r.status,200);
+ const list=await(await agare(e,O,'testplatser')).json();assert.equal(list.aktiva,8);assert.equal(list.testplatser.find(x=>x.id===expired.j.testplats.id).status,'utgangen');
+ const code=await stegkod(e),r=await agare(e,O,'forlang',{id:expired.j.testplats.id,slut:nuS()+30*DAG,kod:code});assert.equal(r.status,409);assert.deepEqual(await r.json(),{status:'fullt',max:8});
+ const active=list.testplatser.find(x=>x.id!==expired.j.testplats.id&&x.status==='aktiv');assert.equal((await agare(e,O,'aterkalla',{id:active.id,kod:code})).status,200);
  assert.equal((await agare(e,O,'forlang',{id:expired.j.testplats.id,slut:nuS()+30*DAG,kod:await stegkod(e)})).status,200);
- const after=await(await agare(e,O,'testplatser')).json();assert.equal(after.aktiva,6);assert.equal(after.max,6);
+ const after=await(await agare(e,O,'testplatser')).json();assert.equal(after.aktiva,8);assert.equal(after.max,8);
 });

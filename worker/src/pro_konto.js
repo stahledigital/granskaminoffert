@@ -42,7 +42,7 @@ export const PROJ_MAX_BYTE = 256 * 1024, PROJ_MAX_RADER = 500, PROJ_MAX_ANTAL = 
 export const GRAV_S = 90 * DAG, AVISERA_S = LAS_DAGAR * DAG, RADERA_EFTER_AVISERING_S = 14 * DAG, KOP_PROJEKT_S = 30 * DAG;
 export const SCHEMA_MAX = 25; // högst så många konton per steg och cron-körning
 // K5: testplatser. Anders 2026-10-20: en fjärde pilotplats; 2026-10-23 (gmo-api-v17): en femte. Samma 30/90 dagar utan kort.
-export const MAX_TESTPLATSER = 6, TEST_STD_S = 30 * DAG, TEST_MAX_S = 90 * DAG;
+export const MAX_TESTPLATSER = 8, TEST_STD_S = 30 * DAG, TEST_MAX_S = 90 * DAG;
 const PROJ_RE = /^p_[0-9a-f]{32}$/, P4_FORMAT = "materialraknaren-pro-projekt";
 function projektVersion(data, id) {
   try { const p = JSON.parse(data); return p && p.format === P4_FORMAT && p.projektId === id && [1, 2].includes(p.version) ? p.version : null; }
