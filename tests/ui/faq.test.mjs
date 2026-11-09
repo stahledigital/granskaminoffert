@@ -103,3 +103,32 @@ test('App: FAQ is reachable from every entry without replacing entered offer tex
     } finally { await ctx.close(); }
   }
 });
+test('Homepage explains the offer review and links to its sources without JavaScript', async () => {
+  const { ctx } = await context({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
+  try {
+    const page = await ctx.newPage();
+    await page.goto(base + '/');
+    const about = page.getByRole('region', { name: 'Så granskar du en hantverkaroffert' });
+    assert.match(await about.innerText({ timeout: 3000 }), /Påhittat exempel/);
+    assert.equal(await about.getByRole('link', { name: 'Så granskar vi priser' }).getAttribute('href'), '/sa-granskar-vi-priser/');
+    assert.equal(await about.getByRole('link', { name: 'Frågor och instruktionsfilmer' }).getAttribute('href'), '/faq/');
+    const schema = await page.locator('script[type="application/ld+json"]').allTextContents();
+    assert.equal(schema.length, 1);
+    assert.equal(JSON.parse(schema[0])['@graph'].filter(node => node['@type'] === 'WebApplication').length, 1);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  } finally { await ctx.close(); }
+});
+
+test('Homepage queues analytics with a CORS-safelisted content type', async () => {
+  const { ctx } = await context();
+  try {
+    await ctx.addInitScript(() => {
+      window.testBeacons = [];
+      navigator.sendBeacon = (url, body) => { window.testBeacons.push({ url, type: body.type }); return true; };
+    });
+    const page = await ctx.newPage();
+    await page.goto(base + '/');
+    await page.waitForFunction(() => window.testBeacons.some(event => event.url.endsWith('/event')));
+    assert.deepEqual(await page.evaluate(() => window.testBeacons.filter(event => event.url.endsWith('/event')).map(event => event.type)), ['text/plain']);
+  } finally { await ctx.close(); }
+});

@@ -672,8 +672,8 @@ function sendEvent(ev){
     if(!API_BASE||lastIsDemo)return;
     const url=API_BASE.replace(/\/$/,'')+'/event';
     const body=JSON.stringify(Object.assign({role:chosenPath,test:SD_TEST},ev));
-    if(navigator.sendBeacon){navigator.sendBeacon(url,new Blob([body],{type:'application/json'}));}
-    else{fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:true}).catch(()=>{});}
+    if(navigator.sendBeacon){navigator.sendBeacon(url,new Blob([body],{type:'text/plain'}));}
+    else{fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},body,keepalive:true}).catch(()=>{});}
   }catch(e){}
 }
 function trackShare(channel){

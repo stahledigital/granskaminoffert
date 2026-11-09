@@ -1,5 +1,9 @@
 # Granska min offert – ändringslogg
 
+## gmo-v25-offertguide – innehåll för sök och mätning (Codex 2026-11-09)
+
+Startsidan förklarar offertgranskningen i läsbar HTML med checklista, påhittat exempel och länkar till metod, FAQ och Konsumentverket. Samlad strukturerad data knyter appen till Ståhle Digital. Klienthändelser skickar samma JSON som text/plain så att webbläsaren inte behöver en CORS-förfrågan före beacons.
+
 ## gmo-v24-faq – instruktionsfilmer och FAQ (Codex 2026-10-26)
 
 Ny `/faq/` med fem korrektmappade instruktionsfilmer och kompletterande svar. Spelare laddas först efter användarval via youtube-nocookie.com; inga YouTube-bilder eller externa skript i första laddningen. Text och direktlänkar fungerar utan JavaScript. Alla tre appingångarna länkar till hjälp i ny flik för att bevara pågående arbete. Stabila frågeankare, canonical, sitemap och faktiska VideoObject-uppgifter. Inga ändringar i granskning, betalning, konto eller backend.

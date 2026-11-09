@@ -100,8 +100,8 @@
     try {
       var url = G.API_BASE.replace(/\/$/, '') + '/event';
       var body = JSON.stringify(Object.assign({ type: 'client', test: M.qa }, ev));
-      if (navigator.sendBeacon) { navigator.sendBeacon(url, new Blob([body], { type: 'application/json' })); }
-      else { fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {}); }
+      if (navigator.sendBeacon) { navigator.sendBeacon(url, new Blob([body], { type: 'text/plain' })); }
+      else { fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: body, keepalive: true }).catch(function () {}); }
     } catch (e) {}
   };
   // Händelser bär demoflagga/entry/roll enligt kontraktet (worker/MATNING.md). Demo tystar aldrig efterföljande egen användning:
