@@ -886,18 +886,25 @@ function restoreDraft(){
 }
 restoreDraft();
 
-// Ärlig status för gratisgrind – öppnar aldrig potten, visar bara live state.
+// Ärlig status för gratisgrind – öppnar aldrig potten, visar bara live /health. När open: "gratis" OK; när stängd: sälj aldrig gratis.
 (function showFreeGate(){
   var banner=$('free-gate-banner'); if(!banner) return;
+  var tag=document.querySelector('#drop .freetag');
+  var detailsGratis=document.querySelector('#cmpoffer details.more p');
   fetch(API_BASE+'/health',{headers:{accept:'application/json'}}).then(function(r){return r.ok?r.json():null;}).then(function(j){
     if(dead||!j||!j.freeGate)return;
-    if(j.freeGate.open){banner.hidden=true;return;}
+    if(j.freeGate.open){
+      banner.hidden=true;
+      if(tag) tag.textContent='Gratis · inget konto';
+      if(detailsGratis&&/gratis/i.test(detailsGratis.textContent)) detailsGratis.textContent='Här granskas en offert i taget, gratis. Jämför mina offerter ställer 2–4 offerter för samma jobb sida vid sida – vad som ingår, pris och villkor.';
+      return;
+    }
     banner.hidden=false;
     banner.textContent=j.freeGate.state==='utgangen'
-      ? 'Gratisgranskningen är just nu stängd (pilotpott slut). Vi öppnar den inte igen utan ett separat, tydligt steg. Jämför 2–4 offerter är huvudvägen.'
+      ? 'Gratisgranskningen är just nu stängd (pilotpott slut). Ny omgång kräver nytt beslut. Jämför 2–4 offerter är huvudvägen.'
       : 'Gratisgranskningen är just nu stängd. Jämför 2–4 offerter är huvudvägen.';
-    var tag=document.querySelector('#drop .freetag');
-    if(tag) tag.textContent='Gratis pausad · inget konto';
+    if(tag) tag.textContent='Just nu stängd · inget konto';
+    if(detailsGratis) detailsGratis.textContent='Här granskas en offert i taget när potten är öppen. Just nu är gratisvägen stängd – jämför 2–4 offerter är huvudvägen.';
   }).catch(function(){});
 })();
 

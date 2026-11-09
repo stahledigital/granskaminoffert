@@ -1,3 +1,9 @@
+## gmo-v27-free-reopen – ny gratis-pilotpott + ärlig open/closed-copy (2026-11-09)
+
+- Ny FreeBudget-pott `gmo-free-20261109` (20 USD µUSD, ~30 dygn, mandat ANDERS-2026-11-09-cursor-project-kor-pa-det). Gammalt id fylls inte på.
+- Frontend läser `/health.freeGate`: när open → "Granska gratis"; när stängd → ingen gratis-försäljning (banner/tag/sidolänk).
+- Stripe/compare-betalvars oförändrade.
+
 ## gmo-v26-trust-viewport – compare-first ljus trust-canvas (2026-11-09)
 
 - Första viewport: compare-first CTA, en komposition, trust-rad före uppladdning, klarhetsdemo (oklar rad → konkret fråga).

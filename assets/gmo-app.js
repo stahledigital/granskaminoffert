@@ -89,17 +89,23 @@
       var freeCard = host.querySelector('[data-task-card="free"]');
       if (open) {
         note.hidden = true;
-        if (freeCard) freeCard.classList.remove('is-paused');
+        if (freeCard) {
+          freeCard.classList.remove('is-paused');
+          var metaOpen = freeCard.querySelector('.side-meta');
+          if (metaOpen) metaOpen.textContent = 'Gratis när potten är öppen – betet, inte produkten';
+          var ctaOpen = freeCard.querySelector('.side-cta');
+          if (ctaOpen) ctaOpen.textContent = 'Granska gratis';
+        }
         return;
       }
       note.hidden = false;
       note.textContent = state === 'utgangen'
-        ? 'Gratisgranskningen är just nu stängd (pilotpott slut). Jämförelsen är huvudvägen – vi öppnar inte gratis igen utan ett nytt, tydligt steg.'
+        ? 'Gratisgranskningen är just nu stängd (pilotpott slut). Jämförelsen är huvudvägen – ny gratisomgång kräver nytt beslut.'
         : 'Gratisgranskningen är just nu stängd. Jämförelsen är huvudvägen.';
       if (freeCard) {
         freeCard.classList.add('is-paused');
         var meta = freeCard.querySelector('.side-meta');
-        if (meta) meta.textContent = 'Just nu stängd · ingen ny gratisomgång utan beslut';
+        if (meta) meta.textContent = 'Just nu stängd · ingen gratisgranskning';
         var cta = freeCard.querySelector('.side-cta');
         if (cta) cta.textContent = 'Se status';
       }
