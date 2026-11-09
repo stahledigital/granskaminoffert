@@ -1,3 +1,11 @@
+## gmo-v26-trust-viewport – compare-first ljus trust-canvas (2026-11-09)
+
+- Första viewport: compare-first CTA, en komposition, trust-rad före uppladdning, klarhetsdemo (oklar rad → konkret fråga).
+- Visuell riktning: ljus bone/off-white canvas, antracitbläck, orange `#F0643B`, hairlines, 12px radie, tunn orange vänsterregel (Refero-struktur på ljus yta — inte midnight).
+- Typografi: Familjen Grotesk (display) + Source Sans 3 (UI), SIL OFL självhostad; Barlow fallback. Inte Geist/Inter.
+- Ärlig gratisgrind: visar `freeGate`/`utgangen` utan att öppna potten.
+- Version bump i app-ingångar; jamför/förkontroll/FAQ följer samma ljusa yta.
+
 # Granska min offert – ändringslogg
 
 ## gmo-v25-offertguide – innehåll för sök och mätning (Codex 2026-11-09)

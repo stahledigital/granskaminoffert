@@ -6,7 +6,7 @@
 .faq-wrap header a{text-decoration:none;min-height:44px;display:inline-flex;align-items:center}
 .faq-intro{padding:26px 0 24px;border-bottom:3px solid var(--acc)}
 .faq-eyebrow{text-transform:uppercase;letter-spacing:.1em;font-size:13px;font-weight:600;color:var(--acc);margin:0 0 10px}
-.faq-intro h1{font-family:'Barlow Condensed',Barlow,sans-serif;font-size:clamp(40px,8vw,68px);line-height:1;margin:0 0 16px;text-wrap:balance}
+.faq-intro h1{font-family:'Familjen Grotesk','Source Sans 3',sans-serif;font-weight:700;font-size:clamp(34px,6.4vw,56px);line-height:1.05;margin:0 0 16px;text-wrap:balance;letter-spacing:-.02em}
 .faq-intro .lead{font-size:19px;color:var(--ink2);max-width:55ch;margin:0;line-height:1.5}
 .faq-topics{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 30px}
 .faq-topics a{display:inline-flex;align-items:center;min-height:44px;border:1px solid var(--line);border-radius:8px;padding:9px 13px;font-size:15px;text-decoration:none;background:var(--paper)}
@@ -15,8 +15,8 @@
 .faq-question[open]{border-color:var(--acc)}
 .faq-question summary{cursor:pointer;min-height:64px;padding:18px 22px;list-style-position:outside;margin-left:18px}
 .faq-question summary::marker{color:var(--acc)}
-.faq-question h2,.faq-question h3{display:inline;font:600 clamp(19px,3vw,24px)/1.3 Barlow,system-ui,sans-serif;margin:0}
-.faq-meta{display:block;font:400 14px/1.5 Barlow,system-ui,sans-serif;color:var(--ink2);margin-top:7px}
+.faq-question h2,.faq-question h3{display:inline;font:600 clamp(19px,3vw,24px)/1.3 'Source Sans 3',Barlow,system-ui,sans-serif;margin:0}
+.faq-meta{display:block;font:400 14px/1.5 'Source Sans 3',Barlow,system-ui,sans-serif;color:var(--ink2);margin-top:7px}
 .faq-answer{padding:0 22px 20px;font-size:17px;line-height:1.6;min-width:0}
 .faq-answer>p:first-child{margin-top:0}
 .faq-answer a,.faq-next a,.faq-footer a{color:var(--ink);text-decoration-thickness:1px;text-underline-offset:4px}
@@ -33,7 +33,7 @@
 .faq-video-links{font-size:16px;margin:12px 0 5px}
 .faq-video-note{color:var(--ink2);font-size:14px;line-height:1.5;margin:5px 0 0}
 .faq-more{margin-top:40px}
-.faq-more>h2,.faq-next h2{font:700 32px/1.1 'Barlow Condensed',Barlow,sans-serif;margin:0 0 18px}
+.faq-more>h2,.faq-next h2{font:650 30px/1.15 'Source Sans 3',Barlow,system-ui,sans-serif;margin:0 0 18px;letter-spacing:-.015em}
 .faq-more summary{min-height:56px;padding-block:16px}
 .faq-more h3{font-size:18px}
 .faq-next{border-left:4px solid var(--acc);padding:20px 22px;background:var(--paper);border-radius:0 10px 10px 0;margin-top:34px}

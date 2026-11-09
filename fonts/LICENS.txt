@@ -1,4 +1,11 @@
-Barlow och Barlow Condensed – Jeremy Tribby (https://github.com/jpt/barlow).
-Licens: SIL Open Font License 1.1 (https://openfontlicense.org). Fri att använda, bädda in och sprida.
-Filerna är Googles latin-delmängd (U+0000–00FF m.fl., täcker åäö), hämtade 2026-09-19 och självhostade
-så att inga besökare skickas till Googles servrar.
+Typsnitt i Granska min offert (självhostade woff2 – ingen besökare skickas till Google/Adobe).
+
+Aktuell trust-viewport-par (2026-11-09):
+- Familjen Grotesk 600/700 – display/rubrik. Familjen Sthlm / Erik Larsson m.fl.
+  SIL Open Font License 1.1. Se FAMILJEN_GROTESK_OFL.txt.
+- Source Sans 3 400/500/600/700 – UI/bröd. Adobe (Reserved Font Name "Source").
+  SIL Open Font License 1.1. Se SOURCE_SANS_3_OFL.txt.
+
+Fallback (behålls):
+- Barlow och Barlow Condensed – Jeremy Tribby. SIL OFL 1.1.
+  Googles latin-delmängd, hämtade 2026-09-19.
