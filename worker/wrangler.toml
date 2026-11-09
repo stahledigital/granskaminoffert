@@ -73,11 +73,12 @@ EXPLAIN_ALLOWED_ORIGIN = "https://stahledigital.se"
 # och migrationen skapar klassen i samband med den. Publicering kräver separat release-GO.
 
 # GMO Premium: USER live-GO 2026-10-11. Köpen förblir stängda tills riktiga secrets, mailproof och slutlig P-snapshot finns.
-FREE_PILOT_ID = "gmo-free-20261011"
+# Ny pott 2026-11-09 (Anders via Cursor-projekt): gammalt id gmo-free-20261011 är utgånget och får inte fyllas på.
+FREE_PILOT_ID = "gmo-free-20261109"
 FREE_PILOT_CAP_MICRO = "20000000"
-FREE_PILOT_FROM = "2026-10-11T00:10:38+02:00"
-FREE_PILOT_UNTIL = "2026-11-01T00:00:00+01:00"
-FREE_PILOT_MANDATE = "ANDERS-2026-10-10T23:36:49+02:00 kor-pa-det"
+FREE_PILOT_FROM = "2026-11-09T21:00:00+01:00"
+FREE_PILOT_UNTIL = "2026-12-09T21:00:00+01:00"
+FREE_PILOT_MANDATE = "ANDERS-2026-11-09-cursor-project-kor-pa-det"
 COMPARE_ENABLED = "1"
 COMPARE_PAYMENTS = "live"
 COMPARE_CONSENT_POLICY = "P"

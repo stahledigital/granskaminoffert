@@ -26,6 +26,8 @@ var TEMPLATE=`<div class="pathsel" id="pathsel" role="group" aria-label="Välj d
   </details>
 </aside>
 
+<p class="privinfo" id="privinfo">Offerten används bara för granskningen och raderas därefter. Inget konto. AI (Anthropic Claude) läser filen; svaret sparas högst 24 timmar för felsökning. Dölj personnummer, namn och adress – de behövs inte. <a href="#om" id="privlink">Mer om dina uppgifter</a>.</p>
+<p class="gate-note" id="free-gate-banner" hidden role="status"></p>
 <div class="drop" id="drop"><span class="freetag">Gratis · inget konto</span><b>Ladda upp din offert</b><span>PDF, foto eller text</span>
   <div class="alt" style="justify-content:center;margin-top:16px">
     <button type="button" class="btn acc" id="pickfile">Välj fil</button>
@@ -36,7 +38,6 @@ var TEMPLATE=`<div class="pathsel" id="pathsel" role="group" aria-label="Välj d
   <input type="file" id="cam" accept="image/*" capture="environment" tabindex="-1" aria-label="Foto av offert">
 </div>
 <div class="filepreview" id="filepreview" role="status"></div>
-<p class="privinfo" id="privinfo">AI (Anthropic Claude) läser offerten; svaret sparas hos oss högst 24 timmar för felsökning. Dölj gärna personnummer, namn och adress – de behövs inte. <a href="#om" id="privlink">Mer om dina uppgifter</a>.</p>
 <textarea id="txt" placeholder="Klistra in offerttexten här…"></textarea>
 <div id="runwrap" style="display:none">
   <label class="optin"><input type="checkbox" id="statsopt"> <span>Bidra anonymt till prisstatistik. Sparar bara jobbtyp, län, prisband och vilka kontroller som föll ut – aldrig text, namn, företag eller belopp. <a href="/sa-granskar-vi-priser/">Läs vad som sparas</a>.</span></label>
@@ -884,6 +885,28 @@ function restoreDraft(){
   if(wsF.result){render(wsF.result,false,{restore:true});}
 }
 restoreDraft();
+
+// Ärlig status för gratisgrind – öppnar aldrig potten, visar bara live /health. När open: "gratis" OK; när stängd: sälj aldrig gratis.
+(function showFreeGate(){
+  var banner=$('free-gate-banner'); if(!banner) return;
+  var tag=document.querySelector('#drop .freetag');
+  var detailsGratis=document.querySelector('#cmpoffer details.more p');
+  fetch(API_BASE+'/health',{headers:{accept:'application/json'}}).then(function(r){return r.ok?r.json():null;}).then(function(j){
+    if(dead||!j||!j.freeGate)return;
+    if(j.freeGate.open){
+      banner.hidden=true;
+      if(tag) tag.textContent='Gratis · inget konto';
+      if(detailsGratis&&/gratis/i.test(detailsGratis.textContent)) detailsGratis.textContent='Här granskas en offert i taget, gratis. Jämför mina offerter ställer 2–4 offerter för samma jobb sida vid sida – vad som ingår, pris och villkor.';
+      return;
+    }
+    banner.hidden=false;
+    banner.textContent=j.freeGate.state==='utgangen'
+      ? 'Gratisgranskningen är just nu stängd (pilotpott slut). Ny omgång kräver nytt beslut. Jämför 2–4 offerter är huvudvägen.'
+      : 'Gratisgranskningen är just nu stängd. Jämför 2–4 offerter är huvudvägen.';
+    if(tag) tag.textContent='Just nu stängd · inget konto';
+    if(detailsGratis) detailsGratis.textContent='Här granskas en offert i taget när potten är öppen. Just nu är gratisvägen stängd – jämför 2–4 offerter är huvudvägen.';
+  }).catch(function(){});
+})();
 
     return {unmount:function(){
       if(!skipSave)saveDraft();dead=true;

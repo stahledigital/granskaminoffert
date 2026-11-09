@@ -60,10 +60,16 @@ test("standard stängt: utan pilotkonfiguration/bindning inget count_tokens-anro
     try { const r = await rev(e); assert.equal(r.status, 503); assert.equal(m.calls.count, 0); assert.equal(m.calls.messages, 0); assert.equal(e.REVIEWS_KV.m.size, 0, "inga räknare rörda"); } finally { m.restore(); }
   }
   const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
-  // D12:s första leverans var stängd; befintligt mänskligt pilot-GO från2026-10-10 är nu käll-/livebas.
-  // Behåll fail-closed-proven ovan och verifiera att levererad aktivering har ett ändligt, fullständigt mandat.
+  // D12: fail-closed utan giltig pilot. Levande potten byts bara med nytt id + mandat (FREE_GATE.md); aldrig påfyllning av gammalt id.
   const vars=Object.fromEntries([...toml.matchAll(/^(FREE_PILOT_[A-Z_]+)\s*=\s*"([^"\n]*)"/gm)].map(m=>[m[1],m[2]]));
-  if(vars.FREE_PILOT_ENABLED === "1") { const p=pilotConfig(vars); assert.equal(p.ok,true,"enabled pilot requires all configuration"); assert.ok(p.cfg.capMicro<=20000000,"no increase over the authorized existing pilot cap"); assert.ok(p.cfg.untilMs<=Date.parse("2026-11-01T00:00:00+01:00"),"no unauthorized extension"); assert.match(p.cfg.mandate,/^ANDERS-2026-10-10T23:36:49/); }
+  if(vars.FREE_PILOT_ENABLED === "1") {
+    const p=pilotConfig(vars);
+    assert.equal(p.ok,true,"enabled pilot requires all configuration");
+    assert.ok(p.cfg.capMicro<=20000000,"cap stays within authorized 20 USD micro-pot");
+    assert.equal(vars.FREE_PILOT_ID,"gmo-free-20261109","new pot id after 2026-11-09 reopen");
+    assert.ok(p.cfg.untilMs<=Date.parse("2026-12-09T21:00:00+01:00"),"no unauthorized extension past Anders +30d exclusive");
+    assert.match(p.cfg.mandate,/^ANDERS-2026-11-09-cursor-project-kor-pa-det$/);
+  }
   else assert.equal(vars.FREE_PILOT_ENABLED,"0");
   assert.match(toml, /name = "FREE_BUDGET"\nclass_name = "FreeBudget"/); assert.match(toml, /tag = "v3"\nnew_sqlite_classes = \["FreeBudget"\]/);
 });
